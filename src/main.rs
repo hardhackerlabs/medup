@@ -1,3 +1,5 @@
+use std::fmt;
+use std::fmt::Debug;
 use std::fs::File;
 use std::io::{self, BufRead};
 
@@ -122,7 +124,6 @@ fn parse_line_tokens(ln: i32, line: &String) -> Vec<Token> {
     tokens
 }
 
-#[derive(Debug)]
 struct Ast {
     lines: Vec<Vec<Token>>,
 }
@@ -134,5 +135,19 @@ impl Ast {
 
     fn push(&mut self, line: Vec<Token>) {
         self.lines.push(line);
+    }
+}
+
+impl Debug for Ast {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut debug = String::new();
+        for line in &self.lines {
+            for t in line {
+                let s = format!("<{}, {}, {:?}> ", t.line_num, t.value, t.kind);
+                debug.push_str(&s);
+            }
+            debug.push('\n');
+        }
+        writeln!(f, "{}", debug)
     }
 }

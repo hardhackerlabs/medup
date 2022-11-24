@@ -4,13 +4,13 @@ use std::fs::File;
 use std::io::{self, BufRead};
 
 fn main() {
+    // Create Ast object.
+    let mut ast = Ast::new();
+
     // Get parameter from command line
     let path = std::env::args()
         .nth(1)
         .expect("not specified path of the markdown file");
-
-    // Create Ast object.
-    let mut ast = Ast::new();
 
     // Open and read the markdown file
     let file = File::open(path).unwrap();
@@ -19,16 +19,14 @@ fn main() {
     let mut counter = 0;
     for line in reader.lines() {
         counter += 1;
-        let s = line.unwrap();
-        let tokens = parse_line_tokens(counter, &s);
-
+        let tokens = parse_line_tokens(counter, line.unwrap());
         ast.push(tokens);
     }
 
     println!("{:?}", ast);
 }
 
-#[derive(PartialEq, Copy, Clone, Debug)]
+#[derive(PartialEq, Debug)]
 enum TokenKind {
     Unknow,
     Mark,
@@ -46,63 +44,63 @@ struct Token {
 #[derive(PartialEq)]
 enum State {
     Begin,
-    GuessMark,
-    MarkDone,
+    CheckMark,
+    FinishMark,
     ToText,
 }
 
 // parses one line text into multi tokens.
-fn parse_line_tokens(ln: i32, line: &String) -> Vec<Token> {
+fn parse_line_tokens(ln: i32, line: String) -> Vec<Token> {
     let mut tokens: Vec<Token> = Vec::new();
 
-    let mut state = State::Begin;
-    let mut token_start: usize = 0;
+    let mut state: State = State::Begin;
+    let mut start: usize = 0;
 
-    for (i, ch) in line.chars().enumerate() {
+    for (current, ch) in line.chars().enumerate() {
         match state {
             // skip all whitespace characters at the beginning of the line.
             State::Begin => {
                 if ch.is_whitespace() {
                     continue;
                 }
-                token_start = i;
-                state = State::GuessMark;
+                start = current;
+                state = State::CheckMark;
             }
             // parse the first word in the line as the mark token.
-            State::GuessMark => {
+            State::CheckMark => {
                 if !ch.is_whitespace() {
                     continue;
                 }
-                let first = &line[token_start..i];
+                let first = &line[start..current];
                 let (kind, value) = match first {
                     "#" | "##" | "###" | "####" | "#####" => (TokenKind::Mark, first.to_string()),
                     _ => (TokenKind::Unknow, first.to_string()),
                 };
 
+                if kind == TokenKind::Unknow {
+                    state = State::ToText;
+                } else if kind == TokenKind::Mark {
+                    state = State::FinishMark;
+                }
+                start = current;
+
                 tokens.push(Token {
-                    value: value,
-                    kind: kind,
+                    value,
+                    kind,
                     line_num: ln,
                 });
-
-                if kind == TokenKind::Mark {
-                    state = State::MarkDone;
-                } else {
-                    state = State::ToText;
-                }
-                token_start = i;
             }
             // skip all whitespace characters after the mark token.
-            State::MarkDone => {
+            State::FinishMark => {
                 if ch.is_whitespace() {
                     continue;
                 }
-                token_start = i;
+                start = current;
                 state = State::ToText;
             }
             // save the remaining characters into a token as text.
             State::ToText => {
-                let remain = &line[token_start..line.len()];
+                let remain = &line[start..];
                 tokens.push(Token {
                     value: remain.to_string(),
                     kind: TokenKind::Text,
@@ -115,7 +113,7 @@ fn parse_line_tokens(ln: i32, line: &String) -> Vec<Token> {
 
     if state == State::Begin {
         tokens.push(Token {
-            value: line.to_string(),
+            value: line,
             kind: TokenKind::NewLine,
             line_num: ln,
         });

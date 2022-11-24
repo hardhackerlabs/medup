@@ -1,5 +1,4 @@
-use std::fmt;
-use std::fmt::Debug;
+use std::fmt::{self, Debug};
 use std::fs::File;
 use std::io::{self, BufRead};
 
@@ -17,10 +16,10 @@ fn main() {
     let reader = io::BufReader::new(file);
 
     let mut counter = 0;
-    for line in reader.lines() {
+    for text in reader.lines() {
         counter += 1;
-        let tokens = parse_line_tokens(counter, line.unwrap());
-        ast.push(tokens);
+        let line = Line::parse(counter, text.unwrap());
+        ast.push(line);
     }
 
     println!("{:?}", ast);
@@ -30,11 +29,10 @@ fn main() {
 enum TokenKind {
     Unknow,
     Mark,
-    Text,
+    Content,
     NewLine,
 }
 
-#[derive(Debug)]
 struct Token {
     value: String,
     kind: TokenKind,
@@ -49,81 +47,89 @@ enum State {
     ToText,
 }
 
-// parses one line text into multi tokens.
-fn parse_line_tokens(ln: i32, line: String) -> Vec<Token> {
-    let mut tokens: Vec<Token> = Vec::new();
+struct Line {
+    tokens: Vec<Token>,
+}
 
-    let mut state: State = State::Begin;
-    let mut start: usize = 0;
+impl Line {
+    // parses one line text into Line that contains multi tokens.
+    fn parse(ln: i32, text: String) -> Line {
+        let mut tokens: Vec<Token> = Vec::new();
 
-    for (current, ch) in line.chars().enumerate() {
-        match state {
-            // skip all whitespace characters at the beginning of the line.
-            State::Begin => {
-                if ch.is_whitespace() {
-                    continue;
+        let mut state: State = State::Begin;
+        let mut start: usize = 0;
+
+        for (current, ch) in text.chars().enumerate() {
+            match state {
+                // skip all whitespace characters at the beginning of the line.
+                State::Begin => {
+                    if ch.is_whitespace() {
+                        continue;
+                    }
+                    start = current;
+                    state = State::CheckMark;
                 }
-                start = current;
-                state = State::CheckMark;
-            }
-            // parse the first word in the line as the mark token.
-            State::CheckMark => {
-                if !ch.is_whitespace() {
-                    continue;
-                }
-                let first = &line[start..current];
-                let (kind, value) = match first {
-                    "#" | "##" | "###" | "####" | "#####" => (TokenKind::Mark, first.to_string()),
-                    _ => (TokenKind::Unknow, first.to_string()),
-                };
+                // parse the first word in the line as the mark token.
+                State::CheckMark => {
+                    if !ch.is_whitespace() {
+                        continue;
+                    }
+                    let first = &text[start..current];
+                    let (kind, value) = match first {
+                        "#" | "##" | "###" | "####" | "#####" => {
+                            (TokenKind::Mark, first.to_string())
+                        }
+                        _ => (TokenKind::Unknow, first.to_string()),
+                    };
 
-                if kind == TokenKind::Unknow {
+                    if kind == TokenKind::Unknow {
+                        state = State::ToText;
+                    } else if kind == TokenKind::Mark {
+                        state = State::FinishMark;
+                    }
+                    start = current;
+
+                    tokens.push(Token {
+                        value,
+                        kind,
+                        line_num: ln,
+                    });
+                }
+                // skip all whitespace characters after the mark token.
+                State::FinishMark => {
+                    if ch.is_whitespace() {
+                        continue;
+                    }
+                    start = current;
                     state = State::ToText;
-                } else if kind == TokenKind::Mark {
-                    state = State::FinishMark;
                 }
-                start = current;
-
-                tokens.push(Token {
-                    value,
-                    kind,
-                    line_num: ln,
-                });
-            }
-            // skip all whitespace characters after the mark token.
-            State::FinishMark => {
-                if ch.is_whitespace() {
-                    continue;
+                // save the remaining characters into a token as text.
+                State::ToText => {
+                    let remain = &text[start..];
+                    tokens.push(Token {
+                        value: remain.to_string(),
+                        kind: TokenKind::Content,
+                        line_num: ln,
+                    });
+                    break;
                 }
-                start = current;
-                state = State::ToText;
-            }
-            // save the remaining characters into a token as text.
-            State::ToText => {
-                let remain = &line[start..];
-                tokens.push(Token {
-                    value: remain.to_string(),
-                    kind: TokenKind::Text,
-                    line_num: ln,
-                });
-                break;
-            }
-        };
-    }
+            };
+        }
 
-    if state == State::Begin {
-        tokens.push(Token {
-            value: line,
-            kind: TokenKind::NewLine,
-            line_num: ln,
-        });
-    }
+        if state == State::Begin {
+            tokens.push(Token {
+                value: text,
+                kind: TokenKind::NewLine,
+                line_num: ln,
+            });
+        }
 
-    tokens
+        Line { tokens }
+    }
 }
 
 struct Ast {
-    lines: Vec<Vec<Token>>,
+    lines: Vec<Line>,
 }
 
 impl Ast {
@@ -131,7 +137,7 @@ impl Ast {
         Ast { lines: Vec::new() }
     }
 
-    fn push(&mut self, line: Vec<Token>) {
+    fn push(&mut self, line: Line) {
         self.lines.push(line);
     }
 }
@@ -140,7 +146,7 @@ impl Debug for Ast {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut debug = String::new();
         for line in &self.lines {
-            for t in line {
+            for t in &line.tokens {
                 let s = format!("<{}, {}, {:?}> ", t.line_num, t.value, t.kind);
                 debug.push_str(&s);
             }

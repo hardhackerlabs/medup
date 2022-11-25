@@ -3,15 +3,15 @@ use std::fs::File;
 use std::io::{self, BufRead};
 
 fn main() {
-    // Create Ast object.
+    // Create Ast object
     let mut ast = Ast::new();
 
-    // Get parameter from command line
+    // Get path for the markdown file from command line arguments
     let path = std::env::args()
         .nth(1)
         .expect("not specified path of the markdown file");
 
-    // Open and read the markdown file
+    // Open and read the markdown file by line
     let file = File::open(path).unwrap();
     let reader = io::BufReader::new(file);
 
@@ -22,7 +22,15 @@ fn main() {
         ast.push(line);
     }
 
+    // Output the ast object to help us to check it's correctness
     println!("{:?}", ast);
+}
+
+// Token is a part of the line, the parser will parse the line into some tokens.
+struct Token {
+    value: String,
+    kind: TokenKind,
+    line_num: i32,
 }
 
 #[derive(PartialEq, Debug)]
@@ -30,31 +38,36 @@ enum TokenKind {
     Unknow,
     Mark,
     Content,
-    NewLine,
+    BlankLine,
 }
 
-struct Token {
-    value: String,
-    kind: TokenKind,
-    line_num: i32,
+// Line is a line of the markdown file, it be parsed into some tokens.
+struct Line {
+    tokens: Vec<Token>,
+    kind: LineKind,
 }
 
+enum LineKind {
+    Unknow,
+    Blank,
+    Title,
+    Content,
+}
+
+// State is the state of the parser, it represents the current state of the parser.
 #[derive(PartialEq)]
 enum State {
     Begin,
     CheckMark,
     FinishMark,
-    ToText,
-}
-
-struct Line {
-    tokens: Vec<Token>,
+    ToContent,
 }
 
 impl Line {
     // parses one line text into Line that contains multi tokens.
     fn parse(ln: i32, text: String) -> Line {
         let mut tokens: Vec<Token> = Vec::new();
+        let mut line_kind: LineKind = LineKind::Unknow;
 
         let mut state: State = State::Begin;
         let mut start: usize = 0;
@@ -77,16 +90,16 @@ impl Line {
                     let first = &text[start..current];
                     let (kind, value) = match first {
                         "#" | "##" | "###" | "####" | "#####" => {
+                            state = State::FinishMark;
+                            line_kind = LineKind::Title;
                             (TokenKind::Mark, first.to_string())
                         }
-                        _ => (TokenKind::Unknow, first.to_string()),
+                        _ => {
+                            state = State::ToContent;
+                            line_kind = LineKind::Content;
+                            (TokenKind::Unknow, first.to_string())
+                        }
                     };
-
-                    if kind == TokenKind::Unknow {
-                        state = State::ToText;
-                    } else if kind == TokenKind::Mark {
-                        state = State::FinishMark;
-                    }
                     start = current;
 
                     tokens.push(Token {
@@ -101,11 +114,13 @@ impl Line {
                         continue;
                     }
                     start = current;
-                    state = State::ToText;
+                    state = State::ToContent;
                 }
-                // save the remaining characters into a token as text.
-                State::ToText => {
+                // save the remaining characters into a token as content.
+                State::ToContent => {
                     let remain = &text[start..];
+                    // TODO: parse content, because maybe there are some mark symbol in content.
+
                     tokens.push(Token {
                         value: remain.to_string(),
                         kind: TokenKind::Content,
@@ -116,18 +131,24 @@ impl Line {
             };
         }
 
+        // parse blank line, blank line contains whitespace characters only.
         if state == State::Begin {
             tokens.push(Token {
                 value: text,
-                kind: TokenKind::NewLine,
+                kind: TokenKind::BlankLine,
                 line_num: ln,
             });
+            line_kind = LineKind::Blank;
         }
 
-        Line { tokens }
+        Line {
+            tokens,
+            kind: line_kind,
+        }
     }
 }
 
+// Ast represents the abstract syntax tree of the markdown file, it structurally represents the entire file.
 struct Ast {
     lines: Vec<Line>,
 }

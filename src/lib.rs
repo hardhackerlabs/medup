@@ -1,19 +1,33 @@
 use std::fmt;
 use std::fmt::Debug;
 
-// Token is a part of the line, the parser will parse the line into some tokens.
-struct Token {
-    value: String,
-    kind: TokenKind,
-    line_num: i32,
+// Ast represents the abstract syntax tree of the markdown file, it structurally represents the entire file.
+pub struct Ast {
+    lines: Vec<Line>,
 }
 
-#[derive(PartialEq, Debug)]
-enum TokenKind {
-    Unknow,
-    Mark,
-    Content,
-    BlankLine,
+impl Ast {
+    pub fn new() -> Ast {
+        Ast { lines: Vec::new() }
+    }
+
+    pub fn push(&mut self, line: Line) {
+        self.lines.push(line);
+    }
+}
+
+impl Debug for Ast {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut debug = String::new();
+        for line in &self.lines {
+            for t in &line.tokens {
+                let s = format!("<{}, {}, {:?}> ", t.line_num, t.value, t.kind);
+                debug.push_str(&s);
+            }
+            debug.push('\n');
+        }
+        writeln!(f, "{}", debug)
+    }
 }
 
 // Line is a line of the markdown file, it be parsed into some tokens.
@@ -27,6 +41,21 @@ enum LineKind {
     Blank,
     Title,
     Content,
+}
+
+// Token is a part of the line, the parser will parse the line into some tokens.
+struct Token {
+    value: String,
+    kind: TokenKind,
+    line_num: i32,
+}
+
+#[derive(PartialEq, Debug)]
+enum TokenKind {
+    Unknow,
+    Mark,
+    Content,
+    BlankLine,
 }
 
 // State is the state of the parser, it represents the current state of the parser.
@@ -120,34 +149,5 @@ impl Line {
             tokens,
             kind: line_kind,
         }
-    }
-}
-
-// Ast represents the abstract syntax tree of the markdown file, it structurally represents the entire file.
-pub struct Ast {
-    lines: Vec<Line>,
-}
-
-impl Ast {
-    pub fn new() -> Ast {
-        Ast { lines: Vec::new() }
-    }
-
-    pub fn push(&mut self, line: Line) {
-        self.lines.push(line);
-    }
-}
-
-impl Debug for Ast {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut debug = String::new();
-        for line in &self.lines {
-            for t in &line.tokens {
-                let s = format!("<{}, {}, {:?}> ", t.line_num, t.value, t.kind);
-                debug.push_str(&s);
-            }
-            debug.push('\n');
-        }
-        writeln!(f, "{}", debug)
     }
 }

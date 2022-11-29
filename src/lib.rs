@@ -37,7 +37,7 @@ pub struct Line {
 }
 
 enum LineKind {
-    Unknow,
+    Unknown,
     Blank,
     Title,
     Content,
@@ -153,7 +153,7 @@ impl Line {
 
         let mut l = Line {
             tokens,
-            kind: LineKind::Unknow,
+            kind: LineKind::Unknown,
         };
         l.parse_inside();
         l
@@ -164,7 +164,7 @@ impl Line {
 
         match tokens.first() {
             None => {
-                self.kind = LineKind::Unknow;
+                self.kind = LineKind::Unknown;
             }
             Some(t) => {
                 if t.kind == TokenKind::BlankLine {

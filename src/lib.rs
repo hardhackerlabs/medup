@@ -52,8 +52,8 @@ struct Token {
 
 #[derive(PartialEq, Debug)]
 enum TokenKind {
-    Unknow,
     Mark,
+    Title,
     Content,
     BlankLine,
 }
@@ -63,15 +63,14 @@ enum TokenKind {
 enum State {
     Begin,
     CheckMark,
-    FinishMark,
-    ToContent,
+    ToTitle,
+    ToRestContent,
 }
 
 impl Line {
     // parses one line text into Line that contains multi tokens.
     pub fn parse(ln: i32, text: String) -> Line {
         let mut tokens: Vec<Token> = Vec::new();
-        let mut line_kind: LineKind = LineKind::Unknow;
 
         let mut state: State = State::Begin;
         let mut start: usize = 0;
@@ -81,6 +80,15 @@ impl Line {
                 // skip all whitespace characters at the beginning of the line.
                 State::Begin => {
                     if ch.is_whitespace() {
+                        // parse blank line, blank line contains whitespace characters only.
+                        if ch == '\n' {
+                            tokens.push(Token {
+                                value: text,
+                                kind: TokenKind::BlankLine,
+                                line_num: ln,
+                            });
+                            break;
+                        }
                         continue;
                     }
                     start = current;
@@ -91,42 +99,50 @@ impl Line {
                     if !ch.is_whitespace() {
                         continue;
                     }
+
                     let first = &text[start..current];
-                    let (kind, value) = match first {
-                        "#" | "##" | "###" | "####" | "#####" => {
-                            state = State::FinishMark;
-                            line_kind = LineKind::Title;
-                            (TokenKind::Mark, first.to_string())
-                        }
-                        _ => {
-                            state = State::ToContent;
-                            line_kind = LineKind::Content;
-                            (TokenKind::Unknow, first.to_string())
-                        }
-                    };
                     start = current;
 
-                    tokens.push(Token {
-                        value,
-                        kind,
-                        line_num: ln,
-                    });
+                    match first {
+                        // title
+                        "#" | "##" | "###" | "####" | "#####" => {
+                            tokens.push(Token {
+                                value: first.to_string(),
+                                kind: TokenKind::Mark,
+                                line_num: ln,
+                            });
+                            state = State::ToTitle;
+                        }
+                        // content
+                        _ => {
+                            tokens.push(Token {
+                                value: first.to_string(),
+                                kind: TokenKind::Content,
+                                line_num: ln,
+                            });
+                            state = State::ToRestContent;
+                        }
+                    }
                 }
-                // skip all whitespace characters after the mark token.
-                State::FinishMark => {
+                // parse the rest of the line as the title token.
+                State::ToTitle => {
+                    // skip all whitespace characters after the mark token.
                     if ch.is_whitespace() {
                         continue;
                     }
-                    start = current;
-                    state = State::ToContent;
-                }
-                // save the remaining characters into a token as content.
-                State::ToContent => {
-                    let remain = &text[start..];
-                    // TODO: parse content, because maybe there are some mark symbol in content.
-
+                    let rest = &text[current..];
                     tokens.push(Token {
-                        value: remain.to_string(),
+                        value: rest.trim_end_matches('\n').to_string(),
+                        kind: TokenKind::Title,
+                        line_num: ln,
+                    });
+                    break;
+                }
+                // parse the rest of the line as the content token.
+                State::ToRestContent => {
+                    let rest = &text[start..];
+                    tokens.push(Token {
+                        value: rest.trim_end_matches('\n').to_string(),
                         kind: TokenKind::Content,
                         line_num: ln,
                     });
@@ -135,19 +151,37 @@ impl Line {
             };
         }
 
-        // parse blank line, blank line contains whitespace characters only.
-        if state == State::Begin {
-            tokens.push(Token {
-                value: text,
-                kind: TokenKind::BlankLine,
-                line_num: ln,
-            });
-            line_kind = LineKind::Blank;
+        let mut l = Line {
+            tokens,
+            kind: LineKind::Unknow,
+        };
+        l.parse_inside();
+        l
+    }
+
+    fn parse_inside(&mut self) {
+        let tokens = &self.tokens;
+
+        match tokens.first() {
+            None => {
+                self.kind = LineKind::Unknow;
+            }
+            Some(t) => {
+                if t.kind == TokenKind::BlankLine {
+                    self.kind = LineKind::Blank;
+                } else if t.kind == TokenKind::Mark {
+                    self.kind = LineKind::Title;
+                } else if t.kind == TokenKind::Content {
+                    self.kind = LineKind::Content;
+                }
+            }
         }
 
-        Line {
-            tokens,
-            kind: line_kind,
+        for t in tokens {
+            match t.kind {
+                TokenKind::Content => (),
+                _ => (),
+            }
         }
     }
 }

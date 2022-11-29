@@ -19,7 +19,9 @@ fn main() {
     let mut counter = 0;
     for text in reader.lines() {
         counter += 1;
-        let line = Line::parse(counter, text.unwrap());
+        let mut s = text.unwrap();
+        s.push('\n');
+        let line = Line::parse(counter, s);
         ast.push(line);
     }
 

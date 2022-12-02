@@ -1,5 +1,5 @@
-use std::fmt;
 use std::fmt::Debug;
+use std::{fmt, vec};
 
 // Ast represents the abstract syntax tree of the markdown file, it structurally represents the entire file.
 pub struct Ast {
@@ -63,181 +63,19 @@ enum TokenKind {
     Plain,
 }
 
-// State is the state of the parser, it represents the current state of the parser.
-#[derive(PartialEq)]
-enum State {
-    Begin,
-    CheckMark,
-    Title,
-    DisorderedList,
-    Quote,
-    CheckDividing,
-    Plain,
-    Finished,
-}
-
 impl Line {
     // parses one line text into Line that contains multi tokens.
-    pub fn parse(ln: i32, text: String) -> Line {
+    pub fn parse(ln: i32, line: String) -> Line {
         let mut tokens: Vec<Token> = Vec::new();
+        let mut sm = StateMachine::new(&line);
 
-        let mut state: State = State::Begin;
-        let mut pointer: usize = 0;
-
-        'next_char: for (current, ch) in text.chars().enumerate() {
-            let mut state_times = 1;
-            while state_times > 0 {
-                state_times -= 1;
-
-                match state {
-                    // skip all whitespace characters at the beginning of the line.
-                    State::Begin => {
-                        if ch.is_whitespace() {
-                            // parse blank line, blank line contains whitespace characters only.
-                            if ch == '\n' {
-                                tokens.push(Token {
-                                    value: text.trim_end_matches('\n').to_string(),
-                                    kind: TokenKind::BlankLine,
-                                    line_num: ln,
-                                });
-                                state = State::Finished;
-                            }
-                        } else {
-                            pointer = current;
-                            state = State::CheckMark;
-                        }
-                    }
-
-                    // parse the first word in the line as the mark token.
-                    State::CheckMark => {
-                        if !ch.is_whitespace() {
-                            continue 'next_char;
-                        }
-
-                        let first_word = &text[pointer..current];
-
-                        state = match first_word {
-                            // title
-                            "#" | "##" | "###" | "####" | "#####" => {
-                                tokens.push(Token {
-                                    value: first_word.to_string(),
-                                    kind: TokenKind::TitleMark,
-                                    line_num: ln,
-                                });
-                                pointer = current;
-                                State::Title
-                            }
-
-                            // disordered list
-                            "*" | "-" | "+" => {
-                                tokens.push(Token {
-                                    value: first_word.to_string(),
-                                    kind: TokenKind::DisorderMark,
-                                    line_num: ln,
-                                });
-                                pointer = current;
-                                State::DisorderedList
-                            }
-
-                            // dividing line
-                            // TODO: support more dividing line marks.
-                            "***" | "---" | "___" => {
-                                tokens.push(Token {
-                                    value: first_word.to_string(),
-                                    kind: TokenKind::DividingMark,
-                                    line_num: ln,
-                                });
-                                pointer = current;
-                                State::CheckDividing
-                            }
-
-                            // quote
-                            ">" => {
-                                tokens.push(Token {
-                                    value: first_word.to_string(),
-                                    kind: TokenKind::QuoteMark,
-                                    line_num: ln,
-                                });
-                                pointer = current;
-                                State::Quote
-                            }
-
-                            // plain (as no mark)
-                            _ => {
-                                // don't change the pointer, because the first word is not a mark.
-                                // pointer = pointer;
-                                State::Plain
-                            }
-                        }; // end of match first_word
-
-                        if state == State::Plain {
-                            state_times += 1;
-                        }
-                    } // end of CheckMark
-
-                    // parse the rest of the line as the title token.
-                    State::Title => {
-                        // skip all whitespace characters after the mark token.
-                        if ch.is_whitespace() {
-                            continue 'next_char;
-                        }
-                        let rest = &text[current..];
-                        tokens.push(Token {
-                            value: rest.trim_end_matches('\n').to_string(),
-                            kind: TokenKind::Title,
-                            line_num: ln,
-                        });
-                        state = State::Finished;
-                    }
-
-                    // parse the rest of the line as the disordered list token.
-                    State::DisorderedList => {
-                        // skip all whitespace characters after the mark token.
-                        if ch.is_whitespace() {
-                            continue 'next_char;
-                        }
-                        let rest = &text[current..];
-                        tokens.push(Token {
-                            value: rest.trim_end_matches('\n').to_string(),
-                            kind: TokenKind::DisorderListItem,
-                            line_num: ln,
-                        });
-                        state = State::Finished;
-                    }
-
-                    // check if the line is a valid dividing line.
-                    // TODO:
-                    State::CheckDividing => {}
-
-                    // parse the rest of the line as the quote token.
-                    State::Quote => {
-                        let rest = &text[current..];
-                        tokens.push(Token {
-                            value: rest.trim_end_matches('\n').to_string(),
-                            kind: TokenKind::Quote,
-                            line_num: ln,
-                        });
-                        state = State::Finished;
-                    }
-
-                    // parse the line as the plain token.
-                    State::Plain => {
-                        let content = &text[pointer..];
-                        tokens.push(Token {
-                            value: content.trim_end_matches('\n').to_string(),
-                            kind: TokenKind::Plain,
-                            line_num: ln,
-                        });
-                        state = State::Finished;
-                    }
-
-                    // finished
-                    State::Finished => {
-                        break 'next_char;
-                    }
-                } // end of match state
-            } // end of loop
-        } // end of for (next_char)
+        for (current, ch) in line.chars().enumerate() {
+            let (mut ts, finished) = sm.exec(ln, current, ch);
+            tokens.append(&mut ts);
+            if finished {
+                break;
+            }
+        }
 
         let mut l = Line {
             tokens,
@@ -264,5 +102,211 @@ impl Line {
                 }
             }
         }
+    }
+}
+
+// StateMaching represents the current state of the parser.
+struct StateMachine<'a> {
+    state: State,
+    pointer: usize,
+    times: i32,
+    text: &'a String,
+}
+
+#[derive(PartialEq)]
+enum State {
+    Begin,
+    CheckMark,
+    Title,
+    DisorderedList,
+    Quote,
+    CheckDividing,
+    Plain,
+    Finished,
+}
+
+impl<'a> StateMachine<'a> {
+    fn new(text: &'a String) -> Self {
+        StateMachine {
+            state: State::Begin,
+            pointer: 0,
+            times: 0,
+            text,
+        }
+    }
+
+    fn exec(&mut self, ln: i32, current: usize, ch: char) -> (Vec<Token>, bool) {
+        let mut vecs: Vec<Token> = Vec::new();
+
+        self.times = 1;
+        while self.times > 0 {
+            self.times -= 1;
+
+            let t = match self.state {
+                State::Begin => self.skip_begin_whitespaces(ln, current, ch),
+                State::CheckMark => self.check_mark(ln, current),
+                State::Title => self.parse_title(ln, current, ch),
+                State::DisorderedList => self.parse_disordered_list(ln, current, ch),
+                State::CheckDividing => None,
+                State::Quote => self.parse_quote(ln, current, ch),
+                State::Plain => self.parse_plain(ln, current, ch),
+                State::Finished => None,
+            };
+
+            match t {
+                Some(token) => vecs.push(token),
+                None => {}
+            }
+        }
+
+        return (vecs, self.state == State::Finished);
+    }
+
+    // skip all whitespace characters at the beginning of the line,
+    // or generate a blank line token if the line contains only whitespace characters.
+    fn skip_begin_whitespaces(&mut self, ln: i32, current: usize, ch: char) -> Option<Token> {
+        if ch.is_whitespace() {
+            if ch == '\n' {
+                self.state = State::Finished;
+                self.pointer = 0;
+                return Some(Token {
+                    value: self.text[self.pointer..current].to_string(),
+                    kind: TokenKind::BlankLine,
+                    line_num: ln,
+                });
+            }
+        } else {
+            self.state = State::CheckMark;
+            self.pointer = current;
+        }
+        None
+    }
+
+    fn find_word(&self, current: usize) -> Option<&str> {
+        let ch = self.text.chars().nth(current).unwrap(); // note: unwrap, it is safe here.
+        if ch.is_whitespace() {
+            Some(&self.text[self.pointer..current])
+        } else {
+            None
+        }
+    }
+
+    // parse the first word in the line as the mark token
+    fn check_mark(&mut self, ln: i32, current: usize) -> Option<Token> {
+        let first_word = self.find_word(current)?;
+
+        let (pointer, state, token) = match first_word {
+            // title
+            "#" | "##" | "###" | "####" | "#####" => (
+                current,
+                State::Title,
+                Some(Token {
+                    value: first_word.to_string(),
+                    kind: TokenKind::TitleMark,
+                    line_num: ln,
+                }),
+            ),
+
+            // disordered list
+            "*" | "-" | "+" => (
+                current,
+                State::DisorderedList,
+                Some(Token {
+                    value: first_word.to_string(),
+                    kind: TokenKind::DisorderMark,
+                    line_num: ln,
+                }),
+            ),
+
+            // dividing line
+            // TODO: support more dividing line marks.
+            "***" | "---" | "___" => (
+                current,
+                State::CheckDividing,
+                Some(Token {
+                    value: first_word.to_string(),
+                    kind: TokenKind::DividingMark,
+                    line_num: ln,
+                }),
+            ),
+
+            // quote
+            ">" => (
+                current,
+                State::Quote,
+                Some(Token {
+                    value: first_word.to_string(),
+                    kind: TokenKind::QuoteMark,
+                    line_num: ln,
+                }),
+            ),
+
+            // plain (as no mark)
+            _ => {
+                self.times += 1;
+                // don't change the pointer, because the first word is not a mark.
+                (self.pointer, State::Plain, None)
+            }
+        };
+
+        self.state = state;
+        self.pointer = pointer;
+        token
+    }
+
+    // parse the rest of the line as title token
+    fn parse_title(&mut self, ln: i32, current: usize, ch: char) -> Option<Token> {
+        // skip all whitespace characters after the mark token.
+        if ch.is_whitespace() {
+            return None;
+        }
+        self.state = State::Finished;
+        let rest = &self.text[current..];
+        Some(Token {
+            value: rest.trim_end_matches('\n').to_string(),
+            kind: TokenKind::Title,
+            line_num: ln,
+        })
+    }
+
+    // parse the rest of the line as the disordered list token.
+    fn parse_disordered_list(&mut self, ln: i32, current: usize, ch: char) -> Option<Token> {
+        // skip all whitespace characters after the mark token.
+        if ch.is_whitespace() {
+            return None;
+        }
+        self.state = State::Finished;
+        let rest = &self.text[current..];
+        Some(Token {
+            value: rest.trim_end_matches('\n').to_string(),
+            kind: TokenKind::DisorderListItem,
+            line_num: ln,
+        })
+    }
+
+    // parse the rest of the line as the quote token.
+    fn parse_quote(&mut self, ln: i32, current: usize, ch: char) -> Option<Token> {
+        // skip all whitespace characters after the mark token.
+        if ch.is_whitespace() {
+            return None;
+        }
+        self.state = State::Finished;
+        let rest = &self.text[current..];
+        Some(Token {
+            value: rest.trim_end_matches('\n').to_string(),
+            kind: TokenKind::Quote,
+            line_num: ln,
+        })
+    }
+
+    // parse the line as the plain token.
+    fn parse_plain(&mut self, ln: i32, current: usize, ch: char) -> Option<Token> {
+        self.state = State::Finished;
+        let content = &self.text[self.pointer..];
+        Some(Token {
+            value: content.trim_end_matches('\n').to_string(),
+            kind: TokenKind::Plain,
+            line_num: ln,
+        })
     }
 }

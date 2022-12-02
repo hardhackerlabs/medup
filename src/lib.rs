@@ -76,8 +76,11 @@ impl Line {
         let mut statem = StateMachine::new(&line);
 
         for (current, ch) in line.chars().enumerate() {
-            let (mut ts, finished) = statem.run(ln, current, ch);
-            tokens.append(&mut ts);
+            let (ts, finished) = statem.process(current, ch);
+            for mut t in ts {
+                t.line_num = ln;
+                tokens.push(t);
+            }
             if finished {
                 break;
             }
@@ -131,7 +134,7 @@ impl<'a> StateMachine<'a> {
         }
     }
 
-    fn run(&mut self, ln: i32, current: usize, ch: char) -> (Vec<Token>, bool) {
+    fn process(&mut self, current: usize, ch: char) -> (Vec<Token>, bool) {
         let mut vecs: Vec<Token> = Vec::new();
 
         self.times = 1;
@@ -139,13 +142,13 @@ impl<'a> StateMachine<'a> {
             self.times -= 1;
 
             let t = match self.state {
-                State::Begin => self.skip_begin_whitespaces(ln, current, ch),
-                State::CheckMark => self.check_mark(ln, current),
-                State::Title => self.parse_title(ln, current, ch),
-                State::DisorderedList => self.parse_disordered_list(ln, current, ch),
+                State::Begin => self.skip_begin_whitespaces(current, ch),
+                State::CheckMark => self.check_mark(current),
+                State::Title => self.parse_title(current, ch),
+                State::DisorderedList => self.parse_disordered_list(current, ch),
                 State::CheckDividing => None,
-                State::Quote => self.parse_quote(ln, current, ch),
-                State::Plain => self.parse_plain(ln, current, ch),
+                State::Quote => self.parse_quote(current, ch),
+                State::Plain => self.parse_plain(current, ch),
                 State::Finished => None,
             };
 
@@ -159,15 +162,15 @@ impl<'a> StateMachine<'a> {
 
     // skip all whitespace characters at the beginning of the line,
     // or generate a blank line token if the line contains only whitespace characters.
-    fn skip_begin_whitespaces(&mut self, ln: i32, current: usize, ch: char) -> Option<Token> {
+    fn skip_begin_whitespaces(&mut self, current: usize, ch: char) -> Option<Token> {
         if ch.is_whitespace() {
             if ch == '\n' {
                 self.state = State::Finished;
                 self.pointer = 0;
                 return Some(Token {
-                    value: self.text[self.pointer..current].to_string(),
+                    value: "".to_string(),
                     kind: TokenKind::BlankLine,
-                    line_num: ln,
+                    line_num: 0,
                 });
             }
         } else {
@@ -187,7 +190,7 @@ impl<'a> StateMachine<'a> {
     }
 
     // parse the first word in the line as the mark token
-    fn check_mark(&mut self, ln: i32, current: usize) -> Option<Token> {
+    fn check_mark(&mut self, current: usize) -> Option<Token> {
         let first_word = self.find_word(current)?;
 
         let (pointer, state, token) = match first_word {
@@ -198,7 +201,7 @@ impl<'a> StateMachine<'a> {
                 Some(Token {
                     value: first_word.to_string(),
                     kind: TokenKind::TitleMark,
-                    line_num: ln,
+                    line_num: 0,
                 }),
             ),
 
@@ -209,7 +212,7 @@ impl<'a> StateMachine<'a> {
                 Some(Token {
                     value: first_word.to_string(),
                     kind: TokenKind::DisorderMark,
-                    line_num: ln,
+                    line_num: 0,
                 }),
             ),
 
@@ -221,7 +224,7 @@ impl<'a> StateMachine<'a> {
                 Some(Token {
                     value: first_word.to_string(),
                     kind: TokenKind::DividingMark,
-                    line_num: ln,
+                    line_num: 0,
                 }),
             ),
 
@@ -232,7 +235,7 @@ impl<'a> StateMachine<'a> {
                 Some(Token {
                     value: first_word.to_string(),
                     kind: TokenKind::QuoteMark,
-                    line_num: ln,
+                    line_num: 0,
                 }),
             ),
 
@@ -250,7 +253,7 @@ impl<'a> StateMachine<'a> {
     }
 
     // parse the rest of the line as title token
-    fn parse_title(&mut self, ln: i32, current: usize, ch: char) -> Option<Token> {
+    fn parse_title(&mut self, current: usize, ch: char) -> Option<Token> {
         // skip all whitespace characters after the mark token.
         if ch.is_whitespace() {
             return None;
@@ -260,12 +263,12 @@ impl<'a> StateMachine<'a> {
         Some(Token {
             value: rest.trim_end_matches('\n').to_string(),
             kind: TokenKind::Title,
-            line_num: ln,
+            line_num: 0,
         })
     }
 
     // parse the rest of the line as the disordered list token.
-    fn parse_disordered_list(&mut self, ln: i32, current: usize, ch: char) -> Option<Token> {
+    fn parse_disordered_list(&mut self, current: usize, ch: char) -> Option<Token> {
         // skip all whitespace characters after the mark token.
         if ch.is_whitespace() {
             return None;
@@ -275,12 +278,12 @@ impl<'a> StateMachine<'a> {
         Some(Token {
             value: rest.trim_end_matches('\n').to_string(),
             kind: TokenKind::DisorderListItem,
-            line_num: ln,
+            line_num: 0,
         })
     }
 
     // parse the rest of the line as the quote token.
-    fn parse_quote(&mut self, ln: i32, current: usize, ch: char) -> Option<Token> {
+    fn parse_quote(&mut self, current: usize, ch: char) -> Option<Token> {
         // skip all whitespace characters after the mark token.
         if ch.is_whitespace() {
             return None;
@@ -290,18 +293,18 @@ impl<'a> StateMachine<'a> {
         Some(Token {
             value: rest.trim_end_matches('\n').to_string(),
             kind: TokenKind::Quote,
-            line_num: ln,
+            line_num: 0,
         })
     }
 
     // parse the line as the plain token.
-    fn parse_plain(&mut self, ln: i32, _current: usize, _ch: char) -> Option<Token> {
+    fn parse_plain(&mut self, _current: usize, _ch: char) -> Option<Token> {
         self.state = State::Finished;
         let content = &self.text[self.pointer..];
         Some(Token {
             value: content.trim_end_matches('\n').to_string(),
             kind: TokenKind::Plain,
-            line_num: ln,
+            line_num: 0,
         })
     }
 }

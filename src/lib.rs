@@ -46,7 +46,7 @@ enum LineKind {
     Unknow,
     Blank,
     Title,
-    Content,
+    Plain,
 }
 
 // Token is a part of the line, the parser will parse the line into some tokens.
@@ -73,41 +73,31 @@ impl Line {
     // parses one line text into Line that contains multi tokens.
     pub fn parse(ln: i32, line: String) -> Line {
         let mut tokens: Vec<Token> = Vec::new();
-        let mut sm = StateMachine::new(&line);
+        let mut statem = StateMachine::new(&line);
 
         for (current, ch) in line.chars().enumerate() {
-            let (mut ts, finished) = sm.exec(ln, current, ch);
+            let (mut ts, finished) = statem.run(ln, current, ch);
             tokens.append(&mut ts);
             if finished {
                 break;
             }
         }
-
-        let mut l = Line {
-            tokens,
-            kind: LineKind::Unknow,
-        };
-        l.parse_inside();
-        l
-    }
-
-    fn parse_inside(&mut self) {
-        let tokens = &self.tokens;
-
-        match tokens.first() {
-            None => {
-                self.kind = LineKind::Unknow;
-            }
+        let kind = match tokens.first() {
+            None => LineKind::Unknow,
             Some(t) => {
                 if t.kind == TokenKind::BlankLine {
-                    self.kind = LineKind::Blank;
+                    LineKind::Blank
                 } else if t.kind == TokenKind::TitleMark {
-                    self.kind = LineKind::Title;
+                    LineKind::Title
                 } else if t.kind == TokenKind::Plain {
-                    self.kind = LineKind::Content;
+                    LineKind::Plain
+                } else {
+                    LineKind::Unknow
                 }
             }
-        }
+        };
+
+        Line { tokens, kind }
     }
 }
 
@@ -141,7 +131,7 @@ impl<'a> StateMachine<'a> {
         }
     }
 
-    fn exec(&mut self, ln: i32, current: usize, ch: char) -> (Vec<Token>, bool) {
+    fn run(&mut self, ln: i32, current: usize, ch: char) -> (Vec<Token>, bool) {
         let mut vecs: Vec<Token> = Vec::new();
 
         self.times = 1;
@@ -305,7 +295,7 @@ impl<'a> StateMachine<'a> {
     }
 
     // parse the line as the plain token.
-    fn parse_plain(&mut self, ln: i32, current: usize, ch: char) -> Option<Token> {
+    fn parse_plain(&mut self, ln: i32, _current: usize, _ch: char) -> Option<Token> {
         self.state = State::Finished;
         let content = &self.text[self.pointer..];
         Some(Token {

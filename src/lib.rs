@@ -1,5 +1,5 @@
+use std::fmt;
 use std::fmt::Debug;
-use std::{fmt, vec};
 
 // Ast represents the abstract syntax tree of the markdown file, it structurally represents the entire file.
 pub struct Ast {
@@ -13,6 +13,12 @@ impl Ast {
 
     pub fn push(&mut self, line: Line) {
         self.lines.push(line);
+    }
+}
+
+impl Default for Ast {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -153,13 +159,12 @@ impl<'a> StateMachine<'a> {
                 State::Finished => None,
             };
 
-            match t {
-                Some(token) => vecs.push(token),
-                None => {}
+            if let Some(token) = t {
+                vecs.push(token)
             }
         }
 
-        return (vecs, self.state == State::Finished);
+        (vecs, self.state == State::Finished)
     }
 
     // skip all whitespace characters at the beginning of the line,
@@ -219,7 +224,7 @@ impl<'a> StateMachine<'a> {
             ),
 
             // dividing line
-            // TODO: support more dividing line marks.
+            // TODO: support more dividing line marksu
             "***" | "---" | "___" => (
                 current,
                 State::CheckDividing,

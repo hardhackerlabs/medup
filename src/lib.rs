@@ -72,18 +72,17 @@ enum TokenKind {
 impl Line {
     // parses one line text into Line that contains multi tokens.
     pub fn parse(ln: i32, line: String) -> Line {
-        let mut tokens: Vec<Token> = Vec::new();
         let mut statem = StateMachine::new(&line);
 
         for (current, ch) in line.chars().enumerate() {
-            let (ts, finished) = statem.process(current, ch);
-            for mut t in ts {
-                t.line_num = ln;
-                tokens.push(t);
-            }
+            let finished = statem.process(current, ch);
             if finished {
                 break;
             }
+        }
+        let mut tokens = statem.close();
+        for mut t in &mut tokens {
+            t.line_num = ln;
         }
         let kind = match tokens.first() {
             None => LineKind::Unknow,
@@ -109,6 +108,7 @@ struct StateMachine<'a> {
     state: State,
     pointer: usize,
     times: i32,
+    tokens: Vec<Token>,
     text: &'a String,
 }
 
@@ -131,12 +131,11 @@ impl<'a> StateMachine<'a> {
             pointer: 0,
             times: 0,
             text,
+            tokens: Vec::new(),
         }
     }
 
-    fn process(&mut self, current: usize, ch: char) -> (Vec<Token>, bool) {
-        let mut vecs: Vec<Token> = Vec::new();
-
+    fn process(&mut self, current: usize, ch: char) -> bool {
         self.times = 1;
         while self.times > 0 {
             self.times -= 1;
@@ -153,11 +152,15 @@ impl<'a> StateMachine<'a> {
             };
 
             if let Some(token) = t {
-                vecs.push(token)
+                self.tokens.push(token);
             }
         }
 
-        (vecs, self.state == State::Finished)
+        self.state == State::Finished
+    }
+
+    fn close(self) -> Vec<Token> {
+        self.tokens
     }
 
     // skip all whitespace characters at the beginning of the line,

@@ -21,7 +21,7 @@ fn main() {
         counter += 1;
         let mut s = text.unwrap();
         s.push('\n');
-        let line = Line::parse(counter, s);
+        let line = Line::parse(counter, &s);
         doc.push(line);
     }
 

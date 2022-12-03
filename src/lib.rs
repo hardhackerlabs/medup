@@ -77,11 +77,11 @@ enum TokenKind {
 
 impl Line {
     // parses one line text into Line that contains multi tokens.
-    pub fn parse(ln: i32, line: String) -> Line {
+    pub fn parse(ln: i32, line: &str) -> Line {
         let mut statem = Statem::new(&line);
 
-        for (current, ch) in line.chars().enumerate() {
-            let finished = statem.process(current, ch);
+        for (cur_pos, cur_char) in line.chars().enumerate() {
+            let finished = statem.process(cur_pos, cur_char);
             if finished {
                 break;
             }
@@ -116,7 +116,7 @@ struct Statem<'a> {
     state: State,
     unparsed: usize,
     tokens: Vec<Token>,
-    text: &'a String,
+    text: &'a str,
 }
 
 #[derive(PartialEq)]
@@ -132,7 +132,7 @@ enum State {
 }
 
 impl<'a> Statem<'a> {
-    fn new(text: &'a String) -> Self {
+    fn new(text: &'a str) -> Self {
         Statem {
             state: State::Begin,
             unparsed: 0,

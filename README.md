@@ -1,12 +1,15 @@
 # mn is a markdown editor
-This is my project to lean rust programming language, I will try to build a markdown editor.
+This is my project to learn rust programming language, I will try to build a powerful markdown editor.
 
-Features:
-* Standard markdown
-* Vim mode
-* Based on rust
+Highlight:
+* Support Vim mode
+* Support automation commands to edit document
+* Support horizontal layout
+* Better form
+* Support slide mode
+* Fast
 * ...
 
 ---
 
-> A language empowering everyone to build reliable and efficient software.
+> Rust, A language empowering everyone to build reliable and efficient software.

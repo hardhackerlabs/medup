@@ -40,6 +40,7 @@ impl Debug for Ast {
 pub struct Line {
     tokens: Vec<Token>,
     kind: LineKind,
+    num: i32,
 }
 
 enum LineKind {
@@ -72,7 +73,7 @@ enum TokenKind {
 impl Line {
     // parses one line text into Line that contains multi tokens.
     pub fn parse(ln: i32, line: String) -> Line {
-        let mut statem = StateMachine::new(&line);
+        let mut statem = Statem::new(&line);
 
         for (current, ch) in line.chars().enumerate() {
             let finished = statem.process(current, ch);
@@ -80,7 +81,7 @@ impl Line {
                 break;
             }
         }
-        let mut tokens = statem.close();
+        let mut tokens = statem.finish();
         for mut t in &mut tokens {
             t.line_num = ln;
         }
@@ -99,15 +100,18 @@ impl Line {
             }
         };
 
-        Line { tokens, kind }
+        Line {
+            tokens,
+            kind,
+            num: ln,
+        }
     }
 }
 
-// StateMaching represents the current state of the parser.
-struct StateMachine<'a> {
+// Statem represents the current state of the parser.
+struct Statem<'a> {
     state: State,
-    pointer: usize,
-    times: i32,
+    unparsed: usize,
     tokens: Vec<Token>,
     text: &'a String,
 }
@@ -124,52 +128,50 @@ enum State {
     Finished,
 }
 
-impl<'a> StateMachine<'a> {
+impl<'a> Statem<'a> {
     fn new(text: &'a String) -> Self {
-        StateMachine {
+        Statem {
             state: State::Begin,
-            pointer: 0,
-            times: 0,
+            unparsed: 0,
             text,
             tokens: Vec::new(),
         }
     }
 
-    fn process(&mut self, current: usize, ch: char) -> bool {
-        self.times = 1;
-        while self.times > 0 {
-            self.times -= 1;
+    fn process(&mut self, cur_pos: usize, cur_char: char) -> bool {
+        let t = match self.state {
+            State::Begin => self.skip_begin_whitespaces(cur_pos, cur_char),
+            State::CheckMark => self.check_mark(cur_pos),
+            State::Title => self.parse_title(cur_pos, cur_char),
+            State::DisorderedList => self.parse_disordered_list(cur_pos, cur_char),
+            State::CheckDividing => None,
+            State::Quote => self.parse_quote(cur_pos, cur_char),
+            State::Plain => self.parse_plain(cur_pos, cur_char),
+            State::Finished => None,
+        };
 
-            let t = match self.state {
-                State::Begin => self.skip_begin_whitespaces(current, ch),
-                State::CheckMark => self.check_mark(current),
-                State::Title => self.parse_title(current, ch),
-                State::DisorderedList => self.parse_disordered_list(current, ch),
-                State::CheckDividing => None,
-                State::Quote => self.parse_quote(current, ch),
-                State::Plain => self.parse_plain(current, ch),
-                State::Finished => None,
-            };
-
-            if let Some(token) = t {
-                self.tokens.push(token);
-            }
+        if let Some(token) = t {
+            self.tokens.push(token);
         }
 
         self.state == State::Finished
     }
 
-    fn close(self) -> Vec<Token> {
+    fn finish(mut self) -> Vec<Token> {
+        let count = self.text.chars().count();
+        if self.unparsed < count {
+            self.process(count - 1, '\n');
+        }
         self.tokens
     }
 
     // skip all whitespace characters at the beginning of the line,
     // or generate a blank line token if the line contains only whitespace characters.
-    fn skip_begin_whitespaces(&mut self, current: usize, ch: char) -> Option<Token> {
-        if ch.is_whitespace() {
-            if ch == '\n' {
+    fn skip_begin_whitespaces(&mut self, cur_pos: usize, cur_char: char) -> Option<Token> {
+        if cur_char.is_whitespace() {
+            if cur_char == '\n' {
                 self.state = State::Finished;
-                self.pointer = 0;
+                self.unparsed = cur_pos + 1;
                 return Some(Token {
                     value: "".to_string(),
                     kind: TokenKind::BlankLine,
@@ -178,28 +180,28 @@ impl<'a> StateMachine<'a> {
             }
         } else {
             self.state = State::CheckMark;
-            self.pointer = current;
+            self.unparsed = cur_pos;
         }
         None
     }
 
-    fn find_word(&self, current: usize) -> Option<&str> {
-        let ch = self.text.chars().nth(current).unwrap(); // note: unwrap, it is safe here.
+    fn find_word(&self, cur_pos: usize) -> Option<&str> {
+        let ch = self.text.chars().nth(cur_pos).unwrap(); // note: unwrap, it is safe here.
         if ch.is_whitespace() {
-            Some(&self.text[self.pointer..current])
+            Some(&self.text[self.unparsed..cur_pos])
         } else {
             None
         }
     }
 
     // parse the first word in the line as the mark token
-    fn check_mark(&mut self, current: usize) -> Option<Token> {
-        let first_word = self.find_word(current)?;
+    fn check_mark(&mut self, cur_pos: usize) -> Option<Token> {
+        let first_word = self.find_word(cur_pos)?;
 
-        let (pointer, state, token) = match first_word {
+        let (unparsed, state, token) = match first_word {
             // title
             "#" | "##" | "###" | "####" | "#####" => (
-                current,
+                cur_pos + 1,
                 State::Title,
                 Some(Token {
                     value: first_word.to_string(),
@@ -210,7 +212,7 @@ impl<'a> StateMachine<'a> {
 
             // disordered list
             "*" | "-" | "+" => (
-                current,
+                cur_pos + 1,
                 State::DisorderedList,
                 Some(Token {
                     value: first_word.to_string(),
@@ -222,7 +224,7 @@ impl<'a> StateMachine<'a> {
             // dividing line
             // TODO: support more dividing line marksu
             "***" | "---" | "___" => (
-                current,
+                cur_pos + 1,
                 State::CheckDividing,
                 Some(Token {
                     value: first_word.to_string(),
@@ -233,7 +235,7 @@ impl<'a> StateMachine<'a> {
 
             // quote
             ">" => (
-                current,
+                cur_pos + 1,
                 State::Quote,
                 Some(Token {
                     value: first_word.to_string(),
@@ -244,25 +246,26 @@ impl<'a> StateMachine<'a> {
 
             // plain (as no mark)
             _ => {
-                self.times += 1;
-                // don't change the pointer, because the first word is not a mark.
-                (self.pointer, State::Plain, None)
+                // don't change the unparsed pointer, because the first word is not a mark.
+                (self.unparsed, State::Plain, None)
             }
         };
 
         self.state = state;
-        self.pointer = pointer;
+        self.unparsed = unparsed;
         token
     }
 
     // parse the rest of the line as title token
-    fn parse_title(&mut self, current: usize, ch: char) -> Option<Token> {
+    fn parse_title(&mut self, cur_pos: usize, cur_char: char) -> Option<Token> {
         // skip all whitespace characters after the mark token.
-        if ch.is_whitespace() {
+        if cur_char.is_whitespace() {
+            self.unparsed = cur_pos + 1;
             return None;
         }
+        let rest = &self.text[cur_pos..];
+        self.unparsed = self.text.chars().count();
         self.state = State::Finished;
-        let rest = &self.text[current..];
         Some(Token {
             value: rest.trim_end_matches('\n').to_string(),
             kind: TokenKind::Title,
@@ -271,13 +274,15 @@ impl<'a> StateMachine<'a> {
     }
 
     // parse the rest of the line as the disordered list token.
-    fn parse_disordered_list(&mut self, current: usize, ch: char) -> Option<Token> {
+    fn parse_disordered_list(&mut self, cur_pos: usize, cur_char: char) -> Option<Token> {
         // skip all whitespace characters after the mark token.
-        if ch.is_whitespace() {
+        if cur_char.is_whitespace() {
+            self.unparsed = cur_pos + 1;
             return None;
         }
+        let rest = &self.text[cur_pos..];
+        self.unparsed = self.text.chars().count();
         self.state = State::Finished;
-        let rest = &self.text[current..];
         Some(Token {
             value: rest.trim_end_matches('\n').to_string(),
             kind: TokenKind::DisorderListItem,
@@ -286,13 +291,15 @@ impl<'a> StateMachine<'a> {
     }
 
     // parse the rest of the line as the quote token.
-    fn parse_quote(&mut self, current: usize, ch: char) -> Option<Token> {
+    fn parse_quote(&mut self, cur_pos: usize, cur_char: char) -> Option<Token> {
         // skip all whitespace characters after the mark token.
-        if ch.is_whitespace() {
+        if cur_char.is_whitespace() {
+            self.unparsed = cur_pos + 1;
             return None;
         }
+        let rest = &self.text[cur_pos..];
+        self.unparsed = self.text.chars().count();
         self.state = State::Finished;
-        let rest = &self.text[current..];
         Some(Token {
             value: rest.trim_end_matches('\n').to_string(),
             kind: TokenKind::Quote,
@@ -301,9 +308,10 @@ impl<'a> StateMachine<'a> {
     }
 
     // parse the line as the plain token.
-    fn parse_plain(&mut self, _current: usize, _ch: char) -> Option<Token> {
+    fn parse_plain(&mut self, _cur_pos: usize, _cur_char: char) -> Option<Token> {
+        let content = &self.text[self.unparsed..];
+        self.unparsed = self.text.chars().count();
         self.state = State::Finished;
-        let content = &self.text[self.pointer..];
         Some(Token {
             value: content.trim_end_matches('\n').to_string(),
             kind: TokenKind::Plain,

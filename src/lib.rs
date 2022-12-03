@@ -2,13 +2,13 @@ use std::fmt;
 use std::fmt::Debug;
 
 // Ast represents the abstract syntax tree of the markdown file, it structurally represents the entire file.
-pub struct Ast {
+pub struct DocAst {
     lines: Vec<Line>,
 }
 
-impl Ast {
-    pub fn new() -> Ast {
-        Ast { lines: Vec::new() }
+impl DocAst {
+    pub fn new() -> DocAst {
+        DocAst { lines: Vec::new() }
     }
 
     pub fn push(&mut self, line: Line) {
@@ -16,13 +16,13 @@ impl Ast {
     }
 }
 
-impl Default for Ast {
+impl Default for DocAst {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl Debug for Ast {
+impl Debug for DocAst {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut debug = String::new();
         for line in &self.lines {

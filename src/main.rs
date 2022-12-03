@@ -1,11 +1,11 @@
-use mn::Ast;
+use mn::DocAst;
 use mn::Line;
 use std::fs::File;
 use std::io::{self, BufRead};
 
 fn main() {
     // Create Ast object
-    let mut ast = crate::Ast::new();
+    let mut doc = crate::DocAst::new();
 
     // Get path for the markdown file from command line arguments
     let path = std::env::args()
@@ -22,9 +22,9 @@ fn main() {
         let mut s = text.unwrap();
         s.push('\n');
         let line = Line::parse(counter, s);
-        ast.push(line);
+        doc.push(line);
     }
 
     // Output the ast object to help us to check it's correctness
-    println!("{:?}", ast);
+    println!("{:?}", doc);
 }

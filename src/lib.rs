@@ -78,7 +78,7 @@ enum TokenKind {
 impl Line {
     // parses one line text into Line that contains multi tokens.
     pub fn parse(ln: i32, line: &str) -> Line {
-        let mut statem = Statem::new(&line);
+        let mut statem = Statem::new(line);
 
         for (cur_pos, cur_char) in line.chars().enumerate() {
             let finished = statem.process(cur_pos, cur_char);
@@ -161,7 +161,7 @@ impl<'a> Statem<'a> {
     }
 
     fn finish(mut self) -> Vec<Token> {
-        let count = self.text.chars().count();
+        let count = utf8_slice::len(self.text);
         if self.unparsed < count {
             self.process(count - 1, '\n');
         }
@@ -191,7 +191,7 @@ impl<'a> Statem<'a> {
     fn find_word(&self, cur_pos: usize) -> Option<&str> {
         let ch = self.text.chars().nth(cur_pos).unwrap(); // note: unwrap, it is safe here.
         if ch.is_whitespace() {
-            Some(&self.text[self.unparsed..cur_pos])
+            Some(utf8_slice::slice(self.text, self.unparsed, cur_pos))
         } else {
             None
         }
@@ -266,8 +266,8 @@ impl<'a> Statem<'a> {
             self.unparsed = cur_pos + 1;
             return None;
         }
-        let rest = &self.text[cur_pos..];
-        self.unparsed = self.text.chars().count();
+        let rest = utf8_slice::from(self.text, cur_pos);
+        self.unparsed = utf8_slice::len(self.text);
         self.state = State::Finished;
         Some(Token {
             value: rest.trim_end_matches('\n').to_string(),
@@ -283,8 +283,8 @@ impl<'a> Statem<'a> {
             self.unparsed = cur_pos + 1;
             return None;
         }
-        let rest = &self.text[cur_pos..];
-        self.unparsed = self.text.chars().count();
+        let rest = utf8_slice::from(self.text, cur_pos);
+        self.unparsed = utf8_slice::len(self.text);
         self.state = State::Finished;
         Some(Token {
             value: rest.trim_end_matches('\n').to_string(),
@@ -300,8 +300,8 @@ impl<'a> Statem<'a> {
             self.unparsed = cur_pos + 1;
             return None;
         }
-        let rest = &self.text[cur_pos..];
-        self.unparsed = self.text.chars().count();
+        let rest = utf8_slice::from(self.text, cur_pos);
+        self.unparsed = utf8_slice::len(self.text);
         self.state = State::Finished;
         Some(Token {
             value: rest.trim_end_matches('\n').to_string(),
@@ -312,8 +312,8 @@ impl<'a> Statem<'a> {
 
     // parse the line as the plain token.
     fn parse_plain(&mut self, _cur_pos: usize, _cur_char: char) -> Option<Token> {
-        let content = &self.text[self.unparsed..];
-        self.unparsed = self.text.chars().count();
+        let content = utf8_slice::from(self.text, self.unparsed);
+        self.unparsed = utf8_slice::len(self.text);
         self.state = State::Finished;
         Some(Token {
             value: content.trim_end_matches('\n').to_string(),

@@ -5,3 +5,12 @@ version = 3
 [[package]]
 name = "mn"
 version = "0.1.0"
+dependencies = [
+ "utf8_slice",
+]
+
+[[package]]
+name = "utf8_slice"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "44109e280ecf0f5d8e6ee671c0ee650008275c51dc9e494badd11fb39d785408"

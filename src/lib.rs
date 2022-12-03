@@ -26,8 +26,9 @@ impl Debug for Ast {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut debug = String::new();
         for line in &self.lines {
+            debug.push_str(format!("{}: {:?}: ", line.num, line.kind).as_str());
             for t in &line.tokens {
-                let s = format!("<{}, {}, {:?}> ", t.value, t.line_num, t.kind);
+                let s = format!("<{}, {:?}> ", t.value, t.kind);
                 debug.push_str(&s);
             }
             debug.push('\n');
@@ -43,10 +44,14 @@ pub struct Line {
     num: i32,
 }
 
+#[derive(Debug)]
 enum LineKind {
     Unknow,
     Blank,
     Title,
+    DisorderedList,
+    DividingLine,
+    Quote,
     Plain,
 }
 
@@ -87,17 +92,15 @@ impl Line {
         }
         let kind = match tokens.first() {
             None => LineKind::Unknow,
-            Some(t) => {
-                if t.kind == TokenKind::BlankLine {
-                    LineKind::Blank
-                } else if t.kind == TokenKind::TitleMark {
-                    LineKind::Title
-                } else if t.kind == TokenKind::Plain {
-                    LineKind::Plain
-                } else {
-                    LineKind::Unknow
-                }
-            }
+            Some(t) => match t.kind {
+                TokenKind::BlankLine => LineKind::Blank,
+                TokenKind::TitleMark => LineKind::Title,
+                TokenKind::DisorderMark => LineKind::DisorderedList,
+                TokenKind::DividingMark => LineKind::DividingLine,
+                TokenKind::QuoteMark => LineKind::Quote,
+                TokenKind::Plain => LineKind::Plain,
+                _ => LineKind::Unknow,
+            },
         };
 
         Line {

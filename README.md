@@ -1,4 +1,4 @@
-# mn is a markdown editor
+# med is a markdown editor
 This is my project to learn rust programming language, I will try to build a powerful markdown editor.
 
 Highlight:

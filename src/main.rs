@@ -1,5 +1,5 @@
-use mn::DocAst;
-use mn::Line;
+use med::DocAst;
+use med::Line;
 use std::fs::File;
 use std::io::{self, BufRead};
 

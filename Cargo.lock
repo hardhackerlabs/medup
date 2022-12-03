@@ -3,7 +3,7 @@
 version = 3
 
 [[package]]
-name = "mn"
+name = "med"
 version = "0.1.0"
 dependencies = [
  "utf8_slice",

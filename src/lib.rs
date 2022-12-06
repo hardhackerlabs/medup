@@ -26,7 +26,7 @@ impl Debug for DocAst {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut debug = String::new();
         for line in &self.lines {
-            debug.push_str(format!("{}: {:?}: ", line.num, line.kind).as_str());
+            debug.push_str(format!("[{}, {:?}]: ", line.num, line.kind).as_str());
             for t in &line.tokens {
                 let s = format!("<{}, {:?}> ", t.value, t.kind);
                 debug.push_str(&s);
@@ -147,7 +147,7 @@ impl<'a> Statem<'a> {
             State::CheckMark => self.check_mark(cur_pos),
             State::Title => self.parse_title(cur_pos, cur_char),
             State::DisorderedList => self.parse_disordered_list(cur_pos, cur_char),
-            State::CheckDividing => None,
+            State::CheckDividing => self.check_dividing(cur_pos, cur_char),
             State::Quote => self.parse_quote(cur_pos, cur_char),
             State::Plain => self.parse_plain(cur_pos, cur_char),
             State::Finished => None,
@@ -225,7 +225,6 @@ impl<'a> Statem<'a> {
             ),
 
             // dividing line
-            // TODO: support more dividing line marksu
             "***" | "---" | "___" => (
                 cur_pos + 1,
                 State::CheckDividing,
@@ -257,6 +256,18 @@ impl<'a> Statem<'a> {
         self.state = state;
         self.unparsed = unparsed;
         token
+    }
+
+    // if there is not a valid dividing line, will recreate the token as plain.
+    fn check_dividing(&mut self, _cur_pos: usize, cur_char: char) -> Option<Token> {
+        if cur_char.is_whitespace() {
+            return None;
+        }
+        // if contains whitespace character, it's a invalid dividing line
+        self.tokens.clear(); // not a valid dividing line, so clear the dividing mark token
+        self.unparsed = 0;
+        self.state = State::Plain;
+        None
     }
 
     // parse the rest of the line as title token

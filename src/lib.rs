@@ -42,6 +42,7 @@ pub struct Line {
     tokens: Vec<Token>,
     kind: LineKind,
     num: i32,
+    text: String,
 }
 
 #[derive(Debug)]
@@ -59,7 +60,6 @@ enum LineKind {
 struct Token {
     value: String,
     kind: TokenKind,
-    line_num: i32,
 }
 
 #[derive(PartialEq, Debug)]
@@ -76,20 +76,25 @@ enum TokenKind {
 }
 
 impl Line {
+    pub fn new(ln: i32, line: String) -> Self {
+        Line {
+            num: ln,
+            text: line,
+            kind: LineKind::Unknow,
+            tokens: Vec::new(),
+        }
+    }
     // parses one line text into Line that contains multi tokens.
-    pub fn parse(ln: i32, line: &str) -> Line {
-        let mut statem = Statem::new(line);
+    pub fn parse(&mut self) {
+        let mut statem = Statem::new(&self.text);
 
-        for (cur_pos, cur_char) in line.chars().enumerate() {
+        for (cur_pos, cur_char) in self.text.chars().enumerate() {
             let finished = statem.process(cur_pos, cur_char);
             if finished {
                 break;
             }
         }
         let mut tokens = statem.finish();
-        for mut t in &mut tokens {
-            t.line_num = ln;
-        }
         let kind = match tokens.first() {
             None => LineKind::Unknow,
             Some(t) => match t.kind {
@@ -102,12 +107,8 @@ impl Line {
                 _ => LineKind::Unknow,
             },
         };
-
-        Line {
-            tokens,
-            kind,
-            num: ln,
-        }
+        self.kind = kind;
+        self.tokens.append(&mut tokens);
     }
 }
 
@@ -116,7 +117,7 @@ struct Statem<'a> {
     state: State,
     unparsed: usize,
     tokens: Vec<Token>,
-    text: &'a str,
+    line_text: &'a str,
 }
 
 #[derive(PartialEq)]
@@ -136,7 +137,7 @@ impl<'a> Statem<'a> {
         Statem {
             state: State::Begin,
             unparsed: 0,
-            text,
+            line_text: text,
             tokens: Vec::new(),
         }
     }
@@ -161,7 +162,7 @@ impl<'a> Statem<'a> {
     }
 
     fn finish(mut self) -> Vec<Token> {
-        let count = utf8_slice::len(self.text);
+        let count = utf8_slice::len(self.line_text);
         if self.unparsed < count {
             self.process(count - 1, '\n');
         }
@@ -178,7 +179,6 @@ impl<'a> Statem<'a> {
                 return Some(Token {
                     value: "".to_string(),
                     kind: TokenKind::BlankLine,
-                    line_num: 0,
                 });
             }
         } else {
@@ -189,9 +189,9 @@ impl<'a> Statem<'a> {
     }
 
     fn find_word(&self, cur_pos: usize) -> Option<&str> {
-        let ch = self.text.chars().nth(cur_pos).unwrap(); // note: unwrap, it is safe here.
+        let ch = self.line_text.chars().nth(cur_pos).unwrap(); // note: unwrap, it is safe here.
         if ch.is_whitespace() {
-            Some(utf8_slice::slice(self.text, self.unparsed, cur_pos))
+            Some(utf8_slice::slice(self.line_text, self.unparsed, cur_pos))
         } else {
             None
         }
@@ -209,7 +209,6 @@ impl<'a> Statem<'a> {
                 Some(Token {
                     value: first_word.to_string(),
                     kind: TokenKind::TitleMark,
-                    line_num: 0,
                 }),
             ),
 
@@ -220,7 +219,6 @@ impl<'a> Statem<'a> {
                 Some(Token {
                     value: first_word.to_string(),
                     kind: TokenKind::DisorderMark,
-                    line_num: 0,
                 }),
             ),
 
@@ -231,7 +229,6 @@ impl<'a> Statem<'a> {
                 Some(Token {
                     value: first_word.to_string(),
                     kind: TokenKind::DividingMark,
-                    line_num: 0,
                 }),
             ),
 
@@ -242,7 +239,6 @@ impl<'a> Statem<'a> {
                 Some(Token {
                     value: first_word.to_string(),
                     kind: TokenKind::QuoteMark,
-                    line_num: 0,
                 }),
             ),
 
@@ -277,13 +273,12 @@ impl<'a> Statem<'a> {
             self.unparsed = cur_pos + 1;
             return None;
         }
-        let rest = utf8_slice::from(self.text, cur_pos);
-        self.unparsed = utf8_slice::len(self.text);
+        let rest = utf8_slice::from(self.line_text, cur_pos);
+        self.unparsed = utf8_slice::len(self.line_text);
         self.state = State::Finished;
         Some(Token {
             value: rest.trim_end_matches('\n').to_string(),
             kind: TokenKind::Title,
-            line_num: 0,
         })
     }
 
@@ -294,13 +289,12 @@ impl<'a> Statem<'a> {
             self.unparsed = cur_pos + 1;
             return None;
         }
-        let rest = utf8_slice::from(self.text, cur_pos);
-        self.unparsed = utf8_slice::len(self.text);
+        let rest = utf8_slice::from(self.line_text, cur_pos);
+        self.unparsed = utf8_slice::len(self.line_text);
         self.state = State::Finished;
         Some(Token {
             value: rest.trim_end_matches('\n').to_string(),
             kind: TokenKind::DisorderListItem,
-            line_num: 0,
         })
     }
 
@@ -311,25 +305,23 @@ impl<'a> Statem<'a> {
             self.unparsed = cur_pos + 1;
             return None;
         }
-        let rest = utf8_slice::from(self.text, cur_pos);
-        self.unparsed = utf8_slice::len(self.text);
+        let rest = utf8_slice::from(self.line_text, cur_pos);
+        self.unparsed = utf8_slice::len(self.line_text);
         self.state = State::Finished;
         Some(Token {
             value: rest.trim_end_matches('\n').to_string(),
             kind: TokenKind::Quote,
-            line_num: 0,
         })
     }
 
     // parse the line as the plain token.
     fn parse_plain(&mut self, _cur_pos: usize, _cur_char: char) -> Option<Token> {
-        let content = utf8_slice::from(self.text, self.unparsed);
-        self.unparsed = utf8_slice::len(self.text);
+        let content = utf8_slice::from(self.line_text, self.unparsed);
+        self.unparsed = utf8_slice::len(self.line_text);
         self.state = State::Finished;
         Some(Token {
             value: content.trim_end_matches('\n').to_string(),
             kind: TokenKind::Plain,
-            line_num: 0,
         })
     }
 }

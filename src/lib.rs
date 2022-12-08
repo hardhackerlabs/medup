@@ -11,8 +11,8 @@ impl DocAst {
         DocAst { lines: Vec::new() }
     }
 
-    pub fn push(&mut self, line: Line) {
-        self.lines.push(line);
+    pub fn push(&mut self, num: i32, line: String) {
+        self.lines.push(Line::new(num, line));
     }
 }
 
@@ -38,7 +38,7 @@ impl Debug for DocAst {
 }
 
 // Line is a line of the markdown file, it be parsed into some tokens.
-pub struct Line {
+struct Line {
     tokens: Vec<Token>,
     kind: LineKind,
     num: i32,
@@ -76,17 +76,19 @@ enum TokenKind {
 }
 
 impl Line {
-    pub fn new(ln: i32, line: String) -> Self {
-        Line {
+    fn new(ln: i32, line: String) -> Self {
+        let mut l = Line {
             num: ln,
             text: line,
             kind: LineKind::Unknow,
             tokens: Vec::new(),
-        }
+        };
+        l.parse();
+        l
     }
     // parses one line text into Line that contains multi tokens.
-    pub fn parse(&mut self) {
-        let mut statem = Statem::new(&self.text);
+    fn parse(&mut self) {
+        let mut statem = Statem::new(&self.text, &mut self.tokens);
 
         for (cur_pos, cur_char) in self.text.chars().enumerate() {
             let finished = statem.process(cur_pos, cur_char);
@@ -94,21 +96,7 @@ impl Line {
                 break;
             }
         }
-        let mut tokens = statem.finish();
-        let kind = match tokens.first() {
-            None => LineKind::Unknow,
-            Some(t) => match t.kind {
-                TokenKind::BlankLine => LineKind::Blank,
-                TokenKind::TitleMark => LineKind::Title,
-                TokenKind::DisorderMark => LineKind::DisorderedList,
-                TokenKind::DividingMark => LineKind::DividingLine,
-                TokenKind::QuoteMark => LineKind::Quote,
-                TokenKind::Plain => LineKind::Plain,
-                _ => LineKind::Unknow,
-            },
-        };
-        self.kind = kind;
-        self.tokens.append(&mut tokens);
+        self.kind = statem.finish_and_calckind();
     }
 }
 
@@ -116,7 +104,7 @@ impl Line {
 struct Statem<'a> {
     state: State,
     unparsed: usize,
-    tokens: Vec<Token>,
+    line_tokens: &'a mut Vec<Token>,
     line_text: &'a str,
 }
 
@@ -133,12 +121,12 @@ enum State {
 }
 
 impl<'a> Statem<'a> {
-    fn new(text: &'a str) -> Self {
+    fn new(text: &'a str, tokens: &'a mut Vec<Token>) -> Self {
         Statem {
             state: State::Begin,
             unparsed: 0,
             line_text: text,
-            tokens: Vec::new(),
+            line_tokens: tokens,
         }
     }
 
@@ -155,18 +143,29 @@ impl<'a> Statem<'a> {
         };
 
         if let Some(token) = t {
-            self.tokens.push(token);
+            self.line_tokens.push(token);
         }
 
         self.state == State::Finished
     }
 
-    fn finish(mut self) -> Vec<Token> {
+    fn finish_and_calckind(&mut self) -> LineKind {
         let count = utf8_slice::len(self.line_text);
         if self.unparsed < count {
             self.process(count - 1, '\n');
         }
-        self.tokens
+        match self.line_tokens.first() {
+            None => LineKind::Unknow,
+            Some(t) => match t.kind {
+                TokenKind::BlankLine => LineKind::Blank,
+                TokenKind::TitleMark => LineKind::Title,
+                TokenKind::DisorderMark => LineKind::DisorderedList,
+                TokenKind::DividingMark => LineKind::DividingLine,
+                TokenKind::QuoteMark => LineKind::Quote,
+                TokenKind::Plain => LineKind::Plain,
+                _ => LineKind::Unknow,
+            },
+        }
     }
 
     // skip all whitespace characters at the beginning of the line,
@@ -260,7 +259,7 @@ impl<'a> Statem<'a> {
             return None;
         }
         // if contains whitespace character, it's a invalid dividing line
-        self.tokens.clear(); // not a valid dividing line, so clear the dividing mark token
+        self.line_tokens.clear(); // not a valid dividing line, so clear the dividing mark token
         self.unparsed = 0;
         self.state = State::Plain;
         None

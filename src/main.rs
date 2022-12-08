@@ -1,5 +1,4 @@
 use med::DocAst;
-use med::Line;
 use std::fs::File;
 use std::io::{self, BufRead};
 
@@ -21,9 +20,7 @@ fn main() {
         counter += 1;
         let mut s = text.unwrap();
         s.push('\n');
-        let mut line = Line::new(counter, s);
-        line.parse();
-        doc.push(line);
+        doc.push(counter, s);
     }
 
     // Output the ast object to help us to check it's correctness

@@ -1,10 +1,10 @@
-use med::DocAst;
+use med::markdown;
 use std::fs::File;
 use std::io::{self, BufRead};
 
 fn main() {
     // Create Ast object
-    let mut doc = crate::DocAst::new();
+    let mut ast = markdown::Ast::new();
 
     // Get path for the markdown file from command line arguments
     let path = std::env::args()
@@ -20,9 +20,9 @@ fn main() {
         counter += 1;
         let mut s = text.unwrap();
         s.push('\n');
-        doc.push(counter, s);
+        ast.push(counter, s);
     }
 
     // Output the ast object to help us to check it's correctness
-    println!("{:?}", doc);
+    println!("{:?}", ast);
 }

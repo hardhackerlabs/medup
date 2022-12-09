@@ -28,7 +28,7 @@ impl Debug for DocAst {
         for line in &self.lines {
             debug.push_str(format!("[{}, {:?}]: ", line.num, line.kind).as_str());
             for t in &line.tokens {
-                let s = format!("<{}, {:?}> ", t.value, t.kind);
+                let s = format!("{:?} ", t);
                 debug.push_str(&s);
             }
             debug.push('\n');
@@ -57,22 +57,17 @@ enum LineKind {
 }
 
 // Token is a part of the line, the parser will parse the line into some tokens.
-struct Token {
-    value: String,
-    kind: TokenKind,
-}
-
 #[derive(PartialEq, Debug)]
-enum TokenKind {
-    TitleMark,
-    DisorderMark,
-    DividingMark,
-    QuoteMark,
-    Title,
-    DisorderListItem,
-    Quote,
-    BlankLine,
-    Plain,
+enum Token {
+    TitleMark(String),
+    DisorderMark(String),
+    DividingMark(String),
+    QuoteMark(String),
+    Title(String),
+    DisorderListItem(String),
+    Quote(String),
+    BlankLine(String),
+    Plain(String),
 }
 
 impl Line {
@@ -156,13 +151,13 @@ impl<'a> Statem<'a> {
         }
         match self.line_tokens.first() {
             None => LineKind::Unknow,
-            Some(t) => match t.kind {
-                TokenKind::BlankLine => LineKind::Blank,
-                TokenKind::TitleMark => LineKind::Title,
-                TokenKind::DisorderMark => LineKind::DisorderedList,
-                TokenKind::DividingMark => LineKind::DividingLine,
-                TokenKind::QuoteMark => LineKind::Quote,
-                TokenKind::Plain => LineKind::Plain,
+            Some(t) => match t {
+                Token::BlankLine(_) => LineKind::Blank,
+                Token::TitleMark(_) => LineKind::Title,
+                Token::DisorderMark(_) => LineKind::DisorderedList,
+                Token::DividingMark(_) => LineKind::DividingLine,
+                Token::QuoteMark(_) => LineKind::Quote,
+                Token::Plain(_) => LineKind::Plain,
                 _ => LineKind::Unknow,
             },
         }
@@ -175,10 +170,7 @@ impl<'a> Statem<'a> {
             if cur_char == '\n' {
                 self.state = State::Finished;
                 self.unparsed = cur_pos + 1;
-                return Some(Token {
-                    value: "".to_string(),
-                    kind: TokenKind::BlankLine,
-                });
+                return Some(Token::BlankLine("".to_string()));
             }
         } else {
             self.state = State::CheckMark;
@@ -205,40 +197,28 @@ impl<'a> Statem<'a> {
             "#" | "##" | "###" | "####" | "#####" => (
                 cur_pos + 1,
                 State::Title,
-                Some(Token {
-                    value: first_word.to_string(),
-                    kind: TokenKind::TitleMark,
-                }),
+                Some(Token::TitleMark(first_word.to_string())),
             ),
 
             // disordered list
             "*" | "-" | "+" => (
                 cur_pos + 1,
                 State::DisorderedList,
-                Some(Token {
-                    value: first_word.to_string(),
-                    kind: TokenKind::DisorderMark,
-                }),
+                Some(Token::DisorderMark(first_word.to_string())),
             ),
 
             // dividing line
             "***" | "---" | "___" => (
                 cur_pos + 1,
                 State::CheckDividing,
-                Some(Token {
-                    value: first_word.to_string(),
-                    kind: TokenKind::DividingMark,
-                }),
+                Some(Token::DividingMark(first_word.to_string())),
             ),
 
             // quote
             ">" => (
                 cur_pos + 1,
                 State::Quote,
-                Some(Token {
-                    value: first_word.to_string(),
-                    kind: TokenKind::QuoteMark,
-                }),
+                Some(Token::QuoteMark(first_word.to_string())),
             ),
 
             // plain (as no mark)
@@ -275,10 +255,7 @@ impl<'a> Statem<'a> {
         let rest = utf8_slice::from(self.line_text, cur_pos);
         self.unparsed = utf8_slice::len(self.line_text);
         self.state = State::Finished;
-        Some(Token {
-            value: rest.trim_end_matches('\n').to_string(),
-            kind: TokenKind::Title,
-        })
+        Some(Token::Title(rest.trim_end_matches('\n').to_string()))
     }
 
     // parse the rest of the line as the disordered list token.
@@ -291,10 +268,9 @@ impl<'a> Statem<'a> {
         let rest = utf8_slice::from(self.line_text, cur_pos);
         self.unparsed = utf8_slice::len(self.line_text);
         self.state = State::Finished;
-        Some(Token {
-            value: rest.trim_end_matches('\n').to_string(),
-            kind: TokenKind::DisorderListItem,
-        })
+        Some(Token::DisorderListItem(
+            rest.trim_end_matches('\n').to_string(),
+        ))
     }
 
     // parse the rest of the line as the quote token.
@@ -307,10 +283,7 @@ impl<'a> Statem<'a> {
         let rest = utf8_slice::from(self.line_text, cur_pos);
         self.unparsed = utf8_slice::len(self.line_text);
         self.state = State::Finished;
-        Some(Token {
-            value: rest.trim_end_matches('\n').to_string(),
-            kind: TokenKind::Quote,
-        })
+        Some(Token::Quote(rest.trim_end_matches('\n').to_string()))
     }
 
     // parse the line as the plain token.
@@ -318,9 +291,6 @@ impl<'a> Statem<'a> {
         let content = utf8_slice::from(self.line_text, self.unparsed);
         self.unparsed = utf8_slice::len(self.line_text);
         self.state = State::Finished;
-        Some(Token {
-            value: content.trim_end_matches('\n').to_string(),
-            kind: TokenKind::Plain,
-        })
+        Some(Token::Plain(content.trim_end_matches('\n').to_string()))
     }
 }

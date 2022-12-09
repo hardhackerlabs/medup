@@ -1,6 +1,8 @@
 pub mod markdown {
     use std::fmt;
     use std::fmt::Debug;
+    use std::fs::File;
+    use std::io::{BufRead, BufReader};
 
     // Ast represents the abstract syntax tree of the markdown file, it structurally represents the entire file.
     pub struct Ast {
@@ -12,7 +14,17 @@ pub mod markdown {
             Ast { lines: Vec::new() }
         }
 
-        pub fn push(&mut self, num: i32, line: String) {
+        pub fn parse_file(&mut self, reader: BufReader<File>) {
+            let mut counter = 0;
+            for text in reader.lines() {
+                counter += 1;
+                let mut s = text.unwrap();
+                s.push('\n');
+                self.push(counter, s);
+            }
+        }
+
+        fn push(&mut self, num: i32, line: String) {
             self.lines.push(Line::new(num, line));
         }
     }

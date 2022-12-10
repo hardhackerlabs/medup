@@ -93,22 +93,36 @@ impl Line {
         l.parse();
         l
     }
-    // parses one line text into Line that contains multi tokens.
+    // parses a line of text into 'Line' struct that contains multi tokens.
     fn parse(&mut self) {
-        let mut statem = Statem::new(&self.text, &mut self.tokens);
+        let mut lx = Lexer::new(&self.text, &mut self.tokens);
 
         for (cur_pos, cur_char) in self.text.chars().enumerate() {
-            let finished = statem.process(cur_pos, cur_char);
-            if finished {
+            let stopped = lx.process(cur_pos, cur_char);
+            if stopped {
                 break;
             }
         }
-        self.kind = statem.finish_and_calckind();
+        lx.finish();
+
+        self.kind = match self.tokens.first() {
+            None => LineKind::Unknow,
+            Some(t) => match t {
+                Token::BlankLine(_) => LineKind::Blank,
+                Token::TitleMark(_) => LineKind::Title,
+                Token::DisorderMark(_) => LineKind::DisorderedList,
+                Token::DividingMark(_) => LineKind::DividingLine,
+                Token::QuoteMark(_) => LineKind::Quote,
+                Token::Plain(_) => LineKind::Plain,
+                _ => LineKind::Unknow,
+            },
+        }
     }
 }
 
-// Statem represents the current state of the parser.
-struct Statem<'a> {
+// Lexer used to split the text of the line into some tokens,
+// It is implemented with a state machine.
+struct Lexer<'a> {
     state: State,
     unparsed: usize,
     line_tokens: &'a mut Vec<Token>,
@@ -127,9 +141,9 @@ enum State {
     Finished,
 }
 
-impl<'a> Statem<'a> {
+impl<'a> Lexer<'a> {
     fn new(text: &'a str, tokens: &'a mut Vec<Token>) -> Self {
-        Statem {
+        Lexer {
             state: State::Begin,
             unparsed: 0,
             line_text: text,
@@ -156,22 +170,10 @@ impl<'a> Statem<'a> {
         self.state == State::Finished
     }
 
-    fn finish_and_calckind(&mut self) -> LineKind {
+    fn finish(&mut self) {
         let count = utf8_slice::len(self.line_text);
         if self.unparsed < count {
             self.process(count - 1, '\n');
-        }
-        match self.line_tokens.first() {
-            None => LineKind::Unknow,
-            Some(t) => match t {
-                Token::BlankLine(_) => LineKind::Blank,
-                Token::TitleMark(_) => LineKind::Title,
-                Token::DisorderMark(_) => LineKind::DisorderedList,
-                Token::DividingMark(_) => LineKind::DividingLine,
-                Token::QuoteMark(_) => LineKind::Quote,
-                Token::Plain(_) => LineKind::Plain,
-                _ => LineKind::Unknow,
-            },
         }
     }
 
@@ -303,6 +305,13 @@ impl<'a> Statem<'a> {
         let content = utf8_slice::from(self.line_text, self.unparsed);
         self.unparsed = utf8_slice::len(self.line_text);
         self.state = State::Finished;
+
+        // TODO: find 'line break', double spaces or <br> at the end of the line
+        for (i, ch) in content.chars().rev().enumerate() {
+            if ch == '\n' {
+                continue;
+            }
+        }
         Some(Token::Plain(content.trim_end_matches('\n').to_string()))
     }
 }

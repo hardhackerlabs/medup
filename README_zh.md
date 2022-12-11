@@ -1,4 +1,4 @@
-# med 是一个 markdown 编辑器
+# dice 是一个 markdown 编辑器
 这是我的一个学习 rust 编程语言的项目，我将尝试去开发一个强大的 markdown 编辑器。
 
 重点:

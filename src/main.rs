@@ -1,4 +1,4 @@
-use med::markdown;
+use dice::markdown;
 use std::fs::File;
 use std::io;
 

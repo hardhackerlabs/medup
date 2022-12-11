@@ -235,20 +235,20 @@ impl<'a> Lexer<'a> {
             ),
 
             // sorted list
-            [n1, '.'] if n1 >= '1' && n1 <= '9' => (
+            [n1, '.'] if ('1'..='9').contains(&n1) => (
                 cur_pos + 1,
                 State::SortedList,
                 Some(Token::SortedListMark(first_word.to_string())),
             ),
-            [n1, n2, '.'] if (n1 >= '1' && n1 <= '9') && (n2 >= '0' && n2 <= '9') => (
+            [n1, n2, '.'] if ('1'..='9').contains(&n1) && ('0'..='9').contains(&n2) => (
                 cur_pos + 1,
                 State::SortedList,
                 Some(Token::SortedListMark(first_word.to_string())),
             ),
             [n1, n2, n3, '.']
-                if (n1 >= '1' && n1 <= '9')
-                    && (n2 >= '0' && n2 <= '9')
-                    && (n3 >= '0' && n3 <= '9') =>
+                if ('1'..='9').contains(&n1)
+                    && ('0'..='9').contains(&n2)
+                    && ('0'..='9').contains(&n3) =>
             {
                 (
                     cur_pos + 1,

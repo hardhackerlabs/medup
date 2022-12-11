@@ -1,7 +1,7 @@
 # med is a markdown editor
 This is my project to learn rust programming language, I will try to build a powerful markdown editor.
 
-Highlight:
+Highlights:
 * Support Vim mode
 * Support automation commands to edit document
 * Support horizontal layout
@@ -9,7 +9,3 @@ Highlight:
 * Support slide mode
 * Fast
 * ...
-
----
-
-> Rust, A language empowering everyone to build reliable and efficient software.

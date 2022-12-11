@@ -63,6 +63,7 @@ enum LineKind {
     Blank,
     Title,
     DisorderedList,
+    SortedList,
     DividingLine,
     Quote,
     Plain,
@@ -72,14 +73,16 @@ enum LineKind {
 #[derive(PartialEq, Debug)]
 enum Token {
     TitleMark(String),
-    DisorderMark(String),
+    DisorderListMark(String),
+    SortedListMark(String),
     DividingMark(String),
     QuoteMark(String),
     Title(String),
-    DisorderListItem(String),
+    ListItem(String),
     Quote(String),
     BlankLine(String),
     Plain(String),
+    LineBreak(String),
 }
 
 impl Line {
@@ -110,7 +113,8 @@ impl Line {
             Some(t) => match t {
                 Token::BlankLine(_) => LineKind::Blank,
                 Token::TitleMark(_) => LineKind::Title,
-                Token::DisorderMark(_) => LineKind::DisorderedList,
+                Token::DisorderListMark(_) => LineKind::DisorderedList,
+                Token::SortedListMark(_) => LineKind::SortedList,
                 Token::DividingMark(_) => LineKind::DividingLine,
                 Token::QuoteMark(_) => LineKind::Quote,
                 Token::Plain(_) => LineKind::Plain,
@@ -135,10 +139,17 @@ enum State {
     CheckMark,
     Title,
     DisorderedList,
+    SortedList,
     Quote,
     CheckDividing,
-    Plain,
+    Plain(PlainState),
     Finished,
+}
+
+#[derive(PartialEq, Clone, Copy)]
+enum PlainState {
+    Init,
+    LineBreak,
 }
 
 impl<'a> Lexer<'a> {
@@ -156,10 +167,11 @@ impl<'a> Lexer<'a> {
             State::Begin => self.skip_begin_whitespaces(cur_pos, cur_char),
             State::CheckMark => self.check_mark(cur_pos),
             State::Title => self.parse_title(cur_pos, cur_char),
-            State::DisorderedList => self.parse_disordered_list(cur_pos, cur_char),
+            State::DisorderedList => self.parse_list_item(cur_pos, cur_char),
+            State::SortedList => self.parse_list_item(cur_pos, cur_char),
             State::CheckDividing => self.check_dividing(cur_pos, cur_char),
             State::Quote => self.parse_quote(cur_pos, cur_char),
-            State::Plain => self.parse_plain(cur_pos, cur_char),
+            State::Plain(s) => self.parse_plain(s, cur_pos, cur_char),
             State::Finished => None,
         };
 
@@ -205,31 +217,63 @@ impl<'a> Lexer<'a> {
     // parse the first word in the line as the mark token
     fn check_mark(&mut self, cur_pos: usize) -> Option<Token> {
         let first_word = self.find_word(cur_pos)?;
+        let first_word_chars: Vec<char> = first_word.chars().collect();
 
-        let (unparsed, state, token) = match first_word {
+        let (unparsed, state, token) = match first_word_chars[..] {
             // title
-            "#" | "##" | "###" | "####" | "#####" => (
+            ['#'] | ['#', '#'] | ['#', '#', '#'] | ['#', '#', '#', '#'] => (
                 cur_pos + 1,
                 State::Title,
                 Some(Token::TitleMark(first_word.to_string())),
             ),
 
             // disordered list
-            "*" | "-" | "+" => (
+            ['*'] | ['-'] | ['+'] => (
                 cur_pos + 1,
                 State::DisorderedList,
-                Some(Token::DisorderMark(first_word.to_string())),
+                Some(Token::DisorderListMark(first_word.to_string())),
             ),
+
+            // sorted list
+            [n1, '.'] if n1 >= '1' && n1 <= '9' => (
+                cur_pos + 1,
+                State::SortedList,
+                Some(Token::SortedListMark(first_word.to_string())),
+            ),
+            [n1, n2, '.'] if (n1 >= '1' && n1 <= '9') && (n2 >= '0' && n2 <= '9') => (
+                cur_pos + 1,
+                State::SortedList,
+                Some(Token::SortedListMark(first_word.to_string())),
+            ),
+            [n1, n2, n3, '.']
+                if (n1 >= '1' && n1 <= '9')
+                    && (n2 >= '0' && n2 <= '9')
+                    && (n3 >= '0' && n3 <= '9') =>
+            {
+                (
+                    cur_pos + 1,
+                    State::SortedList,
+                    Some(Token::SortedListMark(first_word.to_string())),
+                )
+            }
 
             // dividing line
-            "***" | "---" | "___" => (
-                cur_pos + 1,
-                State::CheckDividing,
-                Some(Token::DividingMark(first_word.to_string())),
-            ),
+            ['*', '*', '*', ..] | ['-', '-', '-', ..] | ['_', '_', '_', ..]
+                if first_word
+                    .chars()
+                    .filter(|x| !x.is_whitespace() && *x != '*' && *x != '-' && *x != '_')
+                    .count()
+                    == 0 =>
+            {
+                (
+                    cur_pos + 1,
+                    State::CheckDividing,
+                    Some(Token::DividingMark(first_word.to_string())),
+                )
+            }
 
             // quote
-            ">" => (
+            ['>'] => (
                 cur_pos + 1,
                 State::Quote,
                 Some(Token::QuoteMark(first_word.to_string())),
@@ -238,7 +282,7 @@ impl<'a> Lexer<'a> {
             // plain (as no mark)
             _ => {
                 // don't change the unparsed pointer, because the first word is not a mark.
-                (self.unparsed, State::Plain, None)
+                (self.unparsed, State::Plain(PlainState::Init), None)
             }
         };
 
@@ -255,7 +299,7 @@ impl<'a> Lexer<'a> {
         // if contains whitespace character, it's a invalid dividing line
         self.line_tokens.clear(); // not a valid dividing line, so clear the dividing mark token
         self.unparsed = 0;
-        self.state = State::Plain;
+        self.state = State::Plain(PlainState::Init);
         None
     }
 
@@ -269,11 +313,11 @@ impl<'a> Lexer<'a> {
         let rest = utf8_slice::from(self.line_text, cur_pos);
         self.unparsed = utf8_slice::len(self.line_text);
         self.state = State::Finished;
-        Some(Token::Title(rest.trim_end_matches('\n').to_string()))
+        Some(Token::Title(rest.trim_end().to_string()))
     }
 
-    // parse the rest of the line as the disordered list token.
-    fn parse_disordered_list(&mut self, cur_pos: usize, cur_char: char) -> Option<Token> {
+    // parse the rest of the line as a list item token.
+    fn parse_list_item(&mut self, cur_pos: usize, cur_char: char) -> Option<Token> {
         // skip all whitespace characters after the mark token.
         if cur_char.is_whitespace() {
             self.unparsed = cur_pos + 1;
@@ -282,9 +326,7 @@ impl<'a> Lexer<'a> {
         let rest = utf8_slice::from(self.line_text, cur_pos);
         self.unparsed = utf8_slice::len(self.line_text);
         self.state = State::Finished;
-        Some(Token::DisorderListItem(
-            rest.trim_end_matches('\n').to_string(),
-        ))
+        Some(Token::ListItem(rest.trim_end().to_string()))
     }
 
     // parse the rest of the line as the quote token.
@@ -297,21 +339,47 @@ impl<'a> Lexer<'a> {
         let rest = utf8_slice::from(self.line_text, cur_pos);
         self.unparsed = utf8_slice::len(self.line_text);
         self.state = State::Finished;
-        Some(Token::Quote(rest.trim_end_matches('\n').to_string()))
+        Some(Token::Quote(rest.trim_end().to_string()))
     }
 
     // parse the line as the plain token.
-    fn parse_plain(&mut self, _cur_pos: usize, _cur_char: char) -> Option<Token> {
-        let content = utf8_slice::from(self.line_text, self.unparsed);
-        self.unparsed = utf8_slice::len(self.line_text);
-        self.state = State::Finished;
+    fn parse_plain(&mut self, sub: PlainState, _cur_pos: usize, _cur_char: char) -> Option<Token> {
+        match sub {
+            PlainState::Init => {
+                let content = utf8_slice::from(self.line_text, self.unparsed);
+                self.unparsed = utf8_slice::len(self.line_text);
 
-        // TODO: find 'line break', double spaces or <br> at the end of the line
-        for (i, ch) in content.chars().rev().enumerate() {
+                self.state = if Lexer::has_line_break(content) {
+                    State::Plain(PlainState::LineBreak)
+                } else {
+                    State::Finished
+                };
+                Some(Token::Plain(content.trim_end().to_string()))
+            }
+            PlainState::LineBreak => {
+                self.state = State::Finished;
+                Some(Token::LineBreak("<br>".to_string()))
+            }
+        }
+    }
+
+    // find 'line break', double spaces or <br> at the end of the line
+    fn has_line_break(s: &str) -> bool {
+        let mut ws_count = 0;
+        for ch in s.chars().rev() {
             if ch == '\n' {
                 continue;
             }
+            if ch.is_whitespace() {
+                ws_count += 1;
+                continue;
+            }
+            break;
         }
-        Some(Token::Plain(content.trim_end_matches('\n').to_string()))
+        if ws_count >= 2 {
+            true
+        } else {
+            s.trim_end().ends_with("<br>")
+        }
     }
 }

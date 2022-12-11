@@ -4,13 +4,22 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 
 // Ast represents the abstract syntax tree of the markdown file, it structurally represents the entire file.
-pub struct Ast {
-    lines: Vec<Line>,
+pub struct Ast<'ast> {
+    doc: Vec<Line>,
+    blocks: Vec<Block<'ast>>,
 }
 
-impl Ast {
-    pub fn new() -> Ast {
-        Ast { lines: Vec::new() }
+// Block is a group of multiple lines.
+struct Block<'blk> {
+    lines: Vec<&'blk Line>,
+}
+
+impl<'ast> Ast<'ast> {
+    pub fn new() -> Self {
+        Ast {
+            doc: Vec::new(),
+            blocks: Vec::new(),
+        }
     }
 
     pub fn parse_file(&mut self, reader: BufReader<File>) {
@@ -24,22 +33,26 @@ impl Ast {
     }
 
     fn push(&mut self, num: i32, line: String) {
-        self.lines.push(Line::new(num, line));
+        self.doc.push(Line::new(num, line));
+        // TODO:
+        if let Some(_) = self.doc.last() {
+            //   self.blocks.push(Block { lines: vec![l] })
+        }
     }
 }
 
-impl Default for Ast {
+impl<'ast> Default for Ast<'ast> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl Debug for Ast {
+impl<'ast> Debug for Ast<'ast> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut debug = String::new();
-        for line in &self.lines {
+        for line in &self.doc {
             debug.push_str(format!("[{}, {:?}]: ", line.num, line.kind).as_str());
-            for t in &line.tokens {
+            for t in &line.sequence {
                 let s = format!("{:?} ", t);
                 debug.push_str(&s);
             }
@@ -51,7 +64,7 @@ impl Debug for Ast {
 
 // Line is a line of the markdown file, it be parsed into some tokens.
 struct Line {
-    tokens: Vec<Token>,
+    sequence: Vec<Token>,
     kind: LineKind,
     num: i32,
     text: String,
@@ -91,14 +104,14 @@ impl Line {
             num: ln,
             text: line,
             kind: LineKind::Unknow,
-            tokens: Vec::new(),
+            sequence: Vec::new(),
         };
         l.parse();
         l
     }
     // parses a line of text into 'Line' struct that contains multi tokens.
     fn parse(&mut self) {
-        let mut lx = Lexer::new(&self.text, &mut self.tokens);
+        let mut lx = Lexer::new(&self.text, &mut self.sequence);
 
         for (cur_pos, cur_char) in self.text.chars().enumerate() {
             let stopped = lx.process(cur_pos, cur_char);
@@ -108,7 +121,7 @@ impl Line {
         }
         lx.finish();
 
-        self.kind = match self.tokens.first() {
+        self.kind = match self.sequence.first() {
             None => LineKind::Unknow,
             Some(t) => match t {
                 Token::BlankLine(_) => LineKind::Blank,
@@ -126,11 +139,11 @@ impl Line {
 
 // Lexer used to split the text of the line into some tokens,
 // It is implemented with a state machine.
-struct Lexer<'a> {
+struct Lexer<'lex> {
     state: State,
     unparsed: usize,
-    line_tokens: &'a mut Vec<Token>,
-    line_text: &'a str,
+    line_tokens: &'lex mut Vec<Token>,
+    line_text: &'lex str,
 }
 
 #[derive(PartialEq)]
@@ -152,8 +165,8 @@ enum PlainState {
     LineBreak,
 }
 
-impl<'a> Lexer<'a> {
-    fn new(text: &'a str, tokens: &'a mut Vec<Token>) -> Self {
+impl<'lex> Lexer<'lex> {
+    fn new(text: &'lex str, tokens: &'lex mut Vec<Token>) -> Self {
         Lexer {
             state: State::Begin,
             unparsed: 0,

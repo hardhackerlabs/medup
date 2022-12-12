@@ -70,7 +70,7 @@ struct Line {
     text: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 enum LineKind {
     Unknow,
     Blank,
@@ -440,6 +440,70 @@ _____________
             s.push('\n');
             ast.push(num as i32, s);
         }
-        assert_eq!(ast.doc.len(), md.lines().count())
+        assert_eq!(ast.doc.len(), md.lines().count());
+    }
+
+    #[test]
+    fn test_parse_title() {
+        let marks = vec!["#", "##", "###", "####"];
+        let titles = vec![" Header1", " Header1   ", "  Header1 Header1", " ", ""];
+
+        for mark in marks {
+            let mut n = 0;
+            let mut ast = Ast::new();
+            for title in titles.iter() {
+                let mut s = mark.to_string();
+                s += title;
+                s += "\n";
+
+                n += 1;
+                ast.push(n, s)
+            }
+
+            assert_eq!(ast.doc.len(), n as usize);
+            {
+                let l = ast.doc.get(0).unwrap();
+                assert_eq!(l.kind, LineKind::Title);
+                assert_eq!(
+                    l.sequence,
+                    vec![
+                        Token::TitleMark(mark.to_string()),
+                        Token::Title(titles.get(0).unwrap().trim().to_string())
+                    ]
+                );
+            }
+            {
+                let l = ast.doc.get(1).unwrap();
+                assert_eq!(l.kind, LineKind::Title);
+                assert_eq!(
+                    l.sequence,
+                    vec![
+                        Token::TitleMark(mark.to_string()),
+                        Token::Title(titles.get(1).unwrap().trim().to_string())
+                    ]
+                );
+            }
+            {
+                let l = ast.doc.get(2).unwrap();
+                assert_eq!(l.kind, LineKind::Title);
+                assert_eq!(
+                    l.sequence,
+                    vec![
+                        Token::TitleMark(mark.to_string()),
+                        Token::Title(titles.get(2).unwrap().trim().to_string())
+                    ]
+                );
+            }
+            {
+                let l = ast.doc.get(3).unwrap();
+                assert_eq!(l.kind, LineKind::Title);
+                assert_eq!(l.sequence, vec![Token::TitleMark(mark.to_string())]);
+            }
+            {
+                let l = ast.doc.get(4).unwrap();
+                assert_eq!(l.kind, LineKind::Title);
+                assert_eq!(l.sequence, vec![Token::TitleMark(mark.to_string())]);
+            }
+        }
     }
 }

@@ -506,4 +506,187 @@ _____________
             }
         }
     }
+
+    #[test]
+    fn test_parse_dividing() {
+        let marks = vec![
+            "---",
+            "***",
+            "___",
+            " ------",
+            "****",
+            "  __________         ",
+            " ----------------------------------------   ",
+        ];
+
+        for mark in marks {
+            let mut ast = Ast::new();
+            let mut s = mark.to_string();
+            s += "\n";
+            ast.push(1, s);
+
+            assert_eq!(ast.doc.len(), 1);
+            assert_eq!(ast.doc.get(0).unwrap().kind, LineKind::DividingLine);
+            assert_eq!(
+                ast.doc.get(0).unwrap().sequence,
+                vec![Token::DividingMark(mark.trim().to_string())]
+            )
+        }
+    }
+
+    #[test]
+    fn test_parse_plain() {
+        let contents = vec![
+            "这是我的一个学习 rust 编程语言的项目，我将尝试去开发一个强大的 markdown 编辑器。",
+            "--- x",
+            "***xxxx",
+            "___ 这不是一个分界线",
+            "--- ---",
+            "*** ***",
+            "___ ___",
+            "#这不是标题",
+            "##这也不是标题",
+            ">这不是引用",
+            "*这不是列表",
+            "1.这也不是列表",
+        ];
+
+        for cnt in contents {
+            let mut ast = Ast::new();
+            let mut s = cnt.to_string();
+            s += "\n";
+            ast.push(1, s);
+
+            assert_eq!(ast.doc.len(), 1);
+            assert_eq!(ast.doc.get(0).unwrap().kind, LineKind::Plain);
+            assert_eq!(
+                ast.doc.get(0).unwrap().sequence,
+                vec![Token::Plain(cnt.trim().to_string())]
+            )
+        }
+    }
+
+    #[test]
+    fn test_parse_linebreak() {
+        let contents = vec![
+            "这是我的一个学习 rust 编程语言的项目，我将尝试去开发一个强大的 markdown 编辑器。  ",  // have two spaces at the end of the line.
+            "这是我的一个学习 rust 编程语言的项目，我将尝试去开发一个强大的 markdown 编辑器。       ", // have two tab spaces at the end of the line.
+            "这是我的一个学习 rust 编程语言的项目，我将尝试去开发一个强大的 markdown 编辑器。    <br>  ", // have two spaces at the end of the line.
+            "这是我的一个学习 rust 编程语言的项目，我将尝试去开发一个强大的 markdown 编辑器。<br>",
+        ];
+
+        for cnt in contents {
+            let mut ast = Ast::new();
+            let mut s = cnt.to_string();
+            s += "\n";
+            ast.push(1, s);
+
+            assert_eq!(ast.doc.len(), 1);
+            assert_eq!(ast.doc.get(0).unwrap().kind, LineKind::Plain);
+            assert_eq!(
+                ast.doc.get(0).unwrap().sequence,
+                vec![
+                    Token::Plain(cnt.trim().to_string()),
+                    Token::LineBreak("<br>".to_string())
+                ]
+            )
+        }
+    }
+
+    #[test]
+    fn test_parse_quote() {
+        let mut ast = Ast::new();
+        let mark = ">";
+        let content =
+            "Rust, A language empowering everyone to build reliable and efficient software.";
+
+        let mut s = mark.to_string();
+        s.push_str(" ");
+        s.push_str(content);
+        ast.push(1, s);
+
+        assert_eq!(ast.doc.len(), 1);
+        assert_eq!(ast.doc.get(0).unwrap().kind, LineKind::Quote);
+        assert_eq!(
+            ast.doc.get(0).unwrap().sequence,
+            vec![
+                Token::QuoteMark(mark.to_string()),
+                Token::Quote(content.to_string())
+            ]
+        )
+    }
+
+    #[test]
+    fn test_parse_disorder_list() {
+        let mut ast = Ast::new();
+        let mark = "*";
+        let content =
+            "Rust, A language empowering everyone to build reliable and efficient software.";
+
+        let mut s = mark.to_string();
+        s.push_str(" ");
+        s.push_str(content);
+        ast.push(1, s);
+
+        assert_eq!(ast.doc.len(), 1);
+        assert_eq!(ast.doc.get(0).unwrap().kind, LineKind::DisorderedList);
+        assert_eq!(
+            ast.doc.get(0).unwrap().sequence,
+            vec![
+                Token::DisorderListMark(mark.to_string()),
+                Token::ListItem(content.to_string())
+            ]
+        )
+    }
+
+    #[test]
+    fn test_parse_sorted_list() {
+        let marks = vec!["1.", "2.", "3.", "4.", "10.", "11.", "99.", "100.", "999."];
+        let content =
+            "Rust, A language empowering everyone to build reliable and efficient software.";
+
+        for mark in marks {
+            let mut ast = Ast::new();
+            let mut s = mark.to_string();
+            s.push_str(" ");
+            s.push_str(content);
+            ast.push(1, s);
+
+            assert_eq!(ast.doc.len(), 1);
+            assert_eq!(ast.doc.get(0).unwrap().kind, LineKind::SortedList);
+            assert_eq!(
+                ast.doc.get(0).unwrap().sequence,
+                vec![
+                    Token::SortedListMark(mark.to_string()),
+                    Token::ListItem(content.to_string())
+                ]
+            )
+        }
+    }
+
+    #[test]
+    fn test_blank_line() {
+        let contents = vec![
+            "",
+            " ",
+            "     ",
+            "         ",
+            "                                            ",
+            "  ",
+        ];
+
+        for cnt in contents {
+            let mut ast = Ast::new();
+            let mut s = cnt.to_string();
+            s += "\n";
+            ast.push(1, s);
+
+            assert_eq!(ast.doc.len(), 1);
+            assert_eq!(ast.doc.get(0).unwrap().kind, LineKind::Blank);
+            assert_eq!(
+                ast.doc.get(0).unwrap().sequence,
+                vec![Token::BlankLine("".to_string())]
+            )
+        }
+    }
 }

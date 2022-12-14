@@ -184,7 +184,7 @@ enum State {
 
 #[derive(PartialEq, Clone, Copy)]
 enum TextState {
-    Default,
+    Normal,
     Bold(usize), // usize is start position in line
 }
 
@@ -258,18 +258,25 @@ impl<'lex> Lexer<'lex> {
         }
     }
 
+    fn set_state(&mut self, last: usize, state: State) {
+        self.unparsed = last;
+        self.state = state;
+    }
+
+    fn end(&mut self) {
+        self.set_state(utf8_slice::len(self.line_text), State::Finished);
+    }
+
     // skip all whitespace characters at the beginning of the line,
     // or generate a blank line token if the line contains only whitespace characters.
     fn skip_begin_whitespaces(&mut self, cur_pos: usize, cur_char: char) -> Option<Token> {
         if cur_char.is_whitespace() {
             if cur_char == '\n' {
-                self.state = State::Finished;
-                self.unparsed = cur_pos + 1;
+                self.end();
                 return Some(Token::new("".to_string(), TokenKind::BlankLine));
             }
         } else {
-            self.state = State::CheckMark;
-            self.unparsed = cur_pos;
+            self.set_state(cur_pos, State::CheckMark);
         }
         None
     }
@@ -367,8 +374,7 @@ impl<'lex> Lexer<'lex> {
             }
         };
 
-        self.state = state;
-        self.unparsed = unparsed;
+        self.set_state(unparsed, state);
         token
     }
 
@@ -379,8 +385,7 @@ impl<'lex> Lexer<'lex> {
         }
         // if contains whitespace character, it's a invalid dividing line
         self.line_tokens.clear(); // not a valid dividing line, so clear the dividing mark token
-        self.unparsed = 0;
-        self.state = State::Normal;
+        self.set_state(0, State::Normal);
         None
     }
 
@@ -392,8 +397,7 @@ impl<'lex> Lexer<'lex> {
             return None;
         }
         let rest = utf8_slice::from(self.line_text, cur_pos);
-        self.unparsed = utf8_slice::len(self.line_text);
-        self.state = State::Finished;
+        self.end();
         Some(Token::new(rest.trim_end().to_string(), TokenKind::Text))
     }
 
@@ -405,8 +409,7 @@ impl<'lex> Lexer<'lex> {
             return None;
         }
         let rest = utf8_slice::from(self.line_text, cur_pos);
-        self.unparsed = utf8_slice::len(self.line_text);
-        self.state = State::Finished;
+        self.end();
         Some(Token::new(rest.trim_end().to_string(), TokenKind::Text))
     }
 
@@ -418,8 +421,7 @@ impl<'lex> Lexer<'lex> {
             return None;
         }
         let rest = utf8_slice::from(self.line_text, cur_pos);
-        self.unparsed = utf8_slice::len(self.line_text);
-        self.state = State::Finished;
+        self.end();
         Some(Token::new(rest.trim_end().to_string(), TokenKind::Text))
     }
 
@@ -428,11 +430,10 @@ impl<'lex> Lexer<'lex> {
         let mut last = self.unparsed;
         let content = utf8_slice::from(self.line_text, last);
 
-        self.unparsed = utf8_slice::len(self.line_text);
-        self.state = State::Finished;
+        self.end();
 
         let mut buff: Vec<Token> = Vec::new();
-        let mut state = TextState::Default;
+        let mut state = TextState::Normal;
 
         for (i, ch) in content.chars().enumerate() {
             if ch == '\n' {
@@ -447,7 +448,7 @@ impl<'lex> Lexer<'lex> {
                 break;
             }
             match state {
-                TextState::Default => {
+                TextState::Normal => {
                     if ch == '*' {
                         state = TextState::Bold(i);
                     }
@@ -466,7 +467,7 @@ impl<'lex> Lexer<'lex> {
 
                         last = i + 1;
                     }
-                    state = TextState::Default;
+                    state = TextState::Normal;
                 }
             }
         }

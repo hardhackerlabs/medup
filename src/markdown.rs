@@ -432,7 +432,7 @@ impl<'lex> Lexer<'lex> {
         self.state = State::Finished;
 
         let mut buff: Vec<Token> = Vec::new();
-        let mut ss = TextState::Default;
+        let mut state = TextState::Default;
 
         for (i, ch) in content.chars().enumerate() {
             if ch == '\n' {
@@ -446,10 +446,10 @@ impl<'lex> Lexer<'lex> {
                 ));
                 break;
             }
-            match ss {
+            match state {
                 TextState::Default => {
                     if ch == '*' {
-                        ss = TextState::Bold(i);
+                        state = TextState::Bold(i);
                     }
                 }
                 TextState::Bold(begin) => {
@@ -466,7 +466,7 @@ impl<'lex> Lexer<'lex> {
 
                         last = i + 1;
                     }
-                    ss = TextState::Default;
+                    state = TextState::Default;
                 }
             }
         }

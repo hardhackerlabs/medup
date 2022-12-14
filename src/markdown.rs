@@ -475,7 +475,40 @@ impl<'lex> Lexer<'lex> {
             buff.push(Token::new("<br>".to_string(), TokenKind::LineBreak));
         }
 
+        Self::tidy_normal_tokens(&mut buff);
         Some(buff)
+    }
+
+    fn tidy_normal_tokens(buff: &mut [Token]) {
+        let mut tmp: Vec<(usize, usize)> = Vec::new();
+        let mut in_bold = false;
+        let mut begin = 0;
+
+        for (i, t) in buff.iter().enumerate() {
+            if t.kind == TokenKind::BoldMark {
+                if !in_bold {
+                    begin = i;
+                } else {
+                    tmp.push((begin, i));
+                }
+                in_bold = !in_bold;
+            }
+        }
+        // the bold not be closed, so change kind of the bold mark to text.
+        if in_bold {
+            let t = &mut buff[begin];
+            t.kind = TokenKind::Text;
+        }
+
+        // in bold
+        for (b, e) in tmp {
+            for t in buff[b..=e].iter_mut() {
+                if t.kind == TokenKind::BoldMark {
+                    continue;
+                }
+                t.parent_kind = Some(TokenKind::BoldMark);
+            }
+        }
     }
 
     // find 'line break', double spaces or <br> at the end of the line
@@ -502,6 +535,14 @@ impl<'lex> Lexer<'lex> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn create_ast(s: &str) -> Ast {
+        let mut ast = Ast::new();
+        let mut s = s.to_string();
+        s += "\n";
+        ast.push(1, s);
+        ast
+    }
 
     #[test]
     fn test_parse_all() {
@@ -644,33 +685,69 @@ _____________
 
     #[test]
     fn test_parse_normal() {
-        let contents = vec![
-            "这是我的一个学习 rust 编程语言的项目，我将尝试去开发一个强大的 markdown 编辑器。",
-            "--- x",
-            // "***xxxx",
-            "___ 这不是一个分界线",
-            "--- ---",
-            // "*** ***",
-            "___ ___",
-            "#这不是标题",
-            "##这也不是标题",
-            ">这不是引用",
-            "*这不是列表",
-            "1.这也不是列表",
-        ];
+        {
+            let contents = vec![
+                "这是我的一个学习 rust 编程语言的项目，我将尝试去开发一个强大的 markdown 编辑器。",
+                "--- x",
+                "___ 这不是一个分界线",
+                "--- ---",
+                "___ ___",
+                "#这不是标题",
+                "##这也不是标题",
+                ">这不是引用",
+                "*这不是列表",
+                "1.这也不是列表",
+            ];
 
-        for cnt in contents {
-            let mut ast = Ast::new();
-            let mut s = cnt.to_string();
-            s += "\n";
-            ast.push(1, s);
+            for cnt in contents {
+                let ast = create_ast(cnt);
 
-            assert_eq!(ast.doc.len(), 1);
-            assert_eq!(ast.doc.get(0).unwrap().kind, LineKind::NormalText);
-            assert_eq!(
-                ast.doc.get(0).unwrap().sequence,
-                vec![Token::new(cnt.trim().to_string(), TokenKind::Text)]
-            )
+                assert_eq!(ast.doc.len(), 1);
+                assert_eq!(ast.doc.get(0).unwrap().kind, LineKind::NormalText);
+                assert_eq!(
+                    ast.doc.get(0).unwrap().sequence,
+                    vec![Token::new(cnt.trim().to_string(), TokenKind::Text)]
+                )
+            }
+        }
+        {
+            let contents = vec!["***xxxx"];
+
+            for cnt in contents {
+                let ast = create_ast(cnt);
+
+                assert_eq!(ast.doc.len(), 1);
+                assert_eq!(ast.doc.get(0).unwrap().kind, LineKind::NormalText);
+                assert_eq!(
+                    ast.doc.get(0).unwrap().sequence,
+                    vec![
+                        Token::new("**".to_string(), TokenKind::Text),
+                        Token::new("*xxxx".to_string(), TokenKind::Text)
+                    ]
+                )
+            }
+        }
+        {
+            let contents = vec!["**1**"];
+
+            for cnt in contents {
+                let ast = create_ast(cnt);
+
+                assert_eq!(ast.doc.len(), 1);
+                assert_eq!(ast.doc.get(0).unwrap().kind, LineKind::NormalText);
+                assert_eq!(
+                    ast.doc.get(0).unwrap().sequence,
+                    vec![
+                        Token::new("**".to_string(), TokenKind::BoldMark),
+                        Token::new_with_parent(
+                            "1".to_string(),
+                            TokenKind::Text,
+                            TokenKind::BoldMark
+                        ),
+                        Token::new("**".to_string(), TokenKind::BoldMark),
+                    ]
+                )
+            }
         }
     }
 
@@ -684,10 +761,7 @@ _____________
         ];
 
         for cnt in contents {
-            let mut ast = Ast::new();
-            let mut s = cnt.to_string();
-            s += "\n";
-            ast.push(1, s);
+            let ast = create_ast(cnt);
 
             assert_eq!(ast.doc.len(), 1);
             assert_eq!(ast.doc.get(0).unwrap().kind, LineKind::NormalText);
@@ -706,7 +780,6 @@ _____________
 
     #[test]
     fn test_parse_quote() {
-        let mut ast = Ast::new();
         let mark = ">";
         let content =
             "Rust, A language empowering everyone to build reliable and efficient software.";
@@ -714,7 +787,8 @@ _____________
         let mut s = mark.to_string();
         s.push_str(" ");
         s.push_str(content);
-        ast.push(1, s);
+
+        let ast = create_ast(&s);
 
         assert_eq!(ast.doc.len(), 1);
         assert_eq!(ast.doc.get(0).unwrap().kind, LineKind::Quote);
@@ -729,7 +803,6 @@ _____________
 
     #[test]
     fn test_parse_disorder_list() {
-        let mut ast = Ast::new();
         let mark = "*";
         let content =
             "Rust, A language empowering everyone to build reliable and efficient software.";
@@ -737,7 +810,8 @@ _____________
         let mut s = mark.to_string();
         s.push_str(" ");
         s.push_str(content);
-        ast.push(1, s);
+
+        let ast = create_ast(&s);
 
         assert_eq!(ast.doc.len(), 1);
         assert_eq!(ast.doc.get(0).unwrap().kind, LineKind::DisorderedList);
@@ -757,11 +831,10 @@ _____________
             "Rust, A language empowering everyone to build reliable and efficient software.";
 
         for mark in marks {
-            let mut ast = Ast::new();
             let mut s = mark.to_string();
             s.push_str(" ");
             s.push_str(content);
-            ast.push(1, s);
+            let ast = create_ast(&s);
 
             assert_eq!(ast.doc.len(), 1);
             assert_eq!(ast.doc.get(0).unwrap().kind, LineKind::SortedList);
@@ -787,10 +860,7 @@ _____________
         ];
 
         for cnt in contents {
-            let mut ast = Ast::new();
-            let mut s = cnt.to_string();
-            s += "\n";
-            ast.push(1, s);
+            let ast = create_ast(cnt);
 
             assert_eq!(ast.doc.len(), 1);
             assert_eq!(ast.doc.get(0).unwrap().kind, LineKind::Blank);

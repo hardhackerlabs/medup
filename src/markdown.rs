@@ -79,7 +79,7 @@ enum LineKind {
     SortedList,
     DividingLine,
     Quote,
-    Plain,
+    NormalText,
 }
 
 #[derive(PartialEq, Debug)]
@@ -127,7 +127,7 @@ impl Line {
                 TokenKind::SortedListMark => LineKind::SortedList,
                 TokenKind::DividingMark => LineKind::DividingLine,
                 TokenKind::QuoteMark => LineKind::Quote,
-                _ => LineKind::Plain,
+                _ => LineKind::NormalText,
             },
         }
     }
@@ -178,12 +178,12 @@ enum State {
     SortedList,
     Quote,
     CheckDividing,
-    Plain,
+    Normal,
     Finished,
 }
 
 #[derive(PartialEq, Clone, Copy)]
-enum SplitPlainState {
+enum TextState {
     Default,
     Bold(usize), // usize is start position in line
 }
@@ -235,8 +235,8 @@ impl<'lex> Lexer<'lex> {
                     self.line_tokens.push(t)
                 }
             }
-            State::Plain => {
-                if let Some(ts) = self.split_plain_text() {
+            State::Normal => {
+                if let Some(ts) = self.split_normal_text() {
                     for t in ts {
                         if t.value.is_empty() {
                             continue;
@@ -360,10 +360,10 @@ impl<'lex> Lexer<'lex> {
                 Some(Token::new(first_word.to_string(), TokenKind::QuoteMark)),
             ),
 
-            // plain (as no mark)
+            // normal (as no mark)
             _ => {
                 // don't change the unparsed pointer, because the first word is not a mark.
-                (self.unparsed, State::Plain, None)
+                (self.unparsed, State::Normal, None)
             }
         };
 
@@ -372,7 +372,7 @@ impl<'lex> Lexer<'lex> {
         token
     }
 
-    // if there is not a valid dividing line, will recreate the token as plain.
+    // if there is not a valid dividing line, will recreate the token as normal.
     fn check_dividing(&mut self, _cur_pos: usize, cur_char: char) -> Option<Token> {
         if cur_char.is_whitespace() {
             return None;
@@ -380,7 +380,7 @@ impl<'lex> Lexer<'lex> {
         // if contains whitespace character, it's a invalid dividing line
         self.line_tokens.clear(); // not a valid dividing line, so clear the dividing mark token
         self.unparsed = 0;
-        self.state = State::Plain;
+        self.state = State::Normal;
         None
     }
 
@@ -423,8 +423,8 @@ impl<'lex> Lexer<'lex> {
         Some(Token::new(rest.trim_end().to_string(), TokenKind::Text))
     }
 
-    // parse the line as the plain token.
-    fn split_plain_text(&mut self) -> Option<Vec<Token>> {
+    // parse the line as the normal token.
+    fn split_normal_text(&mut self) -> Option<Vec<Token>> {
         let mut last = self.unparsed;
         let content = utf8_slice::from(self.line_text, last);
 
@@ -432,7 +432,7 @@ impl<'lex> Lexer<'lex> {
         self.state = State::Finished;
 
         let mut buff: Vec<Token> = Vec::new();
-        let mut ss = SplitPlainState::Default;
+        let mut ss = TextState::Default;
 
         for (i, ch) in content.chars().enumerate() {
             if ch == '\n' {
@@ -447,16 +447,16 @@ impl<'lex> Lexer<'lex> {
                 break;
             }
             match ss {
-                SplitPlainState::Default => {
+                TextState::Default => {
                     if ch == '*' {
-                        ss = SplitPlainState::Bold(i);
+                        ss = TextState::Bold(i);
                     }
                 }
-                SplitPlainState::Bold(begin) => {
+                TextState::Bold(begin) => {
                     if ch == '*' {
                         // so it's '**'.
 
-                        // the part of the plain text before '**' mark.
+                        // the part of the normal text before '**' mark.
                         let s = utf8_slice::slice(content, last, begin);
                         if !s.is_empty() {
                             buff.push(Token::new(s.to_string(), TokenKind::Text));
@@ -466,7 +466,7 @@ impl<'lex> Lexer<'lex> {
 
                         last = i + 1;
                     }
-                    ss = SplitPlainState::Default;
+                    ss = TextState::Default;
                 }
             }
         }
@@ -643,7 +643,7 @@ _____________
     }
 
     #[test]
-    fn test_parse_plain() {
+    fn test_parse_normal() {
         let contents = vec![
             "这是我的一个学习 rust 编程语言的项目，我将尝试去开发一个强大的 markdown 编辑器。",
             "--- x",
@@ -666,7 +666,7 @@ _____________
             ast.push(1, s);
 
             assert_eq!(ast.doc.len(), 1);
-            assert_eq!(ast.doc.get(0).unwrap().kind, LineKind::Plain);
+            assert_eq!(ast.doc.get(0).unwrap().kind, LineKind::NormalText);
             assert_eq!(
                 ast.doc.get(0).unwrap().sequence,
                 vec![Token::new(cnt.trim().to_string(), TokenKind::Text)]
@@ -690,7 +690,7 @@ _____________
             ast.push(1, s);
 
             assert_eq!(ast.doc.len(), 1);
-            assert_eq!(ast.doc.get(0).unwrap().kind, LineKind::Plain);
+            assert_eq!(ast.doc.get(0).unwrap().kind, LineKind::NormalText);
             assert_eq!(
                 ast.doc.get(0).unwrap().sequence,
                 vec![

@@ -82,15 +82,6 @@ enum LineKind {
     Plain,
 }
 
-// Token is a part of the line, the parser will parse the line into some tokens.
-#[derive(PartialEq, Debug)]
-struct Token {
-    value: String,
-    kind: TokenKind,
-    // begin_in_line: usize,
-    // end_in_line: usize,
-}
-
 #[derive(PartialEq, Debug)]
 enum TokenKind {
     TitleMark,
@@ -145,6 +136,33 @@ impl Line {
     }
 }
 
+// Token is a part of the line, the parser will parse the line into some tokens.
+#[derive(PartialEq, Debug)]
+struct Token {
+    value: String,
+    kind: TokenKind,
+    parent_kind: Option<TokenKind>,
+    // begin_in_line: usize,
+    // end_in_line: usize,
+}
+
+impl Token {
+    fn new(value: String, kind: TokenKind) -> Self {
+        Token {
+            value,
+            kind,
+            parent_kind: None,
+        }
+    }
+    fn new_with_parent(value: String, kind: TokenKind, parent: TokenKind) -> Self {
+        Token {
+            value,
+            kind,
+            parent_kind: Some(parent),
+        }
+    }
+}
+
 // Lexer used to split the text of the line into some tokens,
 // It is implemented with a state machine.
 struct Lexer<'lex> {
@@ -168,9 +186,9 @@ enum State {
 }
 
 #[derive(PartialEq, Clone, Copy)]
-enum SubState {
+enum SplitPlainState {
     Default,
-    Bold(usize), // usize is 'start_pos'
+    Bold(usize), // usize is start position in line
 }
 
 impl<'lex> Lexer<'lex> {
@@ -191,22 +209,22 @@ impl<'lex> Lexer<'lex> {
                 }
             }
             State::CheckMark => {
-                if let Some(t) = self.check_mark(cur_pos) {
+                if let Some(t) = self.split_mark(cur_pos) {
                     self.line_tokens.push(t)
                 }
             }
             State::Title => {
-                if let Some(t) = self.parse_title(cur_pos, cur_char) {
+                if let Some(t) = self.split_title(cur_pos, cur_char) {
                     self.line_tokens.push(t)
                 }
             }
             State::DisorderedList => {
-                if let Some(t) = self.parse_list_item(cur_pos, cur_char) {
+                if let Some(t) = self.split_list_item(cur_pos, cur_char) {
                     self.line_tokens.push(t)
                 }
             }
             State::SortedList => {
-                if let Some(t) = self.parse_list_item(cur_pos, cur_char) {
+                if let Some(t) = self.split_list_item(cur_pos, cur_char) {
                     self.line_tokens.push(t)
                 }
             }
@@ -216,14 +234,14 @@ impl<'lex> Lexer<'lex> {
                 }
             }
             State::Quote => {
-                if let Some(t) = self.parse_quote(cur_pos, cur_char) {
+                if let Some(t) = self.split_quote(cur_pos, cur_char) {
                     self.line_tokens.push(t)
                 }
             }
             State::Plain => {
-                if let Some(ts) = self.parse_plain_text() {
+                if let Some(ts) = self.split_plain_text() {
                     for t in ts {
-                        if t.value == "" {
+                        if t.value.is_empty() {
                             continue;
                         }
                         self.line_tokens.push(t);
@@ -250,10 +268,7 @@ impl<'lex> Lexer<'lex> {
             if cur_char == '\n' {
                 self.state = State::Finished;
                 self.unparsed = cur_pos + 1;
-                return Some(Token {
-                    value: "".to_string(),
-                    kind: TokenKind::BlankLine,
-                });
+                return Some(Token::new("".to_string(), TokenKind::BlankLine));
             }
         } else {
             self.state = State::CheckMark;
@@ -272,7 +287,7 @@ impl<'lex> Lexer<'lex> {
     }
 
     // parse the first word in the line as the mark token
-    fn check_mark(&mut self, cur_pos: usize) -> Option<Token> {
+    fn split_mark(&mut self, cur_pos: usize) -> Option<Token> {
         let first_word = self.find_word(cur_pos)?;
         let first_word_chars: Vec<char> = first_word.chars().collect();
 
@@ -281,38 +296,35 @@ impl<'lex> Lexer<'lex> {
             ['#'] | ['#', '#'] | ['#', '#', '#'] | ['#', '#', '#', '#'] => (
                 cur_pos + 1,
                 State::Title,
-                Some(Token {
-                    value: first_word.to_string(),
-                    kind: TokenKind::TitleMark,
-                }),
+                Some(Token::new(first_word.to_string(), TokenKind::TitleMark)),
             ),
 
             // disordered list
             ['*'] | ['-'] | ['+'] => (
                 cur_pos + 1,
                 State::DisorderedList,
-                Some(Token {
-                    value: first_word.to_string(),
-                    kind: TokenKind::DisorderListMark,
-                }),
+                Some(Token::new(
+                    first_word.to_string(),
+                    TokenKind::DisorderListMark,
+                )),
             ),
 
             // sorted list
             [n1, '.'] if ('1'..='9').contains(&n1) => (
                 cur_pos + 1,
                 State::SortedList,
-                Some(Token {
-                    value: first_word.to_string(),
-                    kind: TokenKind::SortedListMark,
-                }),
+                Some(Token::new(
+                    first_word.to_string(),
+                    TokenKind::SortedListMark,
+                )),
             ),
             [n1, n2, '.'] if ('1'..='9').contains(&n1) && ('0'..='9').contains(&n2) => (
                 cur_pos + 1,
                 State::SortedList,
-                Some(Token {
-                    value: first_word.to_string(),
-                    kind: TokenKind::SortedListMark,
-                }),
+                Some(Token::new(
+                    first_word.to_string(),
+                    TokenKind::SortedListMark,
+                )),
             ),
             [n1, n2, n3, '.']
                 if ('1'..='9').contains(&n1)
@@ -322,10 +334,10 @@ impl<'lex> Lexer<'lex> {
                 (
                     cur_pos + 1,
                     State::SortedList,
-                    Some(Token {
-                        value: first_word.to_string(),
-                        kind: TokenKind::SortedListMark,
-                    }),
+                    Some(Token::new(
+                        first_word.to_string(),
+                        TokenKind::SortedListMark,
+                    )),
                 )
             }
 
@@ -340,10 +352,7 @@ impl<'lex> Lexer<'lex> {
                 (
                     cur_pos + 1,
                     State::CheckDividing,
-                    Some(Token {
-                        value: first_word.to_string(),
-                        kind: TokenKind::DividingMark,
-                    }),
+                    Some(Token::new(first_word.to_string(), TokenKind::DividingMark)),
                 )
             }
 
@@ -351,10 +360,7 @@ impl<'lex> Lexer<'lex> {
             ['>'] => (
                 cur_pos + 1,
                 State::Quote,
-                Some(Token {
-                    value: first_word.to_string(),
-                    kind: TokenKind::QuoteMark,
-                }),
+                Some(Token::new(first_word.to_string(), TokenKind::QuoteMark)),
             ),
 
             // plain (as no mark)
@@ -382,7 +388,7 @@ impl<'lex> Lexer<'lex> {
     }
 
     // parse the rest of the line as title token
-    fn parse_title(&mut self, cur_pos: usize, cur_char: char) -> Option<Token> {
+    fn split_title(&mut self, cur_pos: usize, cur_char: char) -> Option<Token> {
         // skip all whitespace characters after the mark token.
         if cur_char.is_whitespace() {
             self.unparsed = cur_pos + 1;
@@ -391,14 +397,11 @@ impl<'lex> Lexer<'lex> {
         let rest = utf8_slice::from(self.line_text, cur_pos);
         self.unparsed = utf8_slice::len(self.line_text);
         self.state = State::Finished;
-        Some(Token {
-            value: rest.trim_end().to_string(),
-            kind: TokenKind::Title,
-        })
+        Some(Token::new(rest.trim_end().to_string(), TokenKind::Title))
     }
 
     // parse the rest of the line as a list item token.
-    fn parse_list_item(&mut self, cur_pos: usize, cur_char: char) -> Option<Token> {
+    fn split_list_item(&mut self, cur_pos: usize, cur_char: char) -> Option<Token> {
         // skip all whitespace characters after the mark token.
         if cur_char.is_whitespace() {
             self.unparsed = cur_pos + 1;
@@ -407,14 +410,11 @@ impl<'lex> Lexer<'lex> {
         let rest = utf8_slice::from(self.line_text, cur_pos);
         self.unparsed = utf8_slice::len(self.line_text);
         self.state = State::Finished;
-        Some(Token {
-            value: rest.trim_end().to_string(),
-            kind: TokenKind::ListItem,
-        })
+        Some(Token::new(rest.trim_end().to_string(), TokenKind::ListItem))
     }
 
     // parse the rest of the line as the quote token.
-    fn parse_quote(&mut self, cur_pos: usize, cur_char: char) -> Option<Token> {
+    fn split_quote(&mut self, cur_pos: usize, cur_char: char) -> Option<Token> {
         // skip all whitespace characters after the mark token.
         if cur_char.is_whitespace() {
             self.unparsed = cur_pos + 1;
@@ -423,14 +423,11 @@ impl<'lex> Lexer<'lex> {
         let rest = utf8_slice::from(self.line_text, cur_pos);
         self.unparsed = utf8_slice::len(self.line_text);
         self.state = State::Finished;
-        Some(Token {
-            value: rest.trim_end().to_string(),
-            kind: TokenKind::Quote,
-        })
+        Some(Token::new(rest.trim_end().to_string(), TokenKind::Quote))
     }
 
     // parse the line as the plain token.
-    fn parse_plain_text(&mut self) -> Option<Vec<Token>> {
+    fn split_plain_text(&mut self) -> Option<Vec<Token>> {
         let mut last = self.unparsed;
         let content = utf8_slice::from(self.line_text, last);
 
@@ -438,65 +435,47 @@ impl<'lex> Lexer<'lex> {
         self.state = State::Finished;
 
         let mut buff: Vec<Token> = Vec::new();
-        let mut ss = SubState::Default;
+        let mut ss = SplitPlainState::Default;
 
         for (i, ch) in content.chars().enumerate() {
+            if ch == '\n' {
+                // end of the line
+                buff.push(Token::new(
+                    utf8_slice::slice(content, last, i)
+                        .trim_end()
+                        .trim_end_matches("<br>")
+                        .to_string(),
+                    TokenKind::PlainText,
+                ));
+                break;
+            }
             match ss {
-                SubState::Default => {
-                    // end of the line.
-                    if ch == '\n' {
-                        buff.push(Token {
-                            value: utf8_slice::slice(content, last, i)
-                                .trim_end()
-                                .trim_end_matches("<br>")
-                                .to_string(),
-                            kind: TokenKind::PlainText,
-                        });
-                        last = i + 1;
-                        continue;
-                    }
+                SplitPlainState::Default => {
                     if ch == '*' {
-                        ss = SubState::Bold(i);
-                        continue;
+                        ss = SplitPlainState::Bold(i);
                     }
                 }
-                SubState::Bold(bold_begin) => {
+                SplitPlainState::Bold(begin) => {
                     if ch == '*' {
                         // so it's '**'.
 
                         // the part of the plain text before '**' mark.
-                        buff.push(Token {
-                            value: utf8_slice::slice(content, last, bold_begin).to_string(),
-                            kind: TokenKind::PlainText,
-                        });
+                        let s = utf8_slice::slice(content, last, begin);
+                        if !s.is_empty() {
+                            buff.push(Token::new(s.to_string(), TokenKind::PlainText));
+                        }
                         // '**' mark.
-                        buff.push(Token {
-                            value: "**".to_string(),
-                            kind: TokenKind::BoldMark,
-                        });
+                        buff.push(Token::new("**".to_string(), TokenKind::BoldMark));
 
                         last = i + 1;
                     }
-                    ss = SubState::Default;
+                    ss = SplitPlainState::Default;
                 }
             }
         }
 
-        if last < utf8_slice::len(content) && ss == SubState::Default {
-            buff.push(Token {
-                value: utf8_slice::from(content, last)
-                    .trim_end()
-                    .trim_end_matches("<br>")
-                    .to_string(),
-                kind: TokenKind::PlainText,
-            });
-        }
-
         if Self::has_line_break(content) {
-            buff.push(Token {
-                value: "<br>".to_string(),
-                kind: TokenKind::LineBreak,
-            });
+            buff.push(Token::new("<br>".to_string(), TokenKind::LineBreak));
         }
 
         Some(buff)
@@ -593,14 +572,8 @@ _____________
                 assert_eq!(
                     l.sequence,
                     vec![
-                        Token {
-                            kind: TokenKind::TitleMark,
-                            value: mark.to_string(),
-                        },
-                        Token {
-                            kind: TokenKind::Title,
-                            value: titles.get(0).unwrap().trim().to_string()
-                        }
+                        Token::new(mark.to_string(), TokenKind::TitleMark),
+                        Token::new(titles.get(0).unwrap().trim().to_string(), TokenKind::Title,)
                     ]
                 );
             }
@@ -610,14 +583,8 @@ _____________
                 assert_eq!(
                     l.sequence,
                     vec![
-                        Token {
-                            kind: TokenKind::TitleMark,
-                            value: mark.to_string()
-                        },
-                        Token {
-                            kind: TokenKind::Title,
-                            value: titles.get(1).unwrap().trim().to_string()
-                        }
+                        Token::new(mark.to_string(), TokenKind::TitleMark,),
+                        Token::new(titles.get(1).unwrap().trim().to_string(), TokenKind::Title)
                     ]
                 );
             }
@@ -627,14 +594,8 @@ _____________
                 assert_eq!(
                     l.sequence,
                     vec![
-                        Token {
-                            kind: TokenKind::TitleMark,
-                            value: mark.to_string()
-                        },
-                        Token {
-                            kind: TokenKind::Title,
-                            value: titles.get(2).unwrap().trim().to_string()
-                        }
+                        Token::new(mark.to_string(), TokenKind::TitleMark,),
+                        Token::new(titles.get(2).unwrap().trim().to_string(), TokenKind::Title,)
                     ]
                 );
             }
@@ -643,10 +604,7 @@ _____________
                 assert_eq!(l.kind, LineKind::Title);
                 assert_eq!(
                     l.sequence,
-                    vec![Token {
-                        kind: TokenKind::TitleMark,
-                        value: mark.to_string()
-                    }]
+                    vec![Token::new(mark.to_string(), TokenKind::TitleMark,)]
                 );
             }
             {
@@ -654,10 +612,7 @@ _____________
                 assert_eq!(l.kind, LineKind::Title);
                 assert_eq!(
                     l.sequence,
-                    vec![Token {
-                        kind: TokenKind::TitleMark,
-                        value: mark.to_string()
-                    }]
+                    vec![Token::new(mark.to_string(), TokenKind::TitleMark,)]
                 );
             }
         }
@@ -685,10 +640,7 @@ _____________
             assert_eq!(ast.doc.get(0).unwrap().kind, LineKind::DividingLine);
             assert_eq!(
                 ast.doc.get(0).unwrap().sequence,
-                vec![Token {
-                    kind: TokenKind::DividingMark,
-                    value: mark.trim().to_string()
-                }]
+                vec![Token::new(mark.trim().to_string(), TokenKind::DividingMark,)]
             )
         }
     }
@@ -720,10 +672,7 @@ _____________
             assert_eq!(ast.doc.get(0).unwrap().kind, LineKind::Plain);
             assert_eq!(
                 ast.doc.get(0).unwrap().sequence,
-                vec![Token {
-                    kind: TokenKind::PlainText,
-                    value: cnt.trim().to_string()
-                }]
+                vec![Token::new(cnt.trim().to_string(), TokenKind::PlainText)]
             )
         }
     }
@@ -748,14 +697,11 @@ _____________
             assert_eq!(
                 ast.doc.get(0).unwrap().sequence,
                 vec![
-                    Token {
-                        kind: TokenKind::PlainText,
-                        value: cnt.trim().trim_end_matches("<br>").to_string()
-                    },
-                    Token {
-                        kind: TokenKind::LineBreak,
-                        value: "<br>".to_string()
-                    }
+                    Token::new(
+                        cnt.trim().trim_end_matches("<br>").to_string(),
+                        TokenKind::PlainText,
+                    ),
+                    Token::new("<br>".to_string(), TokenKind::LineBreak,)
                 ]
             )
         }
@@ -778,14 +724,8 @@ _____________
         assert_eq!(
             ast.doc.get(0).unwrap().sequence,
             vec![
-                Token {
-                    kind: TokenKind::QuoteMark,
-                    value: mark.to_string()
-                },
-                Token {
-                    kind: TokenKind::Quote,
-                    value: content.to_string()
-                }
+                Token::new(mark.to_string(), TokenKind::QuoteMark,),
+                Token::new(content.to_string(), TokenKind::Quote,)
             ]
         )
     }
@@ -807,14 +747,8 @@ _____________
         assert_eq!(
             ast.doc.get(0).unwrap().sequence,
             vec![
-                Token {
-                    kind: TokenKind::DisorderListMark,
-                    value: mark.to_string()
-                },
-                Token {
-                    kind: TokenKind::ListItem,
-                    value: content.to_string()
-                }
+                Token::new(mark.to_string(), TokenKind::DisorderListMark,),
+                Token::new(content.to_string(), TokenKind::ListItem)
             ]
         )
     }
@@ -837,14 +771,8 @@ _____________
             assert_eq!(
                 ast.doc.get(0).unwrap().sequence,
                 vec![
-                    Token {
-                        kind: TokenKind::SortedListMark,
-                        value: mark.to_string()
-                    },
-                    Token {
-                        kind: TokenKind::ListItem,
-                        value: content.to_string()
-                    }
+                    Token::new(mark.to_string(), TokenKind::SortedListMark),
+                    Token::new(content.to_string(), TokenKind::ListItem)
                 ]
             )
         }
@@ -871,10 +799,7 @@ _____________
             assert_eq!(ast.doc.get(0).unwrap().kind, LineKind::Blank);
             assert_eq!(
                 ast.doc.get(0).unwrap().sequence,
-                vec![Token {
-                    kind: TokenKind::BlankLine,
-                    value: "".to_string()
-                }]
+                vec![Token::new("".to_string(), TokenKind::BlankLine,)]
             )
         }
     }

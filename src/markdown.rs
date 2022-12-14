@@ -90,11 +90,8 @@ enum TokenKind {
     DividingMark,
     QuoteMark,
     BoldMark,
-    Title,
-    ListItem,
-    Quote,
     BlankLine,
-    PlainText,
+    Text,
     LineBreak,
 }
 
@@ -397,7 +394,7 @@ impl<'lex> Lexer<'lex> {
         let rest = utf8_slice::from(self.line_text, cur_pos);
         self.unparsed = utf8_slice::len(self.line_text);
         self.state = State::Finished;
-        Some(Token::new(rest.trim_end().to_string(), TokenKind::Title))
+        Some(Token::new(rest.trim_end().to_string(), TokenKind::Text))
     }
 
     // parse the rest of the line as a list item token.
@@ -410,7 +407,7 @@ impl<'lex> Lexer<'lex> {
         let rest = utf8_slice::from(self.line_text, cur_pos);
         self.unparsed = utf8_slice::len(self.line_text);
         self.state = State::Finished;
-        Some(Token::new(rest.trim_end().to_string(), TokenKind::ListItem))
+        Some(Token::new(rest.trim_end().to_string(), TokenKind::Text))
     }
 
     // parse the rest of the line as the quote token.
@@ -423,7 +420,7 @@ impl<'lex> Lexer<'lex> {
         let rest = utf8_slice::from(self.line_text, cur_pos);
         self.unparsed = utf8_slice::len(self.line_text);
         self.state = State::Finished;
-        Some(Token::new(rest.trim_end().to_string(), TokenKind::Quote))
+        Some(Token::new(rest.trim_end().to_string(), TokenKind::Text))
     }
 
     // parse the line as the plain token.
@@ -445,7 +442,7 @@ impl<'lex> Lexer<'lex> {
                         .trim_end()
                         .trim_end_matches("<br>")
                         .to_string(),
-                    TokenKind::PlainText,
+                    TokenKind::Text,
                 ));
                 break;
             }
@@ -462,7 +459,7 @@ impl<'lex> Lexer<'lex> {
                         // the part of the plain text before '**' mark.
                         let s = utf8_slice::slice(content, last, begin);
                         if !s.is_empty() {
-                            buff.push(Token::new(s.to_string(), TokenKind::PlainText));
+                            buff.push(Token::new(s.to_string(), TokenKind::Text));
                         }
                         // '**' mark.
                         buff.push(Token::new("**".to_string(), TokenKind::BoldMark));
@@ -573,7 +570,7 @@ _____________
                     l.sequence,
                     vec![
                         Token::new(mark.to_string(), TokenKind::TitleMark),
-                        Token::new(titles.get(0).unwrap().trim().to_string(), TokenKind::Title,)
+                        Token::new(titles.get(0).unwrap().trim().to_string(), TokenKind::Text)
                     ]
                 );
             }
@@ -584,7 +581,7 @@ _____________
                     l.sequence,
                     vec![
                         Token::new(mark.to_string(), TokenKind::TitleMark,),
-                        Token::new(titles.get(1).unwrap().trim().to_string(), TokenKind::Title)
+                        Token::new(titles.get(1).unwrap().trim().to_string(), TokenKind::Text)
                     ]
                 );
             }
@@ -595,7 +592,7 @@ _____________
                     l.sequence,
                     vec![
                         Token::new(mark.to_string(), TokenKind::TitleMark,),
-                        Token::new(titles.get(2).unwrap().trim().to_string(), TokenKind::Title,)
+                        Token::new(titles.get(2).unwrap().trim().to_string(), TokenKind::Text)
                     ]
                 );
             }
@@ -672,7 +669,7 @@ _____________
             assert_eq!(ast.doc.get(0).unwrap().kind, LineKind::Plain);
             assert_eq!(
                 ast.doc.get(0).unwrap().sequence,
-                vec![Token::new(cnt.trim().to_string(), TokenKind::PlainText)]
+                vec![Token::new(cnt.trim().to_string(), TokenKind::Text)]
             )
         }
     }
@@ -699,7 +696,7 @@ _____________
                 vec![
                     Token::new(
                         cnt.trim().trim_end_matches("<br>").to_string(),
-                        TokenKind::PlainText,
+                        TokenKind::Text,
                     ),
                     Token::new("<br>".to_string(), TokenKind::LineBreak,)
                 ]
@@ -724,8 +721,8 @@ _____________
         assert_eq!(
             ast.doc.get(0).unwrap().sequence,
             vec![
-                Token::new(mark.to_string(), TokenKind::QuoteMark,),
-                Token::new(content.to_string(), TokenKind::Quote,)
+                Token::new(mark.to_string(), TokenKind::QuoteMark),
+                Token::new(content.to_string(), TokenKind::Text)
             ]
         )
     }
@@ -748,7 +745,7 @@ _____________
             ast.doc.get(0).unwrap().sequence,
             vec![
                 Token::new(mark.to_string(), TokenKind::DisorderListMark,),
-                Token::new(content.to_string(), TokenKind::ListItem)
+                Token::new(content.to_string(), TokenKind::Text)
             ]
         )
     }
@@ -772,7 +769,7 @@ _____________
                 ast.doc.get(0).unwrap().sequence,
                 vec![
                     Token::new(mark.to_string(), TokenKind::SortedListMark),
-                    Token::new(content.to_string(), TokenKind::ListItem)
+                    Token::new(content.to_string(), TokenKind::Text)
                 ]
             )
         }

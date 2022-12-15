@@ -383,7 +383,7 @@ impl<'lex> Lexer<'lex> {
             // normal (as no mark)
             _ => {
                 // don't change the unparsed pointer, because the first word is not a mark.
-                (self.unparsed, State::Normal, None)
+                (0, State::Normal, None)
             }
         };
 
@@ -440,54 +440,60 @@ impl<'lex> Lexer<'lex> {
 
     // parse the line as the normal token.
     fn split_normal_text(&mut self) -> Option<Vec<Token>> {
-        let mut last = self.unparsed;
-        let content = utf8_slice::from(self.line_text, last);
-
+        let mut buff = Self::parse_content(self.line_text);
+        if Self::has_line_break(self.line_text) {
+            buff.push(Token::new("<br>".to_string(), TokenKind::LineBreak));
+        }
         self.end();
+        Some(buff)
+    }
+
+    fn parse_content(content: &str) -> Vec<Token> {
+        let mut last = 0;
 
         let mut buff: Vec<Token> = Vec::new();
         let mut state = TextState::Normal;
 
         for (i, ch) in content.chars().enumerate() {
-            if ch == '\n' {
-                // end of the line
-                let s = utf8_slice::slice(content, last, i)
-                    .trim_end()
-                    .trim_end_matches("<br>")
-                    .to_string();
-                if !s.is_empty() {
-                    buff.push(Token::new(s, TokenKind::Text));
+            match (state, ch) {
+                (_, '\n') => {
+                    // end of the line
+                    let s = utf8_slice::slice(content, last, i)
+                        .trim_end()
+                        .trim_end_matches("<br>")
+                        .to_string();
+                    if !s.is_empty() {
+                        buff.push(Token::new(s, TokenKind::Text));
+                    }
+                    break;
                 }
-                break;
-            }
-            match state {
-                TextState::Normal => match ch {
+                (TextState::Normal, _) => match ch {
                     '*' => state = TextState::Bold(i),
                     '!' => state = TextState::PicBegin(i), // begin of picture
                     '[' => state = TextState::UrlTitleBegin(i), // begin of url
                     _ => (),
                 },
-                TextState::PicBegin(p) => match ch {
+                (TextState::PicBegin(p), _) => match ch {
                     '[' => state = TextState::PicTitleBegin(p, i),
                     '!' => state = TextState::PicBegin(i),
                     _ => state = TextState::Normal,
                 },
-                TextState::PicTitleBegin(p1, p2) => {
+                (TextState::PicTitleBegin(p1, p2), _) => {
                     if ch == ']' {
                         state = TextState::TitleDone(Some(p1), p2, i);
                     }
                 }
-                TextState::UrlTitleBegin(p) => match ch {
+                (TextState::UrlTitleBegin(p), _) => match ch {
                     ']' => state = TextState::TitleDone(None, p, i),
                     '[' => state = TextState::UrlTitleBegin(i),
                     _ => (),
                 },
-                TextState::TitleDone(p1, p2, p3) => match ch {
+                (TextState::TitleDone(p1, p2, p3), _) => match ch {
                     '(' => state = TextState::LocationBegin(p1, p2, p3, i),
                     ']' => state = TextState::TitleDone(p1, p2, i),
                     _ => state = TextState::Normal,
                 },
-                TextState::LocationBegin(p1, p2, p3, p4) => {
+                (TextState::LocationBegin(p1, p2, p3, p4), _) => {
                     if ch == ')' {
                         // when found ')', this means that we found a valid picture or url.
 
@@ -510,7 +516,7 @@ impl<'lex> Lexer<'lex> {
                         state = TextState::Normal;
                     }
                 }
-                TextState::Bold(p) => match ch {
+                (TextState::Bold(p), _) => match ch {
                     // so it's '**'.
                     '*' => {
                         // the part of normal text before '**' mark.
@@ -528,13 +534,8 @@ impl<'lex> Lexer<'lex> {
                 },
             }
         }
-
-        if Self::has_line_break(content) {
-            buff.push(Token::new("<br>".to_string(), TokenKind::LineBreak));
-        }
-
         Self::tidy_normal_tokens(&mut buff);
-        Some(buff)
+        buff
     }
 
     fn tidy_normal_tokens(buff: &mut [Token]) {
@@ -748,12 +749,12 @@ _____________
     fn test_parse_normal() {
         {
             let contents = vec![
-                "这是我的一个学习 rust 编程语言的项目，我将尝试去开发一个强大的 markdown 编辑器。",
+                "   这是我的一个学习 rust 编程语言的项目，我将尝试去开发一个强大的 markdown 编辑器。",
                 "--- x",
                 "___ 这不是一个分界线",
                 "--- ---",
                 "___ ___",
-                "#这不是标题",
+                "       #这不是标题",
                 "##这也不是标题",
                 ">这不是引用",
                 "*这不是列表",
@@ -767,7 +768,7 @@ _____________
                 assert_eq!(ast.doc.get(0).unwrap().kind, LineKind::NormalText);
                 assert_eq!(
                     ast.doc.get(0).unwrap().sequence,
-                    vec![Token::new(cnt.trim().to_string(), TokenKind::Text)]
+                    vec![Token::new(cnt.to_string(), TokenKind::Text)]
                 )
             }
         }

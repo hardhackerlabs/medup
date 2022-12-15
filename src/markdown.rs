@@ -4,50 +4,53 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 
 // Ast represents the abstract syntax tree of the markdown file, it structurally represents the entire file.
-pub struct Ast<'ast> {
+pub struct Ast {
     doc: Vec<Line>,
-    blocks: Vec<Block<'ast>>,
+    blocks: Vec<Block>,
+    cur_block: Option<Block>,
 }
 
 // Block is a group of multiple lines.
-struct Block<'blk> {
-    lines: Vec<&'blk Line>,
+struct Block {
+    line_pointers: Vec<usize>, // it stores the index of 'Line' struct in 'ast.doc'
+    closed: bool,
 }
 
-impl<'ast> Ast<'ast> {
+impl Ast {
     pub fn new() -> Self {
         Ast {
             doc: Vec::new(),
             blocks: Vec::new(),
+            cur_block: None,
         }
     }
 
     pub fn parse_file(&mut self, reader: BufReader<File>) {
-        let mut counter = 0;
-        for text in reader.lines() {
-            counter += 1;
+        for (n, text) in reader.lines().enumerate() {
             let mut s = text.unwrap();
             s.push('\n');
-            self.push(counter, s);
+            self.push(n, s);
         }
     }
 
-    fn push(&mut self, num: i32, line: String) {
+    // TODO:
+    fn push(&mut self, num: usize, line: String) {
         self.doc.push(Line::new(num, line));
-        // TODO:
-        if let Some(_) = self.doc.last() {
-            //   self.blocks.push(Block { lines: vec![l] })
-        }
+        let index = self.doc.len() - 1;
+        self.blocks.push(Block {
+            line_pointers: vec![index],
+            closed: true,
+        });
     }
 }
 
-impl<'ast> Default for Ast<'ast> {
+impl Default for Ast {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<'ast> Debug for Ast<'ast> {
+impl Debug for Ast {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut debug = String::new();
         for line in &self.doc {
@@ -66,7 +69,7 @@ impl<'ast> Debug for Ast<'ast> {
 struct Line {
     sequence: Vec<Token>,
     kind: LineKind,
-    num: i32,
+    num: usize,
     text: String,
 }
 
@@ -98,7 +101,7 @@ enum TokenKind {
 }
 
 impl Line {
-    fn new(ln: i32, line: String) -> Self {
+    fn new(ln: usize, line: String) -> Self {
         let mut l = Line {
             num: ln,
             text: line,
@@ -670,7 +673,7 @@ _____________
         for (num, line) in md.lines().enumerate() {
             let mut s = line.to_string();
             s.push('\n');
-            ast.push(num as i32, s);
+            ast.push(num, s);
         }
         assert_eq!(ast.doc.len(), md.lines().count());
     }

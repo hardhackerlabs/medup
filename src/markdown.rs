@@ -93,6 +93,7 @@ enum TokenKind {
     BlankLine,
     Text,
     LineBreak,
+    Picture,
 }
 
 impl Line {
@@ -185,7 +186,16 @@ enum State {
 #[derive(PartialEq, Clone, Copy)]
 enum TextState {
     Normal,
-    Bold(usize), // usize is start position in line
+    // usize is start position in line
+    Bold(usize),
+    // means !, usize is the index of '!'
+    PicBegin(usize),
+    // means [, (usize, usize) is the index of ('!', '[')
+    TitleBegin(Option<usize>, usize),
+    // means ], (usize, usize, usize) is the index of ('!', '[', ']')
+    TitleDone(Option<usize>, usize, usize),
+    // means (, (usize, usize, usize, usize) is the index of ('!', '[', ']', '(')
+    LocationBegin(Option<usize>, usize, usize, usize),
 }
 
 impl<'lex> Lexer<'lex> {
@@ -448,17 +458,48 @@ impl<'lex> Lexer<'lex> {
                 break;
             }
             match state {
-                TextState::Normal => {
-                    if ch == '*' {
-                        state = TextState::Bold(i);
+                TextState::Normal => match ch {
+                    '*' => state = TextState::Bold(i),
+                    '!' => state = TextState::PicBegin(i),
+                    _ => (),
+                },
+                TextState::PicBegin(p) => match ch {
+                    '[' => state = TextState::TitleBegin(Some(p), i),
+                    '!' => state = TextState::PicBegin(i),
+                    _ => state = TextState::Normal,
+                },
+                TextState::TitleBegin(p1, p2) => {
+                    if ch == ']' {
+                        state = TextState::TitleDone(p1, p2, i);
                     }
                 }
-                TextState::Bold(begin) => {
-                    if ch == '*' {
-                        // so it's '**'.
+                TextState::TitleDone(p1, p2, p3) => match ch {
+                    '(' => state = TextState::LocationBegin(p1, p2, p3, i),
+                    _ => state = TextState::Normal,
+                },
+                TextState::LocationBegin(p1, p2, p3, p4) => {
+                    if ch == ')' {
+                        // when found ')', this means that we found a valid picture or url.
 
-                        // the part of the normal text before '**' mark.
+                        let begin = if let Some(n) = p1 { n } else { p2 };
+                        // the part of normal text before '![]()' mark.
                         let s = utf8_slice::slice(content, last, begin);
+                        if !s.is_empty() {
+                            buff.push(Token::new(s.to_string(), TokenKind::Text));
+                        }
+                        // '![]()' mark
+                        let s = utf8_slice::slice(content, begin, i + 1);
+                        buff.push(Token::new(s.to_string(), TokenKind::Picture));
+
+                        last = i + 1;
+                        state = TextState::Normal;
+                    }
+                }
+                TextState::Bold(p) => match ch {
+                    // so it's '**'.
+                    '*' => {
+                        // the part of normal text before '**' mark.
+                        let s = utf8_slice::slice(content, last, p);
                         if !s.is_empty() {
                             buff.push(Token::new(s.to_string(), TokenKind::Text));
                         }
@@ -466,9 +507,10 @@ impl<'lex> Lexer<'lex> {
                         buff.push(Token::new("**".to_string(), TokenKind::BoldMark));
 
                         last = i + 1;
+                        state = TextState::Normal;
                     }
-                    state = TextState::Normal;
-                }
+                    _ => state = TextState::Normal,
+                },
             }
         }
 
@@ -869,6 +911,37 @@ _____________
                 ast.doc.get(0).unwrap().sequence,
                 vec![Token::new("".to_string(), TokenKind::BlankLine,)]
             )
+        }
+    }
+
+    #[test]
+    fn test_normal_picture() {
+        let pics = vec![
+            "![这是图片](/assets/img/philly-magic-garden.jpg \"Magic Gardens\")",
+            "![](/assets/img/philly-magic-garden.jpg \"Magic Gardens\")",
+            "![]()",
+        ];
+
+        for pic in pics {
+            let contents = vec!["text", "text ", "text !", "text !!!!", ""];
+            for cnt in contents {
+                let s = cnt.to_string() + pic;
+                let ast = create_ast(&s);
+
+                assert_eq!(ast.doc.len(), 1);
+                assert_eq!(ast.doc[0].kind, LineKind::NormalText);
+                assert_eq!(
+                    ast.doc[0].sequence,
+                    if cnt.is_empty() {
+                        vec![Token::new(pic.to_string(), TokenKind::Picture)]
+                    } else {
+                        vec![
+                            Token::new(cnt.to_string(), TokenKind::Text),
+                            Token::new(pic.to_string(), TokenKind::Picture),
+                        ]
+                    }
+                )
+            }
         }
     }
 }

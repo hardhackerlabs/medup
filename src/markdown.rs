@@ -141,8 +141,7 @@ struct Token {
     value: String,
     kind: TokenKind,
     parent_kind: Option<TokenKind>,
-    // begin_in_line: usize,
-    // end_in_line: usize,
+    fields: Option<Vec<String>>,
 }
 
 impl Token {
@@ -151,6 +150,7 @@ impl Token {
             value,
             kind,
             parent_kind: None,
+            fields: None,
         }
     }
     fn new_with_parent(value: String, kind: TokenKind, parent: TokenKind) -> Self {
@@ -158,7 +158,11 @@ impl Token {
             value,
             kind,
             parent_kind: Some(parent),
+            fields: None,
         }
+    }
+    fn push_field(&mut self, s: &str) {
+        self.fields.get_or_insert(vec![]).push(s.to_string())
     }
 }
 
@@ -518,7 +522,7 @@ impl<'lex> Lexer<'lex> {
                     if ch == ')' {
                         // when found ')', this means that we found a valid picture or url.
 
-                        let begin = if let Some(n) = p1 { n } else { p2 };
+                        let begin = if let Some(p1) = p1 { p1 } else { p2 };
                         // the part of normal text before '![]()' or '[]()' mark.
                         let s = utf8_slice::slice(content, last, begin);
                         if !s.is_empty() {
@@ -526,12 +530,14 @@ impl<'lex> Lexer<'lex> {
                         }
                         // '![]()' or '[]()' mark
                         let s = utf8_slice::slice(content, begin, i + 1);
-                        let is_pic = p1.is_some();
-                        if is_pic {
-                            buff.push(Token::new(s.to_string(), TokenKind::Picture));
+                        let mut t = if p1.is_some() {
+                            Token::new(s.to_string(), TokenKind::Picture)
                         } else {
-                            buff.push(Token::new(s.to_string(), TokenKind::Url));
-                        }
+                            Token::new(s.to_string(), TokenKind::Url)
+                        };
+                        t.push_field(utf8_slice::slice(content, p2 + 1, p3));
+                        t.push_field(utf8_slice::slice(content, p4 + 1, i));
+                        buff.push(t);
 
                         last = i + 1;
                         state = TextState::Normal;
@@ -975,7 +981,7 @@ _____________
     }
 
     #[test]
-    fn test_normal_picture() {
+    fn test_picture() {
         let pics = vec![
             "![这是图片](/assets/img/philly-magic-garden.jpg \"Magic Gardens\")",
             "![](/assets/img/philly-magic-garden.jpg \"Magic Gardens\")",
@@ -995,24 +1001,26 @@ _____________
 
                 assert_eq!(ast.doc.len(), 1);
                 assert_eq!(ast.doc[0].kind, LineKind::NormalText);
-                assert_eq!(
-                    ast.doc[0].sequence,
-                    if cnt.is_empty() {
-                        vec![Token::new(pic.to_string(), TokenKind::Picture)]
-                    } else {
-                        vec![
-                            Token::new(cnt.to_string(), TokenKind::Text),
-                            Token::new(pic.to_string(), TokenKind::Picture),
-                        ]
-                    }
-                )
+                if cnt.is_empty() {
+                    // token 0
+                    assert_eq!(ast.doc[0].sequence[0].kind, TokenKind::Picture);
+                    assert_eq!(ast.doc[0].sequence[0].value, pic.to_string());
+                } else {
+                    // token 0
+                    assert_eq!(ast.doc[0].sequence[0].kind, TokenKind::Text);
+                    assert_eq!(ast.doc[0].sequence[0].value, cnt.to_string());
+
+                    // token 1
+                    assert_eq!(ast.doc[0].sequence[1].kind, TokenKind::Picture);
+                    assert_eq!(ast.doc[0].sequence[1].value, pic.to_string());
+                }
             }
         }
     }
 
     #[test]
-    fn test_normal_url() {
-        let pics = vec![
+    fn test_url() {
+        let urls = vec![
             "[这是链接](/assets/img/philly-magic-garden.jpg \"Magic Gardens\")",
             "[](/assets/img/philly-magic-garden.jpg \"Magic Gardens\")",
             "[]()",
@@ -1021,25 +1029,27 @@ _____________
             "[!]]()",
         ];
 
-        for pic in pics {
+        for url in urls {
             let contents = vec!["text", "text ", "text [", "text [[[[", ""];
             for cnt in contents {
-                let s = cnt.to_string() + pic;
+                let s = cnt.to_string() + url;
                 let ast = create_ast(&s);
 
                 assert_eq!(ast.doc.len(), 1);
                 assert_eq!(ast.doc[0].kind, LineKind::NormalText);
-                assert_eq!(
-                    ast.doc[0].sequence,
-                    if cnt.is_empty() {
-                        vec![Token::new(pic.to_string(), TokenKind::Url)]
-                    } else {
-                        vec![
-                            Token::new(cnt.to_string(), TokenKind::Text),
-                            Token::new(pic.to_string(), TokenKind::Url),
-                        ]
-                    }
-                )
+                if cnt.is_empty() {
+                    // token 0
+                    assert_eq!(ast.doc[0].sequence[0].kind, TokenKind::Url);
+                    assert_eq!(ast.doc[0].sequence[0].value, url.to_string());
+                } else {
+                    // token 0
+                    assert_eq!(ast.doc[0].sequence[0].kind, TokenKind::Text);
+                    assert_eq!(ast.doc[0].sequence[0].value, cnt.to_string());
+
+                    // token 1
+                    assert_eq!(ast.doc[0].sequence[1].kind, TokenKind::Url);
+                    assert_eq!(ast.doc[0].sequence[1].value, url.to_string());
+                }
             }
         }
     }

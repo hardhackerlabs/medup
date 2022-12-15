@@ -94,6 +94,7 @@ enum TokenKind {
     Text,
     LineBreak,
     Picture,
+    Url,
 }
 
 impl Line {
@@ -191,7 +192,9 @@ enum TextState {
     // means !, usize is the index of '!'
     PicBegin(usize),
     // means [, (usize, usize) is the index of ('!', '[')
-    TitleBegin(Option<usize>, usize),
+    PicTitleBegin(usize, usize),
+    // means [, usize is the index of '['
+    UrlTitleBegin(usize),
     // means ], (usize, usize, usize) is the index of ('!', '[', ']')
     TitleDone(Option<usize>, usize, usize),
     // means (, (usize, usize, usize, usize) is the index of ('!', '[', ']', '(')
@@ -448,33 +451,40 @@ impl<'lex> Lexer<'lex> {
         for (i, ch) in content.chars().enumerate() {
             if ch == '\n' {
                 // end of the line
-                buff.push(Token::new(
-                    utf8_slice::slice(content, last, i)
-                        .trim_end()
-                        .trim_end_matches("<br>")
-                        .to_string(),
-                    TokenKind::Text,
-                ));
+                let s = utf8_slice::slice(content, last, i)
+                    .trim_end()
+                    .trim_end_matches("<br>")
+                    .to_string();
+                if !s.is_empty() {
+                    buff.push(Token::new(s, TokenKind::Text));
+                }
                 break;
             }
             match state {
                 TextState::Normal => match ch {
                     '*' => state = TextState::Bold(i),
-                    '!' => state = TextState::PicBegin(i),
+                    '!' => state = TextState::PicBegin(i), // begin of picture
+                    '[' => state = TextState::UrlTitleBegin(i), // begin of url
                     _ => (),
                 },
                 TextState::PicBegin(p) => match ch {
-                    '[' => state = TextState::TitleBegin(Some(p), i),
+                    '[' => state = TextState::PicTitleBegin(p, i),
                     '!' => state = TextState::PicBegin(i),
                     _ => state = TextState::Normal,
                 },
-                TextState::TitleBegin(p1, p2) => {
+                TextState::PicTitleBegin(p1, p2) => {
                     if ch == ']' {
-                        state = TextState::TitleDone(p1, p2, i);
+                        state = TextState::TitleDone(Some(p1), p2, i);
                     }
                 }
+                TextState::UrlTitleBegin(p) => match ch {
+                    ']' => state = TextState::TitleDone(None, p, i),
+                    '[' => state = TextState::UrlTitleBegin(i),
+                    _ => (),
+                },
                 TextState::TitleDone(p1, p2, p3) => match ch {
                     '(' => state = TextState::LocationBegin(p1, p2, p3, i),
+                    ']' => state = TextState::TitleDone(p1, p2, i),
                     _ => state = TextState::Normal,
                 },
                 TextState::LocationBegin(p1, p2, p3, p4) => {
@@ -482,14 +492,19 @@ impl<'lex> Lexer<'lex> {
                         // when found ')', this means that we found a valid picture or url.
 
                         let begin = if let Some(n) = p1 { n } else { p2 };
-                        // the part of normal text before '![]()' mark.
+                        // the part of normal text before '![]()' or '[]()' mark.
                         let s = utf8_slice::slice(content, last, begin);
                         if !s.is_empty() {
                             buff.push(Token::new(s.to_string(), TokenKind::Text));
                         }
-                        // '![]()' mark
+                        // '![]()' or '[]()' mark
                         let s = utf8_slice::slice(content, begin, i + 1);
-                        buff.push(Token::new(s.to_string(), TokenKind::Picture));
+                        let is_pic = p1.is_some();
+                        if is_pic {
+                            buff.push(Token::new(s.to_string(), TokenKind::Picture));
+                        } else {
+                            buff.push(Token::new(s.to_string(), TokenKind::Url));
+                        }
 
                         last = i + 1;
                         state = TextState::Normal;
@@ -617,6 +632,9 @@ _____________
 
 这里带有换行  
 新的一行
+
+![这是图片](/assets/img/philly-magic-garden.jpg \"Magic Gardens\")
+这里是一个链接 [链接](https://a.com/assets/img/philly-magic-garden.jpg \"Magic Gardens\")
 
 > Rust, A language empowering everyone to build reliable and efficient software.";
 
@@ -920,6 +938,11 @@ _____________
             "![这是图片](/assets/img/philly-magic-garden.jpg \"Magic Gardens\")",
             "![](/assets/img/philly-magic-garden.jpg \"Magic Gardens\")",
             "![]()",
+            "![[[[[[]()",
+            "![[]]()",
+            "![!]()",
+            "![![]]()",
+            // "![![]()]()",
         ];
 
         for pic in pics {
@@ -938,6 +961,40 @@ _____________
                         vec![
                             Token::new(cnt.to_string(), TokenKind::Text),
                             Token::new(pic.to_string(), TokenKind::Picture),
+                        ]
+                    }
+                )
+            }
+        }
+    }
+
+    #[test]
+    fn test_normal_url() {
+        let pics = vec![
+            "[这是链接](/assets/img/philly-magic-garden.jpg \"Magic Gardens\")",
+            "[](/assets/img/philly-magic-garden.jpg \"Magic Gardens\")",
+            "[]()",
+            "[]]()",
+            "[]]]]()",
+            "[!]]()",
+        ];
+
+        for pic in pics {
+            let contents = vec!["text", "text ", "text [", "text [[[[", ""];
+            for cnt in contents {
+                let s = cnt.to_string() + pic;
+                let ast = create_ast(&s);
+
+                assert_eq!(ast.doc.len(), 1);
+                assert_eq!(ast.doc[0].kind, LineKind::NormalText);
+                assert_eq!(
+                    ast.doc[0].sequence,
+                    if cnt.is_empty() {
+                        vec![Token::new(pic.to_string(), TokenKind::Url)]
+                    } else {
+                        vec![
+                            Token::new(cnt.to_string(), TokenKind::Text),
+                            Token::new(pic.to_string(), TokenKind::Url),
                         ]
                     }
                 )

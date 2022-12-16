@@ -7,13 +7,12 @@ use std::io::{BufRead, BufReader};
 pub struct Ast {
     doc: Vec<Line>,
     blocks: Vec<Block>,
-    cur_block: Option<Block>,
 }
 
 // Block is a group of multiple lines.
 struct Block {
     line_pointers: Vec<usize>, // it stores the index of 'Line' struct in 'ast.doc'
-    closed: bool,
+    kind: Kind,
 }
 
 impl Ast {
@@ -21,7 +20,6 @@ impl Ast {
         Ast {
             doc: Vec::new(),
             blocks: Vec::new(),
-            cur_block: None,
         }
     }
 
@@ -31,16 +29,37 @@ impl Ast {
             s.push('\n');
             self.push(n, s);
         }
+        self.build_blocks();
     }
 
-    // TODO:
     fn push(&mut self, num: usize, line: String) {
         self.doc.push(Line::new(num, line));
-        let index = self.doc.len() - 1;
-        self.blocks.push(Block {
-            line_pointers: vec![index],
-            closed: true,
-        });
+    }
+
+    fn build_blocks(&mut self) {
+        for (i, l) in self.doc.iter().enumerate() {
+            match l.kind {
+                Kind::Blank | Kind::DisorderedList | Kind::SortedList => {
+                    let last = self.blocks.last_mut();
+                    if let Some(b) = last {
+                        if b.kind == l.kind {
+                            b.line_pointers.push(i);
+                            continue;
+                        }
+                    }
+                    self.blocks.push(Block {
+                        line_pointers: vec![i],
+                        kind: l.kind,
+                    });
+                }
+                _ => {
+                    self.blocks.push(Block {
+                        line_pointers: vec![i],
+                        kind: l.kind,
+                    });
+                }
+            }
+        }
     }
 }
 
@@ -68,13 +87,13 @@ impl Debug for Ast {
 // Line is a line of the markdown file, it be parsed into some tokens.
 struct Line {
     sequence: Vec<Token>,
-    kind: LineKind,
+    kind: Kind,
     num: usize,
     text: String,
 }
 
-#[derive(Debug, PartialEq)]
-enum LineKind {
+#[derive(Debug, PartialEq, Copy, Clone)]
+enum Kind {
     Unknow,
     Blank,
     Title,
@@ -105,7 +124,7 @@ impl Line {
         let mut l = Line {
             num: ln,
             text: line,
-            kind: LineKind::Unknow,
+            kind: Kind::Unknow,
             sequence: Vec::new(),
         };
         l.parse();
@@ -124,15 +143,15 @@ impl Line {
         lx.finish();
 
         self.kind = match self.sequence.first() {
-            None => LineKind::Unknow,
+            None => Kind::Unknow,
             Some(t) => match t.kind {
-                TokenKind::BlankLine => LineKind::Blank,
-                TokenKind::TitleMark => LineKind::Title,
-                TokenKind::DisorderListMark => LineKind::DisorderedList,
-                TokenKind::SortedListMark => LineKind::SortedList,
-                TokenKind::DividingMark => LineKind::DividingLine,
-                TokenKind::QuoteMark => LineKind::Quote,
-                _ => LineKind::NormalText,
+                TokenKind::BlankLine => Kind::Blank,
+                TokenKind::TitleMark => Kind::Title,
+                TokenKind::DisorderListMark => Kind::DisorderedList,
+                TokenKind::SortedListMark => Kind::SortedList,
+                TokenKind::DividingMark => Kind::DividingLine,
+                TokenKind::QuoteMark => Kind::Quote,
+                _ => Kind::NormalText,
             },
         }
     }
@@ -679,6 +698,33 @@ _____________
     }
 
     #[test]
+    fn test_build_blocks() {
+        let md = "# dice 是一个 markdown 编辑器
+这是我的一个学习 rust 编程语言的项目，我将尝试去开发一个强大的 markdown 编辑器。
+
+* 支持 vim 操作
+* 支持自动化的命令去编辑文档
+
+1. 支持 vim 操作
+2. 支持自动化的命令去编辑文档
+3. 扩展内容的左右水平布局
+
+
+> Rust, A language empowering everyone to build reliable and efficient software.";
+
+        let mut ast = Ast::new();
+        for (num, line) in md.lines().enumerate() {
+            let mut s = line.to_string();
+            s.push('\n');
+            ast.push(num, s);
+        }
+        ast.build_blocks();
+
+        assert_eq!(ast.doc.len(), md.lines().count());
+        assert_eq!(ast.blocks.len(), 8);
+    }
+
+    #[test]
     fn test_parse_title() {
         let marks = vec!["#", "##", "###", "####"];
         let titles = vec![" Header1", " Header1   ", "  Header1 Header1", " ", ""];
@@ -698,7 +744,7 @@ _____________
             assert_eq!(ast.doc.len(), n as usize);
             {
                 let l = ast.doc.get(0).unwrap();
-                assert_eq!(l.kind, LineKind::Title);
+                assert_eq!(l.kind, Kind::Title);
                 assert_eq!(
                     l.sequence,
                     vec![
@@ -713,7 +759,7 @@ _____________
             }
             {
                 let l = ast.doc.get(1).unwrap();
-                assert_eq!(l.kind, LineKind::Title);
+                assert_eq!(l.kind, Kind::Title);
                 assert_eq!(
                     l.sequence,
                     vec![
@@ -728,7 +774,7 @@ _____________
             }
             {
                 let l = ast.doc.get(2).unwrap();
-                assert_eq!(l.kind, LineKind::Title);
+                assert_eq!(l.kind, Kind::Title);
                 assert_eq!(
                     l.sequence,
                     vec![
@@ -743,7 +789,7 @@ _____________
             }
             {
                 let l = ast.doc.get(3).unwrap();
-                assert_eq!(l.kind, LineKind::Title);
+                assert_eq!(l.kind, Kind::Title);
                 assert_eq!(
                     l.sequence,
                     vec![Token::new(mark.to_string(), TokenKind::TitleMark)]
@@ -751,7 +797,7 @@ _____________
             }
             {
                 let l = ast.doc.get(4).unwrap();
-                assert_eq!(l.kind, LineKind::Title);
+                assert_eq!(l.kind, Kind::Title);
                 assert_eq!(
                     l.sequence,
                     vec![Token::new(mark.to_string(), TokenKind::TitleMark)]
@@ -779,7 +825,7 @@ _____________
             ast.push(1, s);
 
             assert_eq!(ast.doc.len(), 1);
-            assert_eq!(ast.doc.get(0).unwrap().kind, LineKind::DividingLine);
+            assert_eq!(ast.doc.get(0).unwrap().kind, Kind::DividingLine);
             assert_eq!(
                 ast.doc.get(0).unwrap().sequence,
                 vec![Token::new(mark.trim().to_string(), TokenKind::DividingMark,)]
@@ -807,7 +853,7 @@ _____________
                 let ast = create_ast(cnt);
 
                 assert_eq!(ast.doc.len(), 1);
-                assert_eq!(ast.doc.get(0).unwrap().kind, LineKind::NormalText);
+                assert_eq!(ast.doc.get(0).unwrap().kind, Kind::NormalText);
                 assert_eq!(
                     ast.doc.get(0).unwrap().sequence,
                     vec![Token::new(cnt.to_string(), TokenKind::Text)]
@@ -821,7 +867,7 @@ _____________
                 let ast = create_ast(cnt);
 
                 assert_eq!(ast.doc.len(), 1);
-                assert_eq!(ast.doc.get(0).unwrap().kind, LineKind::NormalText);
+                assert_eq!(ast.doc.get(0).unwrap().kind, Kind::NormalText);
                 assert_eq!(
                     ast.doc.get(0).unwrap().sequence,
                     vec![
@@ -838,7 +884,7 @@ _____________
                 let ast = create_ast(cnt);
 
                 assert_eq!(ast.doc.len(), 1);
-                assert_eq!(ast.doc.get(0).unwrap().kind, LineKind::NormalText);
+                assert_eq!(ast.doc.get(0).unwrap().kind, Kind::NormalText);
                 assert_eq!(
                     ast.doc.get(0).unwrap().sequence,
                     vec![
@@ -868,7 +914,7 @@ _____________
             let ast = create_ast(cnt);
 
             assert_eq!(ast.doc.len(), 1);
-            assert_eq!(ast.doc.get(0).unwrap().kind, LineKind::NormalText);
+            assert_eq!(ast.doc.get(0).unwrap().kind, Kind::NormalText);
             assert_eq!(
                 ast.doc.get(0).unwrap().sequence,
                 vec![
@@ -895,7 +941,7 @@ _____________
         let ast = create_ast(&s);
 
         assert_eq!(ast.doc.len(), 1);
-        assert_eq!(ast.doc[0].kind, LineKind::Quote);
+        assert_eq!(ast.doc[0].kind, Kind::Quote);
         assert_eq!(
             ast.doc[0].sequence,
             vec![
@@ -918,7 +964,7 @@ _____________
         let ast = create_ast(&s);
 
         assert_eq!(ast.doc.len(), 1);
-        assert_eq!(ast.doc[0].kind, LineKind::DisorderedList);
+        assert_eq!(ast.doc[0].kind, Kind::DisorderedList);
         assert_eq!(
             ast.doc[0].sequence,
             vec![
@@ -945,7 +991,7 @@ _____________
             let ast = create_ast(&s);
 
             assert_eq!(ast.doc.len(), 1);
-            assert_eq!(ast.doc[0].kind, LineKind::SortedList);
+            assert_eq!(ast.doc[0].kind, Kind::SortedList);
             assert_eq!(
                 ast.doc[0].sequence,
                 vec![
@@ -975,7 +1021,7 @@ _____________
             let ast = create_ast(cnt);
 
             assert_eq!(ast.doc.len(), 1);
-            assert_eq!(ast.doc[0].kind, LineKind::Blank);
+            assert_eq!(ast.doc[0].kind, Kind::Blank);
             assert_eq!(
                 ast.doc[0].sequence,
                 vec![Token::new("".to_string(), TokenKind::BlankLine)]
@@ -1003,7 +1049,7 @@ _____________
                 let ast = create_ast(&s);
 
                 assert_eq!(ast.doc.len(), 1);
-                assert_eq!(ast.doc[0].kind, LineKind::NormalText);
+                assert_eq!(ast.doc[0].kind, Kind::NormalText);
                 if cnt.is_empty() {
                     // token 0
                     assert_eq!(ast.doc[0].sequence[0].kind, TokenKind::Picture);
@@ -1039,7 +1085,7 @@ _____________
                 let ast = create_ast(&s);
 
                 assert_eq!(ast.doc.len(), 1);
-                assert_eq!(ast.doc[0].kind, LineKind::NormalText);
+                assert_eq!(ast.doc[0].kind, Kind::NormalText);
                 if cnt.is_empty() {
                     // token 0
                     assert_eq!(ast.doc[0].sequence[0].kind, TokenKind::Url);

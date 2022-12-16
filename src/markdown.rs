@@ -9,12 +9,6 @@ pub struct Ast {
     blocks: Vec<Block>,
 }
 
-// Block is a group of multiple lines.
-struct Block {
-    line_pointers: Vec<usize>, // it stores the index of 'Line' struct in 'ast.doc'
-    kind: Kind,
-}
-
 impl Ast {
     pub fn new() -> Self {
         Ast {
@@ -101,6 +95,12 @@ impl Debug for Ast {
     }
 }
 
+// Block is a group of multiple lines.
+struct Block {
+    line_pointers: Vec<usize>, // it stores the index of 'Line' struct in 'ast.doc'
+    kind: Kind,
+}
+
 // Line is a line of the markdown file, it be parsed into some tokens.
 struct Line {
     sequence: Vec<Token>,
@@ -111,17 +111,16 @@ struct Line {
 
 #[derive(Debug, PartialEq, Copy, Clone)]
 enum Kind {
-    Unknow,
+    NormalText,
     Blank,
     Title,
     DisorderedList,
     SortedList,
     DividingLine,
     Quote,
-    NormalText,
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(Debug, PartialEq, Copy, Clone)]
 enum TokenKind {
     TitleMark,        // #, ##, ###, ####
     DisorderListMark, // *
@@ -130,10 +129,11 @@ enum TokenKind {
     QuoteMark,        // >
     BoldMark,         // ** **
     BlankLine,        // \n
-    Text,             //
     LineBreak,        // <br>, double whitespace
     Picture,          // ![]()
     Url,              // []()
+    Text,             //
+    PrefixWhiteSpace, //
 }
 
 impl Line {
@@ -141,7 +141,7 @@ impl Line {
         let mut l = Line {
             num: ln,
             text: line,
-            kind: Kind::Unknow,
+            kind: Kind::NormalText,
             sequence: Vec::new(),
         };
         l.parse();
@@ -159,17 +159,29 @@ impl Line {
         }
         lx.finish();
 
-        self.kind = match self.sequence.first() {
-            None => Kind::Unknow,
-            Some(t) => match t.kind {
-                TokenKind::BlankLine => Kind::Blank,
-                TokenKind::TitleMark => Kind::Title,
-                TokenKind::DisorderListMark => Kind::DisorderedList,
-                TokenKind::SortedListMark => Kind::SortedList,
-                TokenKind::DividingMark => Kind::DividingLine,
-                TokenKind::QuoteMark => Kind::Quote,
-                _ => Kind::NormalText,
-            },
+        let calc_kind = |kind| match kind {
+            TokenKind::BlankLine => Kind::Blank,
+            TokenKind::TitleMark => Kind::Title,
+            TokenKind::DisorderListMark => Kind::DisorderedList,
+            TokenKind::SortedListMark => Kind::SortedList,
+            TokenKind::DividingMark => Kind::DividingLine,
+            TokenKind::QuoteMark => Kind::Quote,
+            _ => Kind::NormalText,
+        };
+
+        // the first token may be an whitespace string in the line, then we should use
+        // the second token to calculate line's kind.
+        self.kind = match (self.sequence.get(0), self.sequence.get(1)) {
+            (None, _) => Kind::NormalText,
+            (Some(t1), Some(t2)) => {
+                let t = if t1.kind == TokenKind::PrefixWhiteSpace {
+                    t2
+                } else {
+                    t1
+                };
+                calc_kind(t.kind)
+            }
+            (Some(t), None) => calc_kind(t.kind),
         }
     }
 }
@@ -257,7 +269,7 @@ impl<'lex> Lexer<'lex> {
     fn process(&mut self, cur_pos: usize, cur_char: char) -> bool {
         match self.state {
             State::Begin => {
-                if let Some(t) = self.skip_begin_whitespaces(cur_pos, cur_char) {
+                if let Some(t) = self.split_prefix_whitespaces(cur_pos, cur_char) {
                     self.line_tokens.push(t)
                 }
             }
@@ -328,16 +340,21 @@ impl<'lex> Lexer<'lex> {
 
     // skip all whitespace characters at the beginning of the line,
     // or generate a blank line token if the line contains only whitespace characters.
-    fn skip_begin_whitespaces(&mut self, cur_pos: usize, cur_char: char) -> Option<Token> {
+    fn split_prefix_whitespaces(&mut self, cur_pos: usize, cur_char: char) -> Option<Token> {
         if cur_char.is_whitespace() {
             if cur_char == '\n' {
                 self.end();
                 return Some(Token::new("".to_string(), TokenKind::BlankLine));
             }
-        } else {
-            self.set_state(cur_pos, State::CheckMark);
+            return None;
         }
-        None
+        self.set_state(cur_pos, State::CheckMark);
+        let s = utf8_slice::slice(self.line_text, 0, cur_pos).to_string();
+        if !s.is_empty() {
+            Some(Token::new(s, TokenKind::PrefixWhiteSpace))
+        } else {
+            None
+        }
     }
 
     fn find_word(&self, cur_pos: usize) -> Option<&str> {
@@ -429,7 +446,7 @@ impl<'lex> Lexer<'lex> {
             // normal (as no mark)
             _ => {
                 // don't change the unparsed pointer, because the first word is not a mark.
-                (0, State::Normal, None)
+                (self.unparsed, State::Normal, None)
             }
         };
 
@@ -503,7 +520,7 @@ impl<'lex> Lexer<'lex> {
 
     // parse the line as the normal token.
     fn split_normal_text(&mut self) -> Option<Vec<Token>> {
-        let mut buff = Self::parse_inside(self.line_text);
+        let mut buff = Self::parse_inside(utf8_slice::from(self.line_text, self.unparsed));
         if Self::has_line_break(self.line_text) {
             buff.push(Token::new("<br>".to_string(), TokenKind::LineBreak));
         }
@@ -731,6 +748,30 @@ _____________
     }
 
     #[test]
+    fn test_parse_prefixwhitespace() {
+        let ws = vec![" ", "  ", "  ", "        ", "    "];
+        let contents = vec![
+            ("# header", Kind::Title, 3),
+            ("---", Kind::DividingLine, 2),
+            ("* list", Kind::DisorderedList, 3),
+            ("1. list", Kind::SortedList, 3),
+            ("> quote", Kind::Quote, 3),
+            ("这里是普通文本", Kind::NormalText, 2),
+        ];
+
+        for w in ws {
+            for (cnt, kind, n) in &contents {
+                let s = w.to_string() + cnt;
+                let ast = create_ast(&s);
+
+                assert_eq!(ast.doc.len(), 1);
+                assert_eq!(ast.doc[0].kind, *kind);
+                assert_eq!(ast.doc[0].sequence.len(), *n);
+            }
+        }
+    }
+
+    #[test]
     fn test_parse_title() {
         let marks = vec!["#", "##", "###", "####"];
         let titles = vec![" Header1", " Header1   ", "  Header1 Header1", " ", ""];
@@ -818,10 +859,10 @@ _____________
             "---",
             "***",
             "___",
-            " ------",
+            "------",
             "****",
-            "  __________         ",
-            " ----------------------------------------   ",
+            "__________         ",
+            "----------------------------------------   ",
         ];
 
         for mark in marks {
@@ -831,7 +872,10 @@ _____________
             assert_eq!(ast.doc.get(0).unwrap().kind, Kind::DividingLine);
             assert_eq!(
                 ast.doc.get(0).unwrap().sequence,
-                vec![Token::new(mark.trim().to_string(), TokenKind::DividingMark,)]
+                vec![Token::new(
+                    mark.trim_end().to_string(),
+                    TokenKind::DividingMark,
+                )]
             )
         }
     }
@@ -840,12 +884,12 @@ _____________
     fn test_parse_normal() {
         {
             let contents = vec![
-                "   这是我的一个学习 rust 编程语言的项目，我将尝试去开发一个强大的 markdown 编辑器。",
+                "这是我的一个学习 rust 编程语言的项目，我将尝试去开发一个强大的 markdown 编辑器。",
                 "--- x",
                 "___ 这不是一个分界线",
                 "--- ---",
                 "___ ___",
-                "       #这不是标题",
+                "#这不是标题",
                 "##这也不是标题",
                 ">这不是引用",
                 "*这不是列表",

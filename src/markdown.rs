@@ -32,9 +32,8 @@ impl Ast {
                 break;
             }
             num += 1;
-            self.push(num, buf);
+            self.parse_line(num, buf);
         }
-
         self.build_blocks();
     }
 
@@ -43,9 +42,16 @@ impl Ast {
         let reader = BufReader::new(file);
         self.parse_reader(reader);
     }
-    pub fn parse_string(&mut self, s: &str) {}
 
-    fn push(&mut self, num: usize, line: String) {
+    pub fn parse_string(&mut self, s: &str) {
+        for (i, l) in s.lines().enumerate() {
+            let s1 = l.to_string() + "\n";
+            self.parse_line(i + 1, s1);
+        }
+        self.build_blocks();
+    }
+
+    fn parse_line(&mut self, num: usize, line: String) {
         self.doc.push(Line::new(num, line));
     }
 
@@ -661,7 +667,7 @@ mod tests {
         let mut ast = Ast::new();
         let mut s = s.to_string();
         s += "\n";
-        ast.push(1, s);
+        ast.parse_line(1, s);
         ast
     }
 
@@ -702,11 +708,7 @@ _____________
 > Rust, A language empowering everyone to build reliable and efficient software.";
 
         let mut ast = Ast::new();
-        for (num, line) in md.lines().enumerate() {
-            let mut s = line.to_string();
-            s.push('\n');
-            ast.push(num, s);
-        }
+        ast.parse_string(md);
         assert_eq!(ast.doc.len(), md.lines().count());
     }
 
@@ -726,12 +728,7 @@ _____________
 > Rust, A language empowering everyone to build reliable and efficient software.";
 
         let mut ast = Ast::new();
-        for (num, line) in md.lines().enumerate() {
-            let mut s = line.to_string();
-            s.push('\n');
-            ast.push(num, s);
-        }
-        ast.build_blocks();
+        ast.parse_string(md);
 
         assert_eq!(ast.doc.len(), md.lines().count());
         assert_eq!(ast.blocks.len(), 8);
@@ -751,7 +748,7 @@ _____________
                 s += "\n";
 
                 n += 1;
-                ast.push(n, s)
+                ast.parse_line(n, s)
             }
 
             assert_eq!(ast.doc.len(), n as usize);
@@ -835,7 +832,7 @@ _____________
             let mut ast = Ast::new();
             let mut s = mark.to_string();
             s += "\n";
-            ast.push(1, s);
+            ast.parse_line(1, s);
 
             assert_eq!(ast.doc.len(), 1);
             assert_eq!(ast.doc.get(0).unwrap().kind, Kind::DividingLine);

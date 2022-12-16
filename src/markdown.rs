@@ -133,7 +133,6 @@ enum TokenKind {
     Picture,          // ![]()
     Url,              // []()
     Text,             //
-    PrefixWhiteSpace, //
 }
 
 impl Line {
@@ -169,19 +168,9 @@ impl Line {
             _ => Kind::NormalText,
         };
 
-        // the first token may be an whitespace string in the line, then we should use
-        // the second token to calculate line's kind.
-        self.kind = match (self.sequence.get(0), self.sequence.get(1)) {
-            (None, _) => Kind::NormalText,
-            (Some(t1), Some(t2)) => {
-                let t = if t1.kind == TokenKind::PrefixWhiteSpace {
-                    t2
-                } else {
-                    t1
-                };
-                calc_kind(t.kind)
-            }
-            (Some(t), None) => calc_kind(t.kind),
+        self.kind = match self.sequence.first() {
+            None => Kind::NormalText,
+            Some(t) => calc_kind(t.kind),
         }
     }
 }
@@ -349,12 +338,7 @@ impl<'lex> Lexer<'lex> {
             return None;
         }
         self.set_state(cur_pos, State::CheckMark);
-        let s = utf8_slice::slice(self.line_text, 0, cur_pos).to_string();
-        if !s.is_empty() {
-            Some(Token::new(s, TokenKind::PrefixWhiteSpace))
-        } else {
-            None
-        }
+        None
     }
 
     fn find_word(&self, cur_pos: usize) -> Option<&str> {
@@ -745,30 +729,6 @@ _____________
 
         assert_eq!(ast.doc.len(), md.lines().count());
         assert_eq!(ast.blocks.len(), 8);
-    }
-
-    #[test]
-    fn test_parse_prefixwhitespace() {
-        let ws = vec![" ", "  ", "  ", "        ", "    "];
-        let contents = vec![
-            ("# header", Kind::Title, 3),
-            ("---", Kind::DividingLine, 2),
-            ("* list", Kind::DisorderedList, 3),
-            ("1. list", Kind::SortedList, 3),
-            ("> quote", Kind::Quote, 3),
-            ("这里是普通文本", Kind::NormalText, 2),
-        ];
-
-        for w in ws {
-            for (cnt, kind, n) in &contents {
-                let s = w.to_string() + cnt;
-                let ast = create_ast(&s);
-
-                assert_eq!(ast.doc.len(), 1);
-                assert_eq!(ast.doc[0].kind, *kind);
-                assert_eq!(ast.doc[0].sequence.len(), *n);
-            }
-        }
     }
 
     #[test]

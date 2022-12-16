@@ -23,14 +23,27 @@ impl Ast {
         }
     }
 
-    pub fn parse_file(&mut self, reader: BufReader<File>) {
-        for (n, text) in reader.lines().enumerate() {
-            let mut s = text.unwrap();
-            s.push('\n');
-            self.push(n, s);
+    pub fn parse_reader(&mut self, mut reader: BufReader<File>) {
+        let mut num: usize = 0;
+        loop {
+            let mut buf = String::new();
+            let num_bytes = reader.read_line(&mut buf).unwrap();
+            if num_bytes == 0 {
+                break;
+            }
+            num += 1;
+            self.push(num, buf);
         }
+
         self.build_blocks();
     }
+
+    pub fn parse_file(&mut self, path: &str) {
+        let file = File::open(path).unwrap();
+        let reader = BufReader::new(file);
+        self.parse_reader(reader);
+    }
+    pub fn parse_string(&mut self, s: &str) {}
 
     fn push(&mut self, num: usize, line: String) {
         self.doc.push(Line::new(num, line));

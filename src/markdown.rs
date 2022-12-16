@@ -23,7 +23,16 @@ impl Ast {
         }
     }
 
-    pub fn parse_reader(&mut self, mut reader: BufReader<File>) {
+    pub fn parse_file(&mut self, path: &str) {
+        let file = File::open(path).unwrap();
+        self.parse_reader(&mut BufReader::new(file));
+    }
+
+    pub fn parse_string(&mut self, s: &str) {
+        self.parse_reader(&mut s.as_bytes());
+    }
+
+    pub fn parse_reader(&mut self, reader: &mut dyn BufRead) {
         let mut num: usize = 0;
         loop {
             let mut buf = String::new();
@@ -31,22 +40,11 @@ impl Ast {
             if num_bytes == 0 {
                 break;
             }
+            if !buf.ends_with("\n") {
+                buf.push('\n');
+            }
             num += 1;
             self.parse_line(num, buf);
-        }
-        self.build_blocks();
-    }
-
-    pub fn parse_file(&mut self, path: &str) {
-        let file = File::open(path).unwrap();
-        let reader = BufReader::new(file);
-        self.parse_reader(reader);
-    }
-
-    pub fn parse_string(&mut self, s: &str) {
-        for (i, l) in s.lines().enumerate() {
-            let s1 = l.to_string() + "\n";
-            self.parse_line(i + 1, s1);
         }
         self.build_blocks();
     }
@@ -665,9 +663,7 @@ mod tests {
 
     fn create_ast(s: &str) -> Ast {
         let mut ast = Ast::new();
-        let mut s = s.to_string();
-        s += "\n";
-        ast.parse_line(1, s);
+        ast.parse_string(s);
         ast
     }
 
@@ -829,10 +825,7 @@ _____________
         ];
 
         for mark in marks {
-            let mut ast = Ast::new();
-            let mut s = mark.to_string();
-            s += "\n";
-            ast.parse_line(1, s);
+            let ast = create_ast(mark);
 
             assert_eq!(ast.doc.len(), 1);
             assert_eq!(ast.doc.get(0).unwrap().kind, Kind::DividingLine);
@@ -1019,9 +1012,9 @@ _____________
     #[test]
     fn test_blank_line() {
         let contents = vec![
-            "",
-            " ",
-            "     ",
+            "\n",
+            " \n",
+            "     \n",
             "         ",
             "                                            ",
             "  ",

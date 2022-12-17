@@ -7,6 +7,8 @@ use std::io::{BufRead, BufReader};
 pub struct Ast {
     doc: Vec<Line>,
     blocks: Vec<Block>,
+    open_code_block: bool,
+    code_block_index: Vec<usize>, // usize is index to 'doc'
 }
 
 impl Ast {
@@ -14,6 +16,8 @@ impl Ast {
         Ast {
             doc: Vec::new(),
             blocks: Vec::new(),
+            code_block_index: Vec::new(),
+            open_code_block: false,
         }
     }
 
@@ -40,17 +44,36 @@ impl Ast {
             num += 1;
             self.parse_line(num, buf);
         }
+        for i in self.code_block_index.iter() {
+            self.doc[*i].parse()
+        }
+        self.code_block_index.clear();
         self.build_blocks();
     }
 
     fn parse_line(&mut self, num: usize, line: String) {
-        self.doc.push(Line::new(num, line));
+        let l = if self.open_code_block && Self::peek_not(&line, "```") {
+            Line::new_without_parsing(num, line)
+        } else {
+            Line::new(num, line)
+        };
+        if l.kind == Kind::Code {
+            self.code_block_index.push(self.doc.len());
+        }
+        if l.kind == Kind::CodeMark {
+            self.open_code_block = !self.open_code_block;
+            if !self.open_code_block {
+                // closed code block
+                self.code_block_index.clear();
+            }
+        }
+        self.doc.push(l);
     }
 
     fn build_blocks(&mut self) {
         for (i, l) in self.doc.iter().enumerate() {
             match l.kind {
-                Kind::Blank | Kind::DisorderedList | Kind::SortedList => {
+                Kind::Blank | Kind::DisorderedList | Kind::SortedList | Kind::Code => {
                     let last = self.blocks.last_mut();
                     if let Some(b) = last {
                         if b.kind == l.kind {
@@ -71,6 +94,10 @@ impl Ast {
                 }
             }
         }
+    }
+
+    fn peek_not(s1: &str, s2: &str) -> bool {
+        s1.trim() != s2
     }
 }
 
@@ -118,6 +145,8 @@ enum Kind {
     SortedList,
     DividingLine,
     Quote,
+    CodeMark,
+    Code,
 }
 
 #[derive(Debug, PartialEq, Copy, Clone)]
@@ -128,6 +157,7 @@ enum TokenKind {
     DividingMark,     // ---, ***, ___
     QuoteMark,        // >
     BoldMark,         // ** **
+    CodeMark,         // ```
     BlankLine,        // \n
     LineBreak,        // <br>, double whitespace
     Picture,          // ![]()
@@ -146,7 +176,17 @@ impl Line {
         l.parse();
         l
     }
-    // parses a line of text into 'Line' struct that contains multi tokens.
+    fn new_without_parsing(ln: usize, line: String) -> Self {
+        Line {
+            num: ln,
+            text: line,
+            kind: Kind::Code,
+            sequence: Vec::new(),
+        }
+    }
+
+    // Parses a line of text into 'Line' struct that contains multi tokens.
+    // Line's kind is determinded by the first token's kind.
     fn parse(&mut self) {
         let mut lx = Lexer::new(&self.text, &mut self.sequence);
 
@@ -165,6 +205,7 @@ impl Line {
             TokenKind::SortedListMark => Kind::SortedList,
             TokenKind::DividingMark => Kind::DividingLine,
             TokenKind::QuoteMark => Kind::Quote,
+            TokenKind::CodeMark => Kind::CodeMark,
             _ => Kind::NormalText,
         };
 
@@ -218,12 +259,13 @@ struct Lexer<'lex> {
 #[derive(PartialEq)]
 enum State {
     Begin,
-    CheckMark,
+    Mark,
     Title,
     DisorderedList,
     SortedList,
     Quote,
-    CheckDividing,
+    VerifyDividing,
+    VerifyCodeMark,
     Normal,
     Finished,
 }
@@ -262,7 +304,7 @@ impl<'lex> Lexer<'lex> {
                     self.line_tokens.push(t)
                 }
             }
-            State::CheckMark => {
+            State::Mark => {
                 if let Some(t) = self.split_mark(cur_pos) {
                     self.line_tokens.push(t)
                 }
@@ -285,10 +327,11 @@ impl<'lex> Lexer<'lex> {
                     self.line_tokens.push(t)
                 }
             }
-            State::CheckDividing => {
-                if let Some(t) = self.check_dividing(cur_pos, cur_char) {
-                    self.line_tokens.push(t)
-                }
+            State::VerifyDividing => {
+                self.verify_dividing(cur_pos, cur_char);
+            }
+            State::VerifyCodeMark => {
+                self.verify_codemark(cur_pos, cur_char);
             }
             State::Quote => {
                 if let Some(t) = self.split_quote(cur_pos, cur_char) {
@@ -337,7 +380,7 @@ impl<'lex> Lexer<'lex> {
             }
             return None;
         }
-        self.set_state(cur_pos, State::CheckMark);
+        self.set_state(cur_pos, State::Mark);
         None
     }
 
@@ -362,7 +405,6 @@ impl<'lex> Lexer<'lex> {
                 State::Title,
                 Some(Token::new(first_word.to_string(), TokenKind::TitleMark)),
             ),
-
             // disordered list
             ['*'] | ['-'] | ['+'] => (
                 cur_pos + 1,
@@ -372,7 +414,6 @@ impl<'lex> Lexer<'lex> {
                     TokenKind::DisorderListMark,
                 )),
             ),
-
             // sorted list
             [n1, '.'] if ('1'..='9').contains(&n1) => (
                 cur_pos + 1,
@@ -404,7 +445,6 @@ impl<'lex> Lexer<'lex> {
                     )),
                 )
             }
-
             // dividing line
             ['*', '*', '*', ..] | ['-', '-', '-', ..] | ['_', '_', '_', ..]
                 if first_word
@@ -415,18 +455,22 @@ impl<'lex> Lexer<'lex> {
             {
                 (
                     cur_pos + 1,
-                    State::CheckDividing,
+                    State::VerifyDividing,
                     Some(Token::new(first_word.to_string(), TokenKind::DividingMark)),
                 )
             }
-
             // quote
             ['>'] => (
                 cur_pos + 1,
                 State::Quote,
                 Some(Token::new(first_word.to_string(), TokenKind::QuoteMark)),
             ),
-
+            // code block mark
+            ['`', '`', '`'] => (
+                cur_pos + 1,
+                State::VerifyCodeMark,
+                Some(Token::new(first_word.to_string(), TokenKind::CodeMark)),
+            ),
             // normal (as no mark)
             _ => {
                 // don't change the unparsed pointer, because the first word is not a mark.
@@ -439,13 +483,22 @@ impl<'lex> Lexer<'lex> {
     }
 
     // if there is not a valid dividing line, will recreate the token as normal.
-    fn check_dividing(&mut self, _cur_pos: usize, cur_char: char) -> Option<Token> {
-        if cur_char.is_whitespace() {
-            return None;
+    fn verify_dividing(&mut self, _cur_pos: usize, cur_char: char) -> Option<Token> {
+        if !cur_char.is_whitespace() {
+            // if contains other characters, it's a invalid dividing line
+            // not a valid dividing line, so clear the dividing mark token
+            self.line_tokens.clear();
+            self.set_state(0, State::Normal);
         }
-        // if contains whitespace character, it's a invalid dividing line
-        self.line_tokens.clear(); // not a valid dividing line, so clear the dividing mark token
-        self.set_state(0, State::Normal);
+        None
+    }
+
+    //
+    fn verify_codemark(&mut self, _cur_pos: usize, cur_char: char) -> Option<Token> {
+        if !cur_char.is_whitespace() {
+            self.line_tokens.clear();
+            self.set_state(0, State::Normal);
+        }
         None
     }
 
@@ -1108,5 +1161,45 @@ _____________
                 }
             }
         }
+    }
+
+    #[test]
+    fn test_code_mark() {
+        let md = "``` ";
+
+        let mut ast = Ast::new();
+        ast.parse_string(md);
+
+        assert_eq!(ast.doc.len(), md.lines().count());
+        assert_eq!(ast.doc[0].kind, Kind::CodeMark);
+        assert_eq!(
+            ast.doc[0].sequence,
+            vec![Token::new(md.trim_end().to_string(), TokenKind::CodeMark)]
+        )
+    }
+
+    #[test]
+    fn test_code_block() {
+        let md = "这是一个代码块的例子：
+```
+    let s = \"hello world\";
+    let s1 = s.to_string();
+```
+    ```
+    let s;
+    assert_eq!(ast.doc[0].sequence[1].kind, TokenKind::Url);
+    assert_eq!(ast.doc[0].sequence[1].value, url.to_string());";
+
+        let mut ast = Ast::new();
+        ast.parse_string(md);
+
+        assert_eq!(ast.doc.len(), md.lines().count());
+        assert_eq!(ast.blocks.len(), 8);
+
+        assert_eq!(ast.blocks[2].kind, Kind::Code);
+        assert_eq!(ast.blocks[2].line_pointers.len(), 2);
+
+        assert_eq!(ast.blocks[7].kind, Kind::NormalText);
+        assert_eq!(ast.blocks[7].line_pointers.len(), 1);
     }
 }

@@ -12,6 +12,7 @@ pub struct Ast {
 }
 
 impl Ast {
+    // Create a Ast instance.
     pub fn new() -> Self {
         Ast {
             doc: Vec::new(),
@@ -21,15 +22,18 @@ impl Ast {
         }
     }
 
+    // Parse markdown document from a file, the 'path' argument is the file path.
     pub fn parse_file(&mut self, path: &str) {
         let file = File::open(path).unwrap();
         self.parse_reader(&mut BufReader::new(file));
     }
 
+    // Parse markdown document from a string.
     pub fn parse_string(&mut self, s: &str) {
         self.parse_reader(&mut s.as_bytes());
     }
 
+    // Parse markdown document from a reader, the 'reader' may be a file reader, byte buff or network socket etc.
     pub fn parse_reader(&mut self, reader: &mut dyn BufRead) {
         let mut num: usize = 0;
         loop {

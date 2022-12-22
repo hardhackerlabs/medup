@@ -1,7 +1,7 @@
-use std::fmt;
 use std::fmt::Debug;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
+use std::{fmt, io};
 
 // Ast represents the abstract syntax tree of the markdown file, it structurally represents the entire file.
 pub struct Ast {
@@ -22,27 +22,30 @@ impl Ast {
         }
     }
 
+    // TODO: render to html
+    pub fn render(&self) {}
+
     // Parse markdown document from a file, the 'path' argument is the file path.
-    pub fn parse_file(&mut self, path: &str) {
-        let file = File::open(path).unwrap();
-        self.parse_reader(&mut BufReader::new(file));
+    pub fn parse_file(&mut self, path: &str) -> Result<(), io::Error> {
+        let file = File::open(path)?;
+        self.parse_reader(&mut BufReader::new(file))
     }
 
     // Parse markdown document from a string.
-    pub fn parse_string(&mut self, s: &str) {
-        self.parse_reader(&mut s.as_bytes());
+    pub fn parse_string(&mut self, s: &str) -> Result<(), io::Error> {
+        self.parse_reader(&mut s.as_bytes())
     }
 
     // Parse markdown document from a reader, the 'reader' may be a file reader, byte buff or network socket etc.
-    pub fn parse_reader(&mut self, reader: &mut dyn BufRead) {
+    pub fn parse_reader(&mut self, reader: &mut dyn BufRead) -> Result<(), io::Error> {
         let mut num: usize = 0;
         loop {
             let mut buf = String::new();
-            let num_bytes = reader.read_line(&mut buf).unwrap();
+            let num_bytes = reader.read_line(&mut buf)?;
             if num_bytes == 0 {
                 break;
             }
-            if !buf.ends_with("\n") {
+            if !buf.ends_with('\n') {
                 buf.push('\n');
             }
             num += 1;
@@ -53,6 +56,7 @@ impl Ast {
         }
         self.defer_queue.clear();
         self.build_blocks();
+        Ok(())
     }
 
     fn parse_line(&mut self, num: usize, line: String) {
@@ -719,7 +723,7 @@ mod tests {
 
     fn create_ast(s: &str) -> Ast {
         let mut ast = Ast::new();
-        ast.parse_string(s);
+        ast.parse_string(s).unwrap();
         ast
     }
 
@@ -760,7 +764,7 @@ _____________
 > Rust, A language empowering everyone to build reliable and efficient software.";
 
         let mut ast = Ast::new();
-        ast.parse_string(md);
+        ast.parse_string(md).unwrap();
         assert_eq!(ast.doc.len(), md.lines().count());
     }
 
@@ -780,7 +784,7 @@ _____________
 > Rust, A language empowering everyone to build reliable and efficient software.";
 
         let mut ast = Ast::new();
-        ast.parse_string(md);
+        ast.parse_string(md).unwrap();
 
         assert_eq!(ast.doc.len(), md.lines().count());
         assert_eq!(ast.blocks.len(), 8);
@@ -1170,7 +1174,7 @@ _____________
         let md = "``` ";
 
         let mut ast = Ast::new();
-        ast.parse_string(md);
+        ast.parse_string(md).unwrap();
 
         assert_eq!(ast.doc.len(), md.lines().count());
         assert_eq!(ast.doc[0].kind, Kind::CodeMark);
@@ -1193,7 +1197,7 @@ _____________
     assert_eq!(ast.doc[0].sequence[1].value, url.to_string());";
 
         let mut ast = Ast::new();
-        ast.parse_string(md);
+        ast.parse_string(md).unwrap();
 
         assert_eq!(ast.doc.len(), md.lines().count());
         assert_eq!(ast.blocks.len(), 8);

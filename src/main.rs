@@ -8,7 +8,7 @@ fn main() {
 
     // Create Ast object
     let mut ast = markdown::Ast::new();
-    ast.parse_file(&path);
+    ast.parse_file(&path).unwrap();
 
     // Output the ast object to help us to check it's correctness
     println!("{:?}", ast);

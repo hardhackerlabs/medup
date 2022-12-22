@@ -7,8 +7,8 @@ use std::io::{BufRead, BufReader};
 pub struct Ast {
     doc: Vec<Line>,
     blocks: Vec<Block>,
-    open_code_block: bool,
-    code_block_index: Vec<usize>, // usize is index to 'doc'
+    enable_defer_parse: bool,
+    defer_queue: Vec<usize>, // usize is index to 'doc'
 }
 
 impl Ast {
@@ -17,8 +17,8 @@ impl Ast {
         Ast {
             doc: Vec::new(),
             blocks: Vec::new(),
-            code_block_index: Vec::new(),
-            open_code_block: false,
+            defer_queue: Vec::new(),
+            enable_defer_parse: false,
         }
     }
 
@@ -48,27 +48,25 @@ impl Ast {
             num += 1;
             self.parse_line(num, buf);
         }
-        for i in self.code_block_index.iter() {
+        for i in self.defer_queue.iter() {
             self.doc[*i].parse()
         }
-        self.code_block_index.clear();
+        self.defer_queue.clear();
         self.build_blocks();
     }
 
     fn parse_line(&mut self, num: usize, line: String) {
-        let l = if self.open_code_block && Self::peek_not(&line, "```") {
+        let l = if self.enable_defer_parse && Self::peek_not(&line, "```") {
+            self.defer_queue.push(self.doc.len());
             Line::new_without_parsing(num, line)
         } else {
             Line::new(num, line)
         };
-        if l.kind == Kind::Code {
-            self.code_block_index.push(self.doc.len());
-        }
         if l.kind == Kind::CodeMark {
-            self.open_code_block = !self.open_code_block;
-            if !self.open_code_block {
+            self.enable_defer_parse = !self.enable_defer_parse;
+            if !self.enable_defer_parse {
                 // closed code block
-                self.code_block_index.clear();
+                self.defer_queue.clear();
             }
         }
         self.doc.push(l);

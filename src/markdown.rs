@@ -391,8 +391,7 @@ impl<'lex> Lexer<'lex> {
     }
 
     fn find_word(&self, cur_pos: usize) -> Option<&str> {
-        let ch = self.line_text.chars().nth(cur_pos).unwrap(); // note: unwrap, it is safe here.
-        if ch.is_whitespace() {
+        if self.line_text.chars().nth(cur_pos)?.is_whitespace() {
             Some(utf8_slice::slice(self.line_text, self.unparsed, cur_pos))
         } else {
             None

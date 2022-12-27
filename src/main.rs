@@ -1,4 +1,4 @@
-use dice::markdown;
+use dice::markdown::html::render;
 
 fn main() {
     // Get path for the markdown file from command line arguments
@@ -6,10 +6,5 @@ fn main() {
         .nth(1)
         .expect("not specified path of the markdown file");
 
-    // Create Ast object
-    let mut ast = markdown::Ast::new();
-    ast.parse_file(&path).unwrap();
-
-    // Output the ast object to help us to check it's correctness
-    println!("{:?}", ast);
+    render::handle_file(&path).unwrap();
 }

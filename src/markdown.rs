@@ -1,10 +1,11 @@
+use std::error::Error;
 use std::fmt::Debug;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::{fmt, io};
 
 // Ast represents the abstract syntax tree of the markdown file, it structurally represents the entire file.
-pub struct Ast {
+struct Ast {
     doc: Vec<Line>,
     blocks: Vec<Block>,
     enable_defer_parse: bool,
@@ -13,7 +14,7 @@ pub struct Ast {
 
 impl Ast {
     // Create a Ast instance.
-    pub fn new() -> Self {
+    fn new() -> Self {
         Ast {
             doc: Vec::new(),
             blocks: Vec::new(),
@@ -22,22 +23,19 @@ impl Ast {
         }
     }
 
-    // TODO: render to html
-    pub fn render(&self) {}
-
     // Parse markdown document from a file, the 'path' argument is the file path.
-    pub fn parse_file(&mut self, path: &str) -> Result<(), io::Error> {
+    fn parse_file(&mut self, path: &str) -> Result<(), io::Error> {
         let file = File::open(path)?;
         self.parse_reader(&mut BufReader::new(file))
     }
 
     // Parse markdown document from a string.
-    pub fn parse_string(&mut self, s: &str) -> Result<(), io::Error> {
+    fn parse_string(&mut self, s: &str) -> Result<(), io::Error> {
         self.parse_reader(&mut s.as_bytes())
     }
 
     // Parse markdown document from a reader, the 'reader' may be a file reader, byte buff or network socket etc.
-    pub fn parse_reader(&mut self, reader: &mut dyn BufRead) -> Result<(), io::Error> {
+    fn parse_reader(&mut self, reader: &mut dyn BufRead) -> Result<(), io::Error> {
         let mut num: usize = 0;
         loop {
             let mut buf = String::new();
@@ -100,6 +98,23 @@ impl Ast {
                 }
             }
         }
+    }
+
+    fn for_each_block(
+        &self,
+        out: &mut Vec<String>,
+        get: fn(&mut Vec<String>, Kind, Vec<&Line>) -> Result<(), Box<dyn Error>>,
+    ) -> Result<(), Box<dyn Error>> {
+        for b in &self.blocks {
+            let mut ls = vec![];
+            for i in &b.line_pointers {
+                if let Some(l) = self.doc.get(*i) {
+                    ls.push(l);
+                }
+            }
+            get(out, b.kind, ls)?;
+        }
+        Ok(())
     }
 
     fn peek_not(s1: &str, s2: &str) -> bool {
@@ -712,6 +727,172 @@ impl<'lex> Lexer<'lex> {
             true
         } else {
             s.trim_end().ends_with("<br>")
+        }
+    }
+}
+
+// The html module is used to parse markdown into html.
+pub mod html {
+    use serde::Serialize;
+
+    use std::error::Error;
+    use tinytemplate::TinyTemplate;
+
+    use super::Line;
+
+    // Title
+    static TITLE_TEMPLATE_1: &'static str = "<h1>{text}</h1>";
+    static TITLE_TEMPLATE_2: &'static str = "<h2>{text}</h2>";
+    static TITLE_TEMPLATE_3: &'static str = "<h3>{text}</h3>";
+    static TITLE_TEMPLATE_4: &'static str = "<h4>{text}</h4>";
+
+    #[derive(Serialize)]
+    struct TitleContext<'tc> {
+        level: usize,
+        text: &'tc str,
+    }
+
+    fn render_title(l: &Line) -> Result<String, Box<dyn Error>> {
+        let first = &l.sequence[0];
+        let level = first.value.len();
+        let second = l.sequence.get(1);
+
+        let ctx = TitleContext {
+            level: level,
+            text: if let Some(t) = second {
+                t.value.as_str()
+            } else {
+                ""
+            },
+        };
+
+        let mut tt = TinyTemplate::new();
+        let (name, template) = match level {
+            1 => ("title1", TITLE_TEMPLATE_1),
+            2 => ("title2", TITLE_TEMPLATE_2),
+            3 => ("title3", TITLE_TEMPLATE_3),
+            4 => ("title4", TITLE_TEMPLATE_4),
+            _ => return Err(format!("invalid title level: {}", level).into()),
+        };
+        tt.add_template(name, template)?;
+        let s = tt.render(name, &ctx)?;
+        Ok(s)
+    }
+
+    #[derive(Serialize)]
+    struct SortedListContext {}
+
+    fn render_sorted_list() -> Result<(), Box<dyn Error>> {
+        Ok(())
+    }
+
+    #[derive(Serialize)]
+    struct DisorderedListContext {}
+
+    impl DisorderedListContext {
+        fn render(&self) -> Result<(), Box<dyn Error>> {
+            Ok(())
+        }
+    }
+
+    #[derive(Serialize)]
+    struct NormalTextContext {}
+
+    impl NormalTextContext {
+        fn render(&self) -> Result<(), Box<dyn Error>> {
+            Ok(())
+        }
+    }
+
+    #[derive(Serialize)]
+    struct QuoteContext {}
+
+    impl QuoteContext {
+        fn render(&self) -> Result<(), Box<dyn Error>> {
+            Ok(())
+        }
+    }
+
+    #[derive(Serialize)]
+    struct CodeBlockContext {}
+
+    impl CodeBlockContext {
+        fn render(&self) -> Result<(), Box<dyn Error>> {
+            Ok(())
+        }
+    }
+
+    #[derive(Serialize)]
+    struct BoldContext {}
+
+    impl BoldContext {
+        fn render(&self) -> Result<(), Box<dyn Error>> {
+            Ok(())
+        }
+    }
+
+    #[derive(Serialize)]
+    struct UrlContext {}
+
+    impl UrlContext {
+        fn render(&self) -> Result<(), Box<dyn Error>> {
+            Ok(())
+        }
+    }
+
+    #[derive(Serialize)]
+    struct ImageContext {}
+
+    impl ImageContext {
+        fn render(&self) -> Result<(), Box<dyn Error>> {
+            Ok(())
+        }
+    }
+
+    pub mod render {
+        use crate::markdown::{Ast, Kind};
+        use std::error::Error;
+
+        pub fn handle_file(path: &str) -> Result<String, Box<dyn Error>> {
+            let mut ast = Ast::new();
+            ast.parse_file(path)?;
+            handle(&ast)
+        }
+
+        pub fn handle_string(s: &str) -> Result<String, Box<dyn Error>> {
+            let mut ast = Ast::new();
+            ast.parse_string(s)?;
+            handle(&ast)
+        }
+
+        fn handle(ast: &Ast) -> Result<String, Box<dyn Error>> {
+            let mut html_doc: Vec<String> = Vec::new();
+
+            ast.for_each_block(&mut html_doc, |out, kind, ls| {
+                let res = match kind {
+                    Kind::Title => {
+                        if let Some(l) = ls.first() {
+                            Some(super::render_title(l)?)
+                        } else {
+                            None
+                        }
+                    }
+                    Kind::Blank => None,
+                    Kind::CodeMark => None,
+                    Kind::Code => None,
+                    Kind::DisorderedList => None,
+                    Kind::DividingLine => None,
+                    Kind::NormalText => None,
+                    Kind::Quote => None,
+                    Kind::SortedList => None,
+                };
+                if let Some(res) = res {
+                    out.push(res);
+                }
+                Ok(())
+            })?;
+
+            Ok(html_doc.join("\n"))
         }
     }
 }

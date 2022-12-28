@@ -77,7 +77,11 @@ impl Ast {
     fn build_blocks(&mut self) {
         for (i, l) in self.doc.iter().enumerate() {
             match l.kind {
-                Kind::Blank | Kind::DisorderedList | Kind::SortedList | Kind::Code => {
+                Kind::Blank
+                | Kind::DisorderedList
+                | Kind::SortedList
+                | Kind::Quote
+                | Kind::Code => {
                     let last = self.blocks.last_mut();
                     if let Some(b) = last {
                         if b.kind == l.kind {
@@ -835,15 +839,8 @@ pub mod html {
     }
 
     // Normal Text
-    static NORMAL_TEMPLATE: &str = "{{ for text in lines }}<p>{text}</p>{{ endfor }}";
-
-    #[derive(Serialize)]
-    struct NormalTextContext {
-        lines: Vec<String>,
-    }
-
     fn render_normal(ls: Vec<&Line>) -> Result<String, Box<dyn Error>> {
-        let mut lines = Vec::new();
+        let mut s = String::new();
         for l in ls {
             let mut text = String::new();
             let mut in_bold = false;
@@ -870,11 +867,10 @@ pub mod html {
                     _ => (),
                 }
             }
-            lines.push(text);
+            s.push_str("<p>");
+            s.push_str(&text);
+            s.push_str("</p>");
         }
-        let mut tt = TinyTemplate::new();
-        tt.add_template("normal", NORMAL_TEMPLATE)?;
-        let s = tt.render("normal", &NormalTextContext { lines })?;
         Ok(s)
     }
 
@@ -899,10 +895,9 @@ pub mod html {
                 ""
             });
         }
-        let ctx = QuoteContext { lines };
         let mut tt = TinyTemplate::new();
         tt.add_template("quote", QUOTE_TEMPLATE)?;
-        let s = tt.render("quote", &ctx)?;
+        let s = tt.render("quote", &QuoteContext { lines })?;
         Ok(s)
     }
 

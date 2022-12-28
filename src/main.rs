@@ -6,5 +6,6 @@ fn main() {
         .nth(1)
         .expect("not specified path of the markdown file");
 
-    render::handle_file(&path).unwrap();
+    let html = render::handle_file(&path).unwrap();
+    println!("{}", html);
 }

@@ -741,14 +741,17 @@ pub mod html {
     use super::Line;
 
     // Title
-    static TITLE_TEMPLATE_1: &'static str = "<h1>{text}</h1>";
-    static TITLE_TEMPLATE_2: &'static str = "<h2>{text}</h2>";
-    static TITLE_TEMPLATE_3: &'static str = "<h3>{text}</h3>";
-    static TITLE_TEMPLATE_4: &'static str = "<h4>{text}</h4>";
+    static TITLE_TEMPLATE: &str = "{{ if is_l1 }}<h1>{text}</h1>{{ endif }}
+    {{ if is_l2 }}<h2>{text}</h2>{{ endif }}
+    {{ if is_l3 }}<h3>{text}</h3>{{ endif }}
+    {{ if is_l4 }}<h4>{text}</h4>{{ endif }}";
 
     #[derive(Serialize)]
     struct TitleContext<'tc> {
-        level: usize,
+        is_l1: bool,
+        is_l2: bool,
+        is_l3: bool,
+        is_l4: bool,
         text: &'tc str,
     }
 
@@ -758,7 +761,10 @@ pub mod html {
         let second = l.sequence.get(1);
 
         let ctx = TitleContext {
-            level: level,
+            is_l1: level == 1,
+            is_l2: level == 2,
+            is_l3: level == 3,
+            is_l4: level == 4,
             text: if let Some(t) = second {
                 t.value.as_str()
             } else {
@@ -767,86 +773,174 @@ pub mod html {
         };
 
         let mut tt = TinyTemplate::new();
-        let (name, template) = match level {
-            1 => ("title1", TITLE_TEMPLATE_1),
-            2 => ("title2", TITLE_TEMPLATE_2),
-            3 => ("title3", TITLE_TEMPLATE_3),
-            4 => ("title4", TITLE_TEMPLATE_4),
-            _ => return Err(format!("invalid title level: {}", level).into()),
-        };
-        tt.add_template(name, template)?;
-        let s = tt.render(name, &ctx)?;
+        tt.add_template("title", TITLE_TEMPLATE)?;
+        let s = tt.render("title", &ctx)?;
         Ok(s)
     }
 
-    #[derive(Serialize)]
-    struct SortedListContext {}
+    // Sorted List
+    static SORTED_LIST_TEMPLATE: &str = "<ol> 
+    {{ for item in list }} 
+    <li>{item}</li> 
+    {{ endfor }} 
+    </ol>";
 
-    fn render_sorted_list() -> Result<(), Box<dyn Error>> {
-        Ok(())
+    #[derive(Serialize)]
+    struct SortedListContext<'slc> {
+        list: Vec<&'slc str>,
     }
 
-    #[derive(Serialize)]
-    struct DisorderedListContext {}
-
-    impl DisorderedListContext {
-        fn render(&self) -> Result<(), Box<dyn Error>> {
-            Ok(())
+    fn render_sorted_list(ls: Vec<&Line>) -> Result<String, Box<dyn Error>> {
+        let mut list = Vec::new();
+        for l in ls {
+            list.push(if let Some(t) = l.sequence.get(1) {
+                t.value.as_str()
+            } else {
+                ""
+            });
         }
+        let ctx = SortedListContext { list };
+        let mut tt = TinyTemplate::new();
+        tt.add_template("sorted_list", SORTED_LIST_TEMPLATE)?;
+        let s = tt.render("sorted_list", &ctx)?;
+        Ok(s)
     }
 
-    #[derive(Serialize)]
-    struct NormalTextContext {}
+    // Disordered List
+    static DISORDERED_LIST_TEMPLATE: &str = "<ul> 
+    {{ for item in list }} 
+    <li>{item}</li> 
+    {{ endfor }} 
+    </ul>";
 
-    impl NormalTextContext {
-        fn render(&self) -> Result<(), Box<dyn Error>> {
-            Ok(())
-        }
+    #[derive(Serialize)]
+    struct DisorderedListContext<'dlc> {
+        list: Vec<&'dlc str>,
     }
 
-    #[derive(Serialize)]
-    struct QuoteContext {}
-
-    impl QuoteContext {
-        fn render(&self) -> Result<(), Box<dyn Error>> {
-            Ok(())
+    fn render_disordered_list(ls: Vec<&Line>) -> Result<String, Box<dyn Error>> {
+        let mut list = Vec::new();
+        for l in ls {
+            list.push(if let Some(t) = l.sequence.get(1) {
+                t.value.as_str()
+            } else {
+                ""
+            });
         }
+        let ctx = DisorderedListContext { list };
+        let mut tt = TinyTemplate::new();
+        tt.add_template("disorded_list", DISORDERED_LIST_TEMPLATE)?;
+        let s = tt.render("disorded_list", &ctx)?;
+        Ok(s)
+    }
+
+    // Normal Text
+    static NORMAL_TEMPLATE: &str = "{{ for text in lines }}<p>{text}</p>{{ endfor }}";
+
+    #[derive(Serialize)]
+    struct NormalTextContext {
+        lines: Vec<String>,
+    }
+
+    fn render_normal(ls: Vec<&Line>) -> Result<String, Box<dyn Error>> {
+        let mut lines = Vec::new();
+        for l in ls {
+            let mut text = String::new();
+            let mut in_bold = false;
+            for t in &l.sequence {
+                match t.kind {
+                    super::TokenKind::Text => text.push_str(&t.value),
+                    super::TokenKind::BoldMark => {
+                        if in_bold {
+                            text.push_str("</strong>");
+                        } else {
+                            text.push_str("<strong>");
+                        }
+                        in_bold = !in_bold;
+                    }
+                    super::TokenKind::Url => {
+                        if let Some(fields) = &t.fields {
+                            if fields.len() == 2 {
+                                let s = render_url(&fields[0], &fields[1])?;
+                                text.push_str(&s);
+                            }
+                        }
+                    }
+                    super::TokenKind::Picture => {} // TODO:
+                    _ => (),
+                }
+            }
+            lines.push(text);
+        }
+        let mut tt = TinyTemplate::new();
+        tt.add_template("normal", NORMAL_TEMPLATE)?;
+        let s = tt.render("normal", &NormalTextContext { lines })?;
+        Ok(s)
+    }
+
+    // Quote
+    static QUOTE_TEMPLATE: &str = "<blockquote> 
+    {{ for text in lines }} 
+    {text}<br> 
+    {{ endfor }} 
+    </blockquote>";
+
+    #[derive(Serialize)]
+    struct QuoteContext<'qc> {
+        lines: Vec<&'qc str>,
+    }
+
+    fn render_quote(ls: Vec<&Line>) -> Result<String, Box<dyn Error>> {
+        let mut lines = Vec::new();
+        for l in ls {
+            lines.push(if let Some(t) = l.sequence.get(1) {
+                t.value.as_str()
+            } else {
+                ""
+            });
+        }
+        let ctx = QuoteContext { lines };
+        let mut tt = TinyTemplate::new();
+        tt.add_template("quote", QUOTE_TEMPLATE)?;
+        let s = tt.render("quote", &ctx)?;
+        Ok(s)
+    }
+
+    // Dividling
+    fn render_dividling() -> Result<String, Box<dyn Error>> {
+        Ok("<hr>".to_string())
     }
 
     #[derive(Serialize)]
     struct CodeBlockContext {}
 
-    impl CodeBlockContext {
-        fn render(&self) -> Result<(), Box<dyn Error>> {
-            Ok(())
-        }
+    fn render_code() -> Result<(), Box<dyn Error>> {
+        Ok(())
     }
+
+    // Url
+    static URL_TEMPLATE: &str = "<a href=\"{location}\">{title}</a>";
 
     #[derive(Serialize)]
-    struct BoldContext {}
-
-    impl BoldContext {
-        fn render(&self) -> Result<(), Box<dyn Error>> {
-            Ok(())
-        }
+    struct UrlContext<'uc> {
+        title: &'uc str,
+        location: &'uc str,
     }
 
-    #[derive(Serialize)]
-    struct UrlContext {}
-
-    impl UrlContext {
-        fn render(&self) -> Result<(), Box<dyn Error>> {
-            Ok(())
-        }
+    fn render_url(title: &str, location: &str) -> Result<String, Box<dyn Error>> {
+        let mut tt = TinyTemplate::new();
+        tt.add_template("url", URL_TEMPLATE)?;
+        let s = tt.render("url", &UrlContext { title, location })?;
+        Ok(s)
     }
+
+    // Image
 
     #[derive(Serialize)]
     struct ImageContext {}
 
-    impl ImageContext {
-        fn render(&self) -> Result<(), Box<dyn Error>> {
-            Ok(())
-        }
+    fn render_image() -> Result<(), Box<dyn Error>> {
+        Ok(())
     }
 
     pub mod render {
@@ -877,14 +971,13 @@ pub mod html {
                             None
                         }
                     }
-                    Kind::Blank => None,
                     Kind::CodeMark => None,
                     Kind::Code => None,
-                    Kind::DisorderedList => None,
-                    Kind::DividingLine => None,
-                    Kind::NormalText => None,
-                    Kind::Quote => None,
-                    Kind::SortedList => None,
+                    Kind::DisorderedList => Some(super::render_disordered_list(ls)?),
+                    Kind::DividingLine => Some(super::render_dividling()?),
+                    Kind::Blank | Kind::NormalText => Some(super::render_normal(ls)?),
+                    Kind::Quote => Some(super::render_quote(ls)?),
+                    Kind::SortedList => Some(super::render_sorted_list(ls)?),
                 };
                 if let Some(res) = res {
                     out.push(res);

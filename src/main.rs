@@ -1,4 +1,4 @@
-use dice::markdown::html::render;
+use med::markdown::html::render;
 
 fn main() {
     // Get path for the markdown file from command line arguments

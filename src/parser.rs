@@ -57,22 +57,32 @@ impl Ast {
         Ok(())
     }
 
-    // Iterate through each block of the Ast and process the block
-    pub fn for_each_block(
+    // Iterate through each block of the Ast and process the block into a string
+    pub fn block_to_string(
         &self,
-        out: &mut Vec<String>,
-        get: fn(&mut Vec<String>, Kind, Vec<&Line>) -> Result<(), Box<dyn Error>>,
-    ) -> Result<(), Box<dyn Error>> {
-        for b in &self.blocks {
-            let mut ls = vec![];
-            for i in &b.line_pointers {
-                if let Some(l) = self.doc.get(*i) {
-                    ls.push(l);
-                }
-            }
-            get(out, b.kind, ls)?;
+        get: fn(Kind, Vec<&Line>) -> Result<String, Box<dyn Error>>,
+    ) -> Result<Vec<String>, Box<dyn Error>> {
+        let mut ss: Vec<String> = Vec::new();
+        for b in self.blocks() {
+            let ls = self.lines_in_block(b);
+            let s = get(b.kind, ls)?;
+            ss.push(s);
         }
-        Ok(())
+        Ok(ss)
+    }
+
+    fn blocks(&self) -> &Vec<Block> {
+        &self.blocks
+    }
+
+    fn lines_in_block(&self, b: &Block) -> Vec<&Line> {
+        let mut ls = vec![];
+        for i in &b.line_pointers {
+            if let Some(l) = self.doc.get(*i) {
+                ls.push(l);
+            }
+        }
+        ls
     }
 
     fn parse_line(&mut self, num: usize, line: String) {

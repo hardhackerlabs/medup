@@ -2,12 +2,14 @@ use crate::html;
 use crate::parser::{Ast, Kind};
 use std::error::Error;
 
+// Parse a markdown file and then render it into html
 pub fn process_file(path: &str) -> Result<String, Box<dyn Error>> {
     let mut ast = Ast::new();
     ast.parse_file(path)?;
     process(&ast)
 }
 
+// Parse a markdown string and then render it into html
 pub fn process_string(s: &str) -> Result<String, Box<dyn Error>> {
     let mut ast = Ast::new();
     ast.parse_string(s)?;
@@ -15,17 +17,9 @@ pub fn process_string(s: &str) -> Result<String, Box<dyn Error>> {
 }
 
 fn process(ast: &Ast) -> Result<String, Box<dyn Error>> {
-    let mut html_doc: Vec<String> = Vec::new();
-
-    ast.for_each_block(&mut html_doc, |out, kind, ls| {
+    let html_doc = ast.block_to_string(|kind, ls| {
         let res = match kind {
-            Kind::Title => {
-                if let Some(l) = ls.first() {
-                    Some(html::gen_title(l)?)
-                } else {
-                    None
-                }
-            }
+            Kind::Title => Some(html::gen_title(ls)?),
             Kind::CodeMark => None,
             Kind::Code => None,
             Kind::DisorderedList => Some(html::gen_disordered_list(ls)?),
@@ -35,9 +29,10 @@ fn process(ast: &Ast) -> Result<String, Box<dyn Error>> {
             Kind::SortedList => Some(html::gen_sorted_list(ls)?),
         };
         if let Some(res) = res {
-            out.push(res);
+            Ok(res)
+        } else {
+            Ok("".to_string())
         }
-        Ok(())
     })?;
 
     Ok(html_doc.join("\n"))

@@ -20,7 +20,8 @@ struct TitleContext<'tc> {
     text: &'tc str,
 }
 
-pub fn gen_title(l: &parser::Line) -> Result<String, Box<dyn Error>> {
+pub fn gen_title(ls: Vec<&parser::Line>) -> Result<String, Box<dyn Error>> {
+    let l = ls.first().unwrap();
     let first = l.first_token().unwrap();
     let level = first.len();
     let second = l.get(1);

@@ -202,6 +202,26 @@ pub enum TokenKind {
 }
 
 impl Line {
+    // Get kind of the Line
+    pub fn kind(&self) -> Kind {
+        self.kind
+    }
+
+    // Get the first token in the Line
+    pub fn first_token(&self) -> Option<&Token> {
+        self.sequence.get(0)
+    }
+
+    // Get the Nth Token in the Line
+    pub fn get(&self, index: usize) -> Option<&Token> {
+        self.sequence.get(index)
+    }
+
+    // Get all tokens in the Line
+    pub fn all_tokens(&self) -> &Vec<Token> {
+        &self.sequence
+    }
+
     fn new(ln: usize, line: String) -> Self {
         let mut l = Line {
             num: ln,
@@ -220,22 +240,6 @@ impl Line {
             kind: Kind::Code,
             sequence: Vec::new(),
         }
-    }
-
-    pub fn kind(&self) -> Kind {
-        self.kind
-    }
-
-    pub fn first_token(&self) -> Option<&Token> {
-        self.sequence.get(0)
-    }
-
-    pub fn get(&self, index: usize) -> Option<&Token> {
-        self.sequence.get(index)
-    }
-
-    pub fn all_tokens(&self) -> &Vec<Token> {
-        &self.sequence
     }
 
     // Parses a line of text into 'Line' struct that contains multi tokens.

@@ -5,6 +5,16 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::{fmt, io};
 
+pub trait BlockHandler {
+    fn gen_title(&self, l: &Line) -> Result<String, Box<dyn Error>>;
+    fn gen_dividling(&self, l: &Line) -> Result<String, Box<dyn Error>>;
+    fn gen_normal(&self, ls: Vec<&Line>) -> Result<String, Box<dyn Error>>;
+    fn gen_sorted_list(&self, ls: Vec<&Line>) -> Result<String, Box<dyn Error>>;
+    fn gen_disordered_list(&self, ls: Vec<&Line>) -> Result<String, Box<dyn Error>>;
+    fn gen_quote(&self, ls: Vec<&Line>) -> Result<String, Box<dyn Error>>;
+    // fn gen_code(&self) -> Result<(), Box<dyn Error>>;
+}
+
 // Ast represents the abstract syntax tree of the markdown file, it structurally represents the entire file.
 pub struct Ast {
     buffer: Vec<Line>,
@@ -59,17 +69,26 @@ impl Ast {
     }
 
     // Iterate through each block of the Ast and process the block into a string
-    pub fn block_to_string(
-        &self,
-        get: fn(Kind, Vec<&Line>) -> Result<String, Box<dyn Error>>,
-    ) -> Result<Vec<String>, Box<dyn Error>> {
+    pub fn to_html(&self, gen: &impl BlockHandler) -> Result<String, Box<dyn Error>> {
         let mut ss: Vec<String> = Vec::new();
         for b in self.blocks() {
             let ls = self.lines_in_block(b);
-            let s = get(b.kind, ls)?;
-            ss.push(s);
+            let res = match b.kind {
+                Kind::Title => Some(gen.gen_title(ls.first().unwrap())?),
+                Kind::CodeMark => None,
+                Kind::Code => None,
+                Kind::DisorderedList => Some(gen.gen_disordered_list(ls)?),
+                Kind::DividingLine => Some(gen.gen_dividling(ls.first().unwrap())?),
+                Kind::Blank | Kind::NormalText => Some(gen.gen_normal(ls)?),
+                Kind::Quote => Some(gen.gen_quote(ls)?),
+                Kind::SortedList => Some(gen.gen_sorted_list(ls)?),
+            };
+            if let Some(s) = res {
+                ss.push(s);
+            }
         }
-        Ok(ss)
+
+        Ok(ss.join("\n"))
     }
 
     fn blocks(&self) -> &Vec<Block> {

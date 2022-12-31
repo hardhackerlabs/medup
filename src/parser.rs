@@ -5,7 +5,7 @@ use std::io::{BufRead, BufReader};
 use std::{fmt, io};
 
 // Ast represents the abstract syntax tree of the markdown file, it structurally represents the entire file.
-struct Ast {
+pub struct Ast {
     doc: Vec<Line>,
     blocks: Vec<Block>,
     enable_defer_parse: bool,
@@ -14,7 +14,7 @@ struct Ast {
 
 impl Ast {
     // Create a Ast instance.
-    fn new() -> Self {
+    pub fn new() -> Self {
         Ast {
             doc: Vec::new(),
             blocks: Vec::new(),
@@ -24,18 +24,18 @@ impl Ast {
     }
 
     // Parse markdown document from a file, the 'path' argument is the file path.
-    fn parse_file(&mut self, path: &str) -> Result<(), io::Error> {
+    pub fn parse_file(&mut self, path: &str) -> Result<(), io::Error> {
         let file = File::open(path)?;
         self.parse_reader(&mut BufReader::new(file))
     }
 
     // Parse markdown document from a string.
-    fn parse_string(&mut self, s: &str) -> Result<(), io::Error> {
+    pub fn parse_string(&mut self, s: &str) -> Result<(), io::Error> {
         self.parse_reader(&mut s.as_bytes())
     }
 
     // Parse markdown document from a reader, the 'reader' may be a file reader, byte buff or network socket etc.
-    fn parse_reader(&mut self, reader: &mut dyn BufRead) -> Result<(), io::Error> {
+    pub fn parse_reader(&mut self, reader: &mut dyn BufRead) -> Result<(), io::Error> {
         let mut num: usize = 0;
         loop {
             let mut buf = String::new();
@@ -54,6 +54,24 @@ impl Ast {
         }
         self.defer_queue.clear();
         self.build_blocks();
+        Ok(())
+    }
+
+    // Iterate through each block of the Ast and process the block
+    pub fn for_each_block(
+        &self,
+        out: &mut Vec<String>,
+        get: fn(&mut Vec<String>, Kind, Vec<&Line>) -> Result<(), Box<dyn Error>>,
+    ) -> Result<(), Box<dyn Error>> {
+        for b in &self.blocks {
+            let mut ls = vec![];
+            for i in &b.line_pointers {
+                if let Some(l) = self.doc.get(*i) {
+                    ls.push(l);
+                }
+            }
+            get(out, b.kind, ls)?;
+        }
         Ok(())
     }
 
@@ -104,23 +122,6 @@ impl Ast {
         }
     }
 
-    fn for_each_block(
-        &self,
-        out: &mut Vec<String>,
-        get: fn(&mut Vec<String>, Kind, Vec<&Line>) -> Result<(), Box<dyn Error>>,
-    ) -> Result<(), Box<dyn Error>> {
-        for b in &self.blocks {
-            let mut ls = vec![];
-            for i in &b.line_pointers {
-                if let Some(l) = self.doc.get(*i) {
-                    ls.push(l);
-                }
-            }
-            get(out, b.kind, ls)?;
-        }
-        Ok(())
-    }
-
     fn peek_not(s1: &str, s2: &str) -> bool {
         s1.trim() != s2
     }
@@ -154,7 +155,7 @@ struct Block {
 }
 
 // Line is a line of the markdown file, it be parsed into some tokens.
-struct Line {
+pub struct Line {
     sequence: Vec<Token>,
     kind: Kind,
     num: usize,
@@ -162,7 +163,7 @@ struct Line {
 }
 
 #[derive(Debug, PartialEq, Copy, Clone)]
-enum Kind {
+pub enum Kind {
     NormalText,
     Blank,
     Title,
@@ -175,7 +176,7 @@ enum Kind {
 }
 
 #[derive(Debug, PartialEq, Copy, Clone)]
-enum TokenKind {
+pub enum TokenKind {
     TitleMark,        // #, ##, ###, ####
     DisorderListMark, // *
     SortedListMark,   // 1.
@@ -201,6 +202,7 @@ impl Line {
         l.parse();
         l
     }
+
     fn new_without_parsing(ln: usize, line: String) -> Self {
         Line {
             num: ln,
@@ -208,6 +210,22 @@ impl Line {
             kind: Kind::Code,
             sequence: Vec::new(),
         }
+    }
+
+    pub fn kind(&self) -> Kind {
+        self.kind
+    }
+
+    pub fn first_token(&self) -> Option<&Token> {
+        self.sequence.get(0)
+    }
+
+    pub fn get(&self, index: usize) -> Option<&Token> {
+        self.sequence.get(index)
+    }
+
+    pub fn all_tokens(&self) -> &Vec<Token> {
+        &self.sequence
     }
 
     // Parses a line of text into 'Line' struct that contains multi tokens.
@@ -243,7 +261,7 @@ impl Line {
 
 // Token is a part of the line, the parser will parse the line into some tokens.
 #[derive(PartialEq, Debug)]
-struct Token {
+pub struct Token {
     value: String,
     kind: TokenKind,
     parent_kind: Option<TokenKind>,
@@ -269,6 +287,35 @@ impl Token {
     }
     fn push_field(&mut self, s: &str) {
         self.fields.get_or_insert(vec![]).push(s.to_string())
+    }
+
+    // Get value of the token
+    pub fn value(&self) -> &str {
+        &self.value
+    }
+
+    // Get the value length of the token
+    pub fn len(&self) -> usize {
+        self.value.len()
+    }
+
+    // Check the value of the token is empty or not
+    pub fn is_empty(&self) -> bool {
+        self.value.len() == 0
+    }
+
+    // Get kind of the token
+    pub fn kind(&self) -> TokenKind {
+        self.kind
+    }
+
+    pub fn fields_as_url(&self) -> (&str, &str) {
+        if let Some(fields) = &self.fields {
+            if fields.len() == 2 {
+                return (&fields[0], &fields[1]);
+            }
+        }
+        ("", "")
     }
 }
 
@@ -731,256 +778,6 @@ impl<'lex> Lexer<'lex> {
             true
         } else {
             s.trim_end().ends_with("<br>")
-        }
-    }
-}
-
-// The html module is used to parse markdown into html.
-pub mod html {
-    use serde::Serialize;
-
-    use std::error::Error;
-    use tinytemplate::TinyTemplate;
-
-    use super::Line;
-
-    // Title
-    static TITLE_TEMPLATE: &str = "{{ if is_l1 }}<h1>{text}</h1>{{ endif }}
-    {{ if is_l2 }}<h2>{text}</h2>{{ endif }}
-    {{ if is_l3 }}<h3>{text}</h3>{{ endif }}
-    {{ if is_l4 }}<h4>{text}</h4>{{ endif }}";
-
-    #[derive(Serialize)]
-    struct TitleContext<'tc> {
-        is_l1: bool,
-        is_l2: bool,
-        is_l3: bool,
-        is_l4: bool,
-        text: &'tc str,
-    }
-
-    fn render_title(l: &Line) -> Result<String, Box<dyn Error>> {
-        let first = &l.sequence[0];
-        let level = first.value.len();
-        let second = l.sequence.get(1);
-
-        let ctx = TitleContext {
-            is_l1: level == 1,
-            is_l2: level == 2,
-            is_l3: level == 3,
-            is_l4: level == 4,
-            text: if let Some(t) = second {
-                t.value.as_str()
-            } else {
-                ""
-            },
-        };
-
-        let mut tt = TinyTemplate::new();
-        tt.add_template("title", TITLE_TEMPLATE)?;
-        let s = tt.render("title", &ctx)?;
-        Ok(s)
-    }
-
-    // Sorted List
-    static SORTED_LIST_TEMPLATE: &str = "<ol> 
-    {{ for item in list }} 
-    <li>{item}</li> 
-    {{ endfor }} 
-    </ol>";
-
-    #[derive(Serialize)]
-    struct SortedListContext<'slc> {
-        list: Vec<&'slc str>,
-    }
-
-    fn render_sorted_list(ls: Vec<&Line>) -> Result<String, Box<dyn Error>> {
-        let mut list = Vec::new();
-        for l in ls {
-            list.push(if let Some(t) = l.sequence.get(1) {
-                t.value.as_str()
-            } else {
-                ""
-            });
-        }
-        let ctx = SortedListContext { list };
-        let mut tt = TinyTemplate::new();
-        tt.add_template("sorted_list", SORTED_LIST_TEMPLATE)?;
-        let s = tt.render("sorted_list", &ctx)?;
-        Ok(s)
-    }
-
-    // Disordered List
-    static DISORDERED_LIST_TEMPLATE: &str = "<ul> 
-    {{ for item in list }} 
-    <li>{item}</li> 
-    {{ endfor }} 
-    </ul>";
-
-    #[derive(Serialize)]
-    struct DisorderedListContext<'dlc> {
-        list: Vec<&'dlc str>,
-    }
-
-    fn render_disordered_list(ls: Vec<&Line>) -> Result<String, Box<dyn Error>> {
-        let mut list = Vec::new();
-        for l in ls {
-            list.push(if let Some(t) = l.sequence.get(1) {
-                t.value.as_str()
-            } else {
-                ""
-            });
-        }
-        let ctx = DisorderedListContext { list };
-        let mut tt = TinyTemplate::new();
-        tt.add_template("disorded_list", DISORDERED_LIST_TEMPLATE)?;
-        let s = tt.render("disorded_list", &ctx)?;
-        Ok(s)
-    }
-
-    // Normal Text
-    fn render_normal(ls: Vec<&Line>) -> Result<String, Box<dyn Error>> {
-        let mut s = String::new();
-        for l in ls {
-            let mut text = String::new();
-            let mut in_bold = false;
-            for t in &l.sequence {
-                match t.kind {
-                    super::TokenKind::Text => text.push_str(&t.value),
-                    super::TokenKind::BoldMark => {
-                        if in_bold {
-                            text.push_str("</strong>");
-                        } else {
-                            text.push_str("<strong>");
-                        }
-                        in_bold = !in_bold;
-                    }
-                    super::TokenKind::Url => {
-                        if let Some(fields) = &t.fields {
-                            if fields.len() == 2 {
-                                let s = render_url(&fields[0], &fields[1])?;
-                                text.push_str(&s);
-                            }
-                        }
-                    }
-                    super::TokenKind::Picture => {} // TODO:
-                    _ => (),
-                }
-            }
-            s.push_str("<p>");
-            s.push_str(&text);
-            s.push_str("</p>");
-        }
-        Ok(s)
-    }
-
-    // Quote
-    static QUOTE_TEMPLATE: &str = "<blockquote> 
-    {{ for text in lines }} 
-    {text}<br> 
-    {{ endfor }} 
-    </blockquote>";
-
-    #[derive(Serialize)]
-    struct QuoteContext<'qc> {
-        lines: Vec<&'qc str>,
-    }
-
-    fn render_quote(ls: Vec<&Line>) -> Result<String, Box<dyn Error>> {
-        let mut lines = Vec::new();
-        for l in ls {
-            lines.push(if let Some(t) = l.sequence.get(1) {
-                t.value.as_str()
-            } else {
-                ""
-            });
-        }
-        let mut tt = TinyTemplate::new();
-        tt.add_template("quote", QUOTE_TEMPLATE)?;
-        let s = tt.render("quote", &QuoteContext { lines })?;
-        Ok(s)
-    }
-
-    // Dividling
-    fn render_dividling() -> Result<String, Box<dyn Error>> {
-        Ok("<hr>".to_string())
-    }
-
-    #[derive(Serialize)]
-    struct CodeBlockContext {}
-
-    fn render_code() -> Result<(), Box<dyn Error>> {
-        Ok(())
-    }
-
-    // Url
-    static URL_TEMPLATE: &str = "<a href=\"{location}\">{title}</a>";
-
-    #[derive(Serialize)]
-    struct UrlContext<'uc> {
-        title: &'uc str,
-        location: &'uc str,
-    }
-
-    fn render_url(title: &str, location: &str) -> Result<String, Box<dyn Error>> {
-        let mut tt = TinyTemplate::new();
-        tt.add_template("url", URL_TEMPLATE)?;
-        let s = tt.render("url", &UrlContext { title, location })?;
-        Ok(s)
-    }
-
-    // Image
-
-    #[derive(Serialize)]
-    struct ImageContext {}
-
-    fn render_image() -> Result<(), Box<dyn Error>> {
-        Ok(())
-    }
-
-    pub mod render {
-        use crate::markdown::{Ast, Kind};
-        use std::error::Error;
-
-        pub fn handle_file(path: &str) -> Result<String, Box<dyn Error>> {
-            let mut ast = Ast::new();
-            ast.parse_file(path)?;
-            handle(&ast)
-        }
-
-        pub fn handle_string(s: &str) -> Result<String, Box<dyn Error>> {
-            let mut ast = Ast::new();
-            ast.parse_string(s)?;
-            handle(&ast)
-        }
-
-        fn handle(ast: &Ast) -> Result<String, Box<dyn Error>> {
-            let mut html_doc: Vec<String> = Vec::new();
-
-            ast.for_each_block(&mut html_doc, |out, kind, ls| {
-                let res = match kind {
-                    Kind::Title => {
-                        if let Some(l) = ls.first() {
-                            Some(super::render_title(l)?)
-                        } else {
-                            None
-                        }
-                    }
-                    Kind::CodeMark => None,
-                    Kind::Code => None,
-                    Kind::DisorderedList => Some(super::render_disordered_list(ls)?),
-                    Kind::DividingLine => Some(super::render_dividling()?),
-                    Kind::Blank | Kind::NormalText => Some(super::render_normal(ls)?),
-                    Kind::Quote => Some(super::render_quote(ls)?),
-                    Kind::SortedList => Some(super::render_sorted_list(ls)?),
-                };
-                if let Some(res) = res {
-                    out.push(res);
-                }
-                Ok(())
-            })?;
-
-            Ok(html_doc.join("\n"))
         }
     }
 }

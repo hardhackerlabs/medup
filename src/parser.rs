@@ -6,7 +6,7 @@ use std::{fmt, io};
 
 // Ast represents the abstract syntax tree of the markdown file, it structurally represents the entire file.
 pub struct Ast {
-    doc: Vec<Line>,
+    buffer: Vec<Line>,
     blocks: Vec<Block>,
     enable_defer_parse: bool,
     defer_queue: Vec<usize>, // usize is index to 'doc'
@@ -16,7 +16,7 @@ impl Ast {
     // Create a Ast instance.
     pub fn new() -> Self {
         Ast {
-            doc: Vec::new(),
+            buffer: Vec::new(),
             blocks: Vec::new(),
             defer_queue: Vec::new(),
             enable_defer_parse: false,
@@ -50,7 +50,7 @@ impl Ast {
             self.parse_line(num, buf);
         }
         for i in self.defer_queue.iter() {
-            self.doc[*i].parse()
+            self.buffer[*i].parse()
         }
         self.defer_queue.clear();
         self.build_blocks();
@@ -77,8 +77,8 @@ impl Ast {
 
     fn lines_in_block(&self, b: &Block) -> Vec<&Line> {
         let mut ls = vec![];
-        for i in &b.line_pointers {
-            if let Some(l) = self.doc.get(*i) {
+        for i in &b.indices {
+            if let Some(l) = self.buffer.get(*i) {
                 ls.push(l);
             }
         }
@@ -87,7 +87,7 @@ impl Ast {
 
     fn parse_line(&mut self, num: usize, line: String) {
         let l = if self.enable_defer_parse && Self::peek_not(&line, "```") {
-            self.defer_queue.push(self.doc.len());
+            self.defer_queue.push(self.buffer.len());
             Line::new_without_parsing(num, line)
         } else {
             Line::new(num, line)
@@ -99,11 +99,11 @@ impl Ast {
                 self.defer_queue.clear();
             }
         }
-        self.doc.push(l);
+        self.buffer.push(l);
     }
 
     fn build_blocks(&mut self) {
-        for (i, l) in self.doc.iter().enumerate() {
+        for (i, l) in self.buffer.iter().enumerate() {
             match l.kind {
                 Kind::Blank
                 | Kind::DisorderedList
@@ -113,18 +113,18 @@ impl Ast {
                     let last = self.blocks.last_mut();
                     if let Some(b) = last {
                         if b.kind == l.kind {
-                            b.line_pointers.push(i);
+                            b.indices.push(i);
                             continue;
                         }
                     }
                     self.blocks.push(Block {
-                        line_pointers: vec![i],
+                        indices: vec![i],
                         kind: l.kind,
                     });
                 }
                 _ => {
                     self.blocks.push(Block {
-                        line_pointers: vec![i],
+                        indices: vec![i],
                         kind: l.kind,
                     });
                 }
@@ -146,9 +146,9 @@ impl Default for Ast {
 impl Debug for Ast {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut debug = String::new();
-        for line in &self.doc {
+        for line in &self.buffer {
             debug.push_str(format!("[{}, {:?}]: ", line.num, line.kind).as_str());
-            for t in &line.sequence {
+            for t in &line.buffer {
                 let s = format!("{:?} ", t);
                 debug.push_str(&s);
             }
@@ -160,13 +160,13 @@ impl Debug for Ast {
 
 // Block is a group of multiple lines.
 struct Block {
-    line_pointers: Vec<usize>, // it stores the index of 'Line' struct in 'ast.doc'
+    indices: Vec<usize>, // it stores the index of 'Line' struct in 'ast.doc'
     kind: Kind,
 }
 
 // Line is a line of the markdown file, it be parsed into some tokens.
 pub struct Line {
-    sequence: Vec<Token>,
+    buffer: Vec<Token>,
     kind: Kind,
     num: usize,
     text: String,
@@ -209,17 +209,17 @@ impl Line {
 
     // Get the first token in the Line
     pub fn first_token(&self) -> Option<&Token> {
-        self.sequence.get(0)
+        self.buffer.get(0)
     }
 
     // Get the Nth Token in the Line
     pub fn get(&self, index: usize) -> Option<&Token> {
-        self.sequence.get(index)
+        self.buffer.get(index)
     }
 
     // Get all tokens in the Line
     pub fn all_tokens(&self) -> &Vec<Token> {
-        &self.sequence
+        &self.buffer
     }
 
     fn new(ln: usize, line: String) -> Self {
@@ -227,7 +227,7 @@ impl Line {
             num: ln,
             text: line,
             kind: Kind::NormalText,
-            sequence: Vec::new(),
+            buffer: Vec::new(),
         };
         l.parse();
         l
@@ -238,14 +238,14 @@ impl Line {
             num: ln,
             text: line,
             kind: Kind::Code,
-            sequence: Vec::new(),
+            buffer: Vec::new(),
         }
     }
 
     // Parses a line of text into 'Line' struct that contains multi tokens.
     // Line's kind is determinded by the first token's kind.
     fn parse(&mut self) {
-        let mut lx = Lexer::new(&self.text, &mut self.sequence);
+        let mut lx = Lexer::new(&self.text, &mut self.buffer);
 
         for (cur_pos, cur_char) in self.text.chars().enumerate() {
             let stopped = lx.process(cur_pos, cur_char);
@@ -266,7 +266,7 @@ impl Line {
             _ => Kind::NormalText,
         };
 
-        self.kind = match self.sequence.first() {
+        self.kind = match self.first_token() {
             None => Kind::NormalText,
             Some(t) => calc_kind(t.kind),
         }
@@ -844,7 +844,7 @@ _____________
 
         let mut ast = Ast::new();
         ast.parse_string(md).unwrap();
-        assert_eq!(ast.doc.len(), md.lines().count());
+        assert_eq!(ast.buffer.len(), md.lines().count());
     }
 
     #[test]
@@ -865,7 +865,7 @@ _____________
         let mut ast = Ast::new();
         ast.parse_string(md).unwrap();
 
-        assert_eq!(ast.doc.len(), md.lines().count());
+        assert_eq!(ast.buffer.len(), md.lines().count());
         assert_eq!(ast.blocks.len(), 8);
     }
 
@@ -886,12 +886,12 @@ _____________
                 ast.parse_line(n, s)
             }
 
-            assert_eq!(ast.doc.len(), n as usize);
+            assert_eq!(ast.buffer.len(), n as usize);
             {
-                let l = ast.doc.get(0).unwrap();
+                let l = ast.buffer.get(0).unwrap();
                 assert_eq!(l.kind, Kind::Title);
                 assert_eq!(
-                    l.sequence,
+                    l.buffer,
                     vec![
                         Token::new(mark.to_string(), TokenKind::TitleMark),
                         Token::new_with_parent(
@@ -903,10 +903,10 @@ _____________
                 );
             }
             {
-                let l = ast.doc.get(1).unwrap();
+                let l = ast.buffer.get(1).unwrap();
                 assert_eq!(l.kind, Kind::Title);
                 assert_eq!(
-                    l.sequence,
+                    l.buffer,
                     vec![
                         Token::new(mark.to_string(), TokenKind::TitleMark,),
                         Token::new_with_parent(
@@ -918,10 +918,10 @@ _____________
                 );
             }
             {
-                let l = ast.doc.get(2).unwrap();
+                let l = ast.buffer.get(2).unwrap();
                 assert_eq!(l.kind, Kind::Title);
                 assert_eq!(
-                    l.sequence,
+                    l.buffer,
                     vec![
                         Token::new(mark.to_string(), TokenKind::TitleMark,),
                         Token::new_with_parent(
@@ -933,18 +933,18 @@ _____________
                 );
             }
             {
-                let l = ast.doc.get(3).unwrap();
+                let l = ast.buffer.get(3).unwrap();
                 assert_eq!(l.kind, Kind::Title);
                 assert_eq!(
-                    l.sequence,
+                    l.buffer,
                     vec![Token::new(mark.to_string(), TokenKind::TitleMark)]
                 );
             }
             {
-                let l = ast.doc.get(4).unwrap();
+                let l = ast.buffer.get(4).unwrap();
                 assert_eq!(l.kind, Kind::Title);
                 assert_eq!(
-                    l.sequence,
+                    l.buffer,
                     vec![Token::new(mark.to_string(), TokenKind::TitleMark)]
                 );
             }
@@ -966,10 +966,10 @@ _____________
         for mark in marks {
             let ast = create_ast(mark);
 
-            assert_eq!(ast.doc.len(), 1);
-            assert_eq!(ast.doc.get(0).unwrap().kind, Kind::DividingLine);
+            assert_eq!(ast.buffer.len(), 1);
+            assert_eq!(ast.buffer.get(0).unwrap().kind, Kind::DividingLine);
             assert_eq!(
-                ast.doc.get(0).unwrap().sequence,
+                ast.buffer.get(0).unwrap().buffer,
                 vec![Token::new(
                     mark.trim_end().to_string(),
                     TokenKind::DividingMark,
@@ -997,10 +997,10 @@ _____________
             for cnt in contents {
                 let ast = create_ast(cnt);
 
-                assert_eq!(ast.doc.len(), 1);
-                assert_eq!(ast.doc.get(0).unwrap().kind, Kind::NormalText);
+                assert_eq!(ast.buffer.len(), 1);
+                assert_eq!(ast.buffer.get(0).unwrap().kind, Kind::NormalText);
                 assert_eq!(
-                    ast.doc.get(0).unwrap().sequence,
+                    ast.buffer.get(0).unwrap().buffer,
                     vec![Token::new(cnt.to_string(), TokenKind::Text)]
                 )
             }
@@ -1011,10 +1011,10 @@ _____________
             for cnt in contents {
                 let ast = create_ast(cnt);
 
-                assert_eq!(ast.doc.len(), 1);
-                assert_eq!(ast.doc.get(0).unwrap().kind, Kind::NormalText);
+                assert_eq!(ast.buffer.len(), 1);
+                assert_eq!(ast.buffer.get(0).unwrap().kind, Kind::NormalText);
                 assert_eq!(
-                    ast.doc.get(0).unwrap().sequence,
+                    ast.buffer.get(0).unwrap().buffer,
                     vec![
                         Token::new("**".to_string(), TokenKind::Text),
                         Token::new("*xxxx".to_string(), TokenKind::Text)
@@ -1028,10 +1028,10 @@ _____________
             for cnt in contents {
                 let ast = create_ast(cnt);
 
-                assert_eq!(ast.doc.len(), 1);
-                assert_eq!(ast.doc.get(0).unwrap().kind, Kind::NormalText);
+                assert_eq!(ast.buffer.len(), 1);
+                assert_eq!(ast.buffer.get(0).unwrap().kind, Kind::NormalText);
                 assert_eq!(
-                    ast.doc.get(0).unwrap().sequence,
+                    ast.buffer.get(0).unwrap().buffer,
                     vec![
                         Token::new("**".to_string(), TokenKind::BoldMark),
                         Token::new_with_parent(
@@ -1058,10 +1058,10 @@ _____________
         for cnt in contents {
             let ast = create_ast(cnt);
 
-            assert_eq!(ast.doc.len(), 1);
-            assert_eq!(ast.doc.get(0).unwrap().kind, Kind::NormalText);
+            assert_eq!(ast.buffer.len(), 1);
+            assert_eq!(ast.buffer.get(0).unwrap().kind, Kind::NormalText);
             assert_eq!(
-                ast.doc.get(0).unwrap().sequence,
+                ast.buffer.get(0).unwrap().buffer,
                 vec![
                     Token::new(
                         cnt.trim().trim_end_matches("<br>").to_string(),
@@ -1085,10 +1085,10 @@ _____________
 
         let ast = create_ast(&s);
 
-        assert_eq!(ast.doc.len(), 1);
-        assert_eq!(ast.doc[0].kind, Kind::Quote);
+        assert_eq!(ast.buffer.len(), 1);
+        assert_eq!(ast.buffer[0].kind, Kind::Quote);
         assert_eq!(
-            ast.doc[0].sequence,
+            ast.buffer[0].buffer,
             vec![
                 Token::new(mark.to_string(), TokenKind::QuoteMark),
                 Token::new_with_parent(content.to_string(), TokenKind::Text, TokenKind::QuoteMark)
@@ -1108,10 +1108,10 @@ _____________
 
         let ast = create_ast(&s);
 
-        assert_eq!(ast.doc.len(), 1);
-        assert_eq!(ast.doc[0].kind, Kind::DisorderedList);
+        assert_eq!(ast.buffer.len(), 1);
+        assert_eq!(ast.buffer[0].kind, Kind::DisorderedList);
         assert_eq!(
-            ast.doc[0].sequence,
+            ast.buffer[0].buffer,
             vec![
                 Token::new(mark.to_string(), TokenKind::DisorderListMark),
                 Token::new_with_parent(
@@ -1135,10 +1135,10 @@ _____________
             s.push_str(content);
             let ast = create_ast(&s);
 
-            assert_eq!(ast.doc.len(), 1);
-            assert_eq!(ast.doc[0].kind, Kind::SortedList);
+            assert_eq!(ast.buffer.len(), 1);
+            assert_eq!(ast.buffer[0].kind, Kind::SortedList);
             assert_eq!(
-                ast.doc[0].sequence,
+                ast.buffer[0].buffer,
                 vec![
                     Token::new(mark.to_string(), TokenKind::SortedListMark),
                     Token::new_with_parent(
@@ -1165,10 +1165,10 @@ _____________
         for cnt in contents {
             let ast = create_ast(cnt);
 
-            assert_eq!(ast.doc.len(), 1);
-            assert_eq!(ast.doc[0].kind, Kind::Blank);
+            assert_eq!(ast.buffer.len(), 1);
+            assert_eq!(ast.buffer[0].kind, Kind::Blank);
             assert_eq!(
-                ast.doc[0].sequence,
+                ast.buffer[0].buffer,
                 vec![Token::new("".to_string(), TokenKind::BlankLine)]
             )
         }
@@ -1193,20 +1193,20 @@ _____________
                 let s = cnt.to_string() + pic;
                 let ast = create_ast(&s);
 
-                assert_eq!(ast.doc.len(), 1);
-                assert_eq!(ast.doc[0].kind, Kind::NormalText);
+                assert_eq!(ast.buffer.len(), 1);
+                assert_eq!(ast.buffer[0].kind, Kind::NormalText);
                 if cnt.is_empty() {
                     // token 0
-                    assert_eq!(ast.doc[0].sequence[0].kind, TokenKind::Picture);
-                    assert_eq!(ast.doc[0].sequence[0].value, pic.to_string());
+                    assert_eq!(ast.buffer[0].buffer[0].kind, TokenKind::Picture);
+                    assert_eq!(ast.buffer[0].buffer[0].value, pic.to_string());
                 } else {
                     // token 0
-                    assert_eq!(ast.doc[0].sequence[0].kind, TokenKind::Text);
-                    assert_eq!(ast.doc[0].sequence[0].value, cnt.to_string());
+                    assert_eq!(ast.buffer[0].buffer[0].kind, TokenKind::Text);
+                    assert_eq!(ast.buffer[0].buffer[0].value, cnt.to_string());
 
                     // token 1
-                    assert_eq!(ast.doc[0].sequence[1].kind, TokenKind::Picture);
-                    assert_eq!(ast.doc[0].sequence[1].value, pic.to_string());
+                    assert_eq!(ast.buffer[0].buffer[1].kind, TokenKind::Picture);
+                    assert_eq!(ast.buffer[0].buffer[1].value, pic.to_string());
                 }
             }
         }
@@ -1229,20 +1229,20 @@ _____________
                 let s = cnt.to_string() + url;
                 let ast = create_ast(&s);
 
-                assert_eq!(ast.doc.len(), 1);
-                assert_eq!(ast.doc[0].kind, Kind::NormalText);
+                assert_eq!(ast.buffer.len(), 1);
+                assert_eq!(ast.buffer[0].kind, Kind::NormalText);
                 if cnt.is_empty() {
                     // token 0
-                    assert_eq!(ast.doc[0].sequence[0].kind, TokenKind::Url);
-                    assert_eq!(ast.doc[0].sequence[0].value, url.to_string());
+                    assert_eq!(ast.buffer[0].buffer[0].kind, TokenKind::Url);
+                    assert_eq!(ast.buffer[0].buffer[0].value, url.to_string());
                 } else {
                     // token 0
-                    assert_eq!(ast.doc[0].sequence[0].kind, TokenKind::Text);
-                    assert_eq!(ast.doc[0].sequence[0].value, cnt.to_string());
+                    assert_eq!(ast.buffer[0].buffer[0].kind, TokenKind::Text);
+                    assert_eq!(ast.buffer[0].buffer[0].value, cnt.to_string());
 
                     // token 1
-                    assert_eq!(ast.doc[0].sequence[1].kind, TokenKind::Url);
-                    assert_eq!(ast.doc[0].sequence[1].value, url.to_string());
+                    assert_eq!(ast.buffer[0].buffer[1].kind, TokenKind::Url);
+                    assert_eq!(ast.buffer[0].buffer[1].value, url.to_string());
                 }
             }
         }
@@ -1255,10 +1255,10 @@ _____________
         let mut ast = Ast::new();
         ast.parse_string(md).unwrap();
 
-        assert_eq!(ast.doc.len(), md.lines().count());
-        assert_eq!(ast.doc[0].kind, Kind::CodeMark);
+        assert_eq!(ast.buffer.len(), md.lines().count());
+        assert_eq!(ast.buffer[0].kind, Kind::CodeMark);
         assert_eq!(
-            ast.doc[0].sequence,
+            ast.buffer[0].buffer,
             vec![Token::new(md.trim_end().to_string(), TokenKind::CodeMark)]
         )
     }
@@ -1278,13 +1278,13 @@ _____________
         let mut ast = Ast::new();
         ast.parse_string(md).unwrap();
 
-        assert_eq!(ast.doc.len(), md.lines().count());
+        assert_eq!(ast.buffer.len(), md.lines().count());
         assert_eq!(ast.blocks.len(), 8);
 
         assert_eq!(ast.blocks[2].kind, Kind::Code);
-        assert_eq!(ast.blocks[2].line_pointers.len(), 2);
+        assert_eq!(ast.blocks[2].indices.len(), 2);
 
         assert_eq!(ast.blocks[7].kind, Kind::NormalText);
-        assert_eq!(ast.blocks[7].line_pointers.len(), 1);
+        assert_eq!(ast.blocks[7].indices.len(), 1);
     }
 }

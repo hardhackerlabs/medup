@@ -197,7 +197,7 @@ pub enum TokenKind {
     CodeMark,         // ```
     BlankLine,        // \n
     LineBreak,        // <br>, double whitespace
-    Picture,          // ![]()
+    Image,            // ![]()
     Url,              // []()
     Text,             //
 }
@@ -338,7 +338,7 @@ impl Token {
 
     // Get show name of the URL / Image
     pub fn get_show_name(&self) -> Option<&str> {
-        if self.kind != TokenKind::Url && self.kind != TokenKind::Picture {
+        if self.kind != TokenKind::Url && self.kind != TokenKind::Image {
             return None;
         }
         if let Some(kvs) = &self.kvs {
@@ -349,6 +349,9 @@ impl Token {
 
     // Get location of the URL / Image
     pub fn get_location(&self) -> Option<&str> {
+        if self.kind != TokenKind::Url && self.kind != TokenKind::Image {
+            return None;
+        }
         if let Some(kvs) = &self.kvs {
             return kvs.get("location").map(|x| &**x);
         }
@@ -732,7 +735,7 @@ impl<'lex> Lexer<'lex> {
                         // '![]()' or '[]()' mark
                         let s = utf8_slice::slice(content, begin, i + 1);
                         let mut t = if p1.is_some() {
-                            Token::new(s.to_string(), TokenKind::Picture)
+                            Token::new(s.to_string(), TokenKind::Image)
                         } else {
                             Token::new(s.to_string(), TokenKind::Url)
                         };
@@ -1220,7 +1223,7 @@ _____________
                 assert_eq!(ast.buffer[0].kind, Kind::NormalText);
                 if cnt.is_empty() {
                     // token 0
-                    assert_eq!(ast.buffer[0].buffer[0].kind, TokenKind::Picture);
+                    assert_eq!(ast.buffer[0].buffer[0].kind, TokenKind::Image);
                     assert_eq!(ast.buffer[0].buffer[0].value, pic.to_string());
                 } else {
                     // token 0
@@ -1228,7 +1231,7 @@ _____________
                     assert_eq!(ast.buffer[0].buffer[0].value, cnt.to_string());
 
                     // token 1
-                    assert_eq!(ast.buffer[0].buffer[1].kind, TokenKind::Picture);
+                    assert_eq!(ast.buffer[0].buffer[1].kind, TokenKind::Image);
                     assert_eq!(ast.buffer[0].buffer[1].value, pic.to_string());
                 }
             }

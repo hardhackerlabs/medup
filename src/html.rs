@@ -3,35 +3,35 @@ use serde::Serialize;
 use std::error::Error;
 use tinytemplate::TinyTemplate;
 
-use crate::parser;
+use crate::parser::{self, Token};
 
 // Title
 static TITLE_TEMPLATE: &str = "{{ if is_l1 }}<h1>{text}</h1>{{ endif }}
-    {{ if is_l2 }}<h2>{text}</h2>{{ endif }}
-    {{ if is_l3 }}<h3>{text}</h3>{{ endif }}
-    {{ if is_l4 }}<h4>{text}</h4>{{ endif }}";
+{{ if is_l2 }}<h2>{text}</h2>{{ endif }}
+{{ if is_l3 }}<h3>{text}</h3>{{ endif }}
+{{ if is_l4 }}<h4>{text}</h4>{{ endif }}";
 
 #[derive(Serialize)]
-struct TitleContext<'tc> {
+struct TitleContext {
     is_l1: bool,
     is_l2: bool,
     is_l3: bool,
     is_l4: bool,
-    text: &'tc str,
+    text: String,
 }
 
 pub fn gen_title(ls: Vec<&parser::Line>) -> Result<String, Box<dyn Error>> {
     let l = ls.first().unwrap();
     let first = l.first_token().unwrap();
     let level = first.len();
-    let second = l.get(1);
+    let value = gen_line(l.all_tokens())?;
 
     let ctx = TitleContext {
         is_l1: level == 1,
         is_l2: level == 2,
         is_l3: level == 3,
         is_l4: level == 4,
-        text: if let Some(t) = second { t.value() } else { "" },
+        text: value,
     };
 
     let mut tt = TinyTemplate::new();
@@ -45,21 +45,18 @@ static SORTED_LIST_TEMPLATE: &str = "<ol>
     {{ for item in list }} 
     <li>{item}</li> 
     {{ endfor }} 
-    </ol>";
+</ol>";
 
 #[derive(Serialize)]
-struct SortedListContext<'slc> {
-    list: Vec<&'slc str>,
+struct SortedListContext {
+    list: Vec<String>,
 }
 
 pub fn gen_sorted_list(ls: Vec<&parser::Line>) -> Result<String, Box<dyn Error>> {
     let mut list = Vec::new();
     for l in ls {
-        list.push(if let Some(t) = l.get(1) {
-            t.value()
-        } else {
-            ""
-        });
+        let value = gen_line(l.all_tokens())?;
+        list.push(value);
     }
     let ctx = SortedListContext { list };
     let mut tt = TinyTemplate::new();
@@ -73,21 +70,18 @@ static DISORDERED_LIST_TEMPLATE: &str = "<ul>
     {{ for item in list }} 
     <li>{item}</li> 
     {{ endfor }} 
-    </ul>";
+</ul>";
 
 #[derive(Serialize)]
-struct DisorderedListContext<'dlc> {
-    list: Vec<&'dlc str>,
+struct DisorderedListContext {
+    list: Vec<String>,
 }
 
 pub fn gen_disordered_list(ls: Vec<&parser::Line>) -> Result<String, Box<dyn Error>> {
     let mut list = Vec::new();
     for l in ls {
-        list.push(if let Some(t) = l.get(1) {
-            t.value()
-        } else {
-            ""
-        });
+        let value = gen_line(l.all_tokens())?;
+        list.push(value);
     }
     let ctx = DisorderedListContext { list };
     let mut tt = TinyTemplate::new();
@@ -100,29 +94,7 @@ pub fn gen_disordered_list(ls: Vec<&parser::Line>) -> Result<String, Box<dyn Err
 pub fn gen_normal(ls: Vec<&parser::Line>) -> Result<String, Box<dyn Error>> {
     let mut s = String::new();
     for l in ls {
-        let mut text = String::new();
-        let mut in_bold = false;
-        for t in l.all_tokens() {
-            match t.kind() {
-                parser::TokenKind::Text => text.push_str(t.value()),
-                parser::TokenKind::BoldMark => {
-                    if in_bold {
-                        text.push_str("</strong>");
-                    } else {
-                        text.push_str("<strong>");
-                    }
-                    in_bold = !in_bold;
-                }
-                parser::TokenKind::Url => {
-                    if let (Some(show_name), Some(addr)) = (t.get_show_name(), t.get_location()) {
-                        let s = gen_url(show_name, addr)?;
-                        text.push_str(&s);
-                    }
-                }
-                parser::TokenKind::Picture => {} // TODO:
-                _ => (),
-            }
-        }
+        let text = gen_line(l.all_tokens())?;
         s.push_str("<p>");
         s.push_str(&text);
         s.push_str("</p>");
@@ -135,21 +107,18 @@ static QUOTE_TEMPLATE: &str = "<blockquote>
     {{ for text in lines }} 
     {text}<br> 
     {{ endfor }} 
-    </blockquote>";
+</blockquote>";
 
 #[derive(Serialize)]
-struct QuoteContext<'qc> {
-    lines: Vec<&'qc str>,
+struct QuoteContext {
+    lines: Vec<String>,
 }
 
 pub fn gen_quote(ls: Vec<&parser::Line>) -> Result<String, Box<dyn Error>> {
     let mut lines = Vec::new();
     for l in ls {
-        lines.push(if let Some(t) = l.get(1) {
-            t.value()
-        } else {
-            ""
-        });
+        let value = gen_line(l.all_tokens())?;
+        lines.push(value);
     }
     let mut tt = TinyTemplate::new();
     tt.add_template("quote", QUOTE_TEMPLATE)?;
@@ -170,18 +139,24 @@ pub fn gen_code() -> Result<(), Box<dyn Error>> {
 }
 
 // Url
-static URL_TEMPLATE: &str = "<a href=\"{location}\">{title}</a>";
+static URL_TEMPLATE: &str = "<a href=\"{location}\">{show_name}</a>";
 
 #[derive(Serialize)]
 struct UrlContext<'uc> {
-    title: &'uc str,
+    show_name: &'uc str,
     location: &'uc str,
 }
 
-pub fn gen_url(title: &str, location: &str) -> Result<String, Box<dyn Error>> {
+pub fn gen_url(show_name: &str, location: &str) -> Result<String, Box<dyn Error>> {
     let mut tt = TinyTemplate::new();
     tt.add_template("url", URL_TEMPLATE)?;
-    let s = tt.render("url", &UrlContext { title, location })?;
+    let s = tt.render(
+        "url",
+        &UrlContext {
+            show_name,
+            location,
+        },
+    )?;
     Ok(s)
 }
 
@@ -192,4 +167,31 @@ struct ImageContext {}
 
 pub fn gen_image() -> Result<(), Box<dyn Error>> {
     Ok(())
+}
+
+fn gen_line(tokens: &Vec<Token>) -> Result<String, Box<dyn Error>> {
+    let mut text = String::new();
+    let mut in_bold = false;
+    for t in tokens {
+        match t.kind() {
+            parser::TokenKind::Text => text.push_str(t.value()),
+            parser::TokenKind::BoldMark => {
+                if in_bold {
+                    text.push_str("</strong>");
+                } else {
+                    text.push_str("<strong>");
+                }
+                in_bold = !in_bold;
+            }
+            parser::TokenKind::Url => {
+                if let (Some(show_name), Some(addr)) = (t.get_show_name(), t.get_location()) {
+                    let s = gen_url(show_name, addr)?;
+                    text.push_str(&s);
+                }
+            }
+            parser::TokenKind::Image => {} // TODO:
+            _ => (),
+        }
+    }
+    Ok(text)
 }

@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::Debug;
 use std::fs::File;
@@ -279,7 +280,7 @@ pub struct Token {
     value: String,
     kind: TokenKind,
     parent_kind: Option<TokenKind>,
-    fields: Option<Vec<String>>,
+    kvs: Option<HashMap<String, String>>,
 }
 
 impl Token {
@@ -288,19 +289,31 @@ impl Token {
             value,
             kind,
             parent_kind: None,
-            fields: None,
+            kvs: None,
         }
     }
+
     fn new_with_parent(value: String, kind: TokenKind, parent: TokenKind) -> Self {
         Token {
             value,
             kind,
             parent_kind: Some(parent),
-            fields: None,
+            kvs: None,
         }
     }
-    fn push_field(&mut self, s: &str) {
-        self.fields.get_or_insert(vec![]).push(s.to_string())
+
+    fn insert(&mut self, k: &str, v: &str) {
+        self.kvs
+            .get_or_insert(HashMap::new())
+            .insert(k.to_string(), v.to_string());
+    }
+
+    fn insert_show_name(&mut self, v: &str) {
+        self.insert("show_name", v)
+    }
+
+    fn insert_location(&mut self, v: &str) {
+        self.insert("location", v)
     }
 
     // Get value of the token
@@ -323,13 +336,23 @@ impl Token {
         self.kind
     }
 
-    pub fn fields_as_url(&self) -> (&str, &str) {
-        if let Some(fields) = &self.fields {
-            if fields.len() == 2 {
-                return (&fields[0], &fields[1]);
-            }
+    // Get show name of the URL / Image
+    pub fn get_show_name(&self) -> Option<&str> {
+        if self.kind != TokenKind::Url && self.kind != TokenKind::Picture {
+            return None;
         }
-        ("", "")
+        if let Some(kvs) = &self.kvs {
+            return kvs.get("show_name").map(|x| &**x);
+        }
+        None
+    }
+
+    // Get location of the URL / Image
+    pub fn get_location(&self) -> Option<&str> {
+        if let Some(kvs) = &self.kvs {
+            return kvs.get("location").map(|x| &**x);
+        }
+        None
     }
 }
 
@@ -713,8 +736,8 @@ impl<'lex> Lexer<'lex> {
                         } else {
                             Token::new(s.to_string(), TokenKind::Url)
                         };
-                        t.push_field(utf8_slice::slice(content, p2 + 1, p3));
-                        t.push_field(utf8_slice::slice(content, p4 + 1, i));
+                        t.insert_show_name(utf8_slice::slice(content, p2 + 1, p3));
+                        t.insert_location(utf8_slice::slice(content, p4 + 1, i));
                         buff.push(t);
 
                         last = i + 1;

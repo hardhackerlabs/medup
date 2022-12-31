@@ -114,9 +114,10 @@ pub fn gen_normal(ls: Vec<&parser::Line>) -> Result<String, Box<dyn Error>> {
                     in_bold = !in_bold;
                 }
                 parser::TokenKind::Url => {
-                    let fields = t.fields_as_url();
-                    let s = gen_url(fields.0, fields.1)?;
-                    text.push_str(&s);
+                    if let (Some(show_name), Some(addr)) = (t.get_show_name(), t.get_location()) {
+                        let s = gen_url(show_name, addr)?;
+                        text.push_str(&s);
+                    }
                 }
                 parser::TokenKind::Picture => {} // TODO:
                 _ => (),

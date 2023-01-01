@@ -133,9 +133,11 @@ impl<'generator> Generator<'generator> {
     }
 }
 
-impl<'generator> parser::BlockHandler for Generator<'generator> {
+impl<'generator> parser::HtmlGenerate for Generator<'generator> {
     fn gen_title(&self, l: &parser::Line) -> Result<String, Box<dyn Error>> {
-        let first = l.first_token().unwrap();
+        let first = l
+            .first_token()
+            .ok_or("not found the first mark token in a title line")?;
         let level = first.len();
         let value = self.gen_line(l.all_tokens())?;
 
@@ -155,13 +157,19 @@ impl<'generator> parser::BlockHandler for Generator<'generator> {
         Ok("<hr>".to_string())
     }
 
-    fn gen_normal(&self, ls: Vec<&parser::Line>) -> Result<String, Box<dyn Error>> {
+    fn gen_normal(&self, l: &parser::Line) -> Result<String, Box<dyn Error>> {
         let mut s = String::new();
-        for l in ls {
-            let text = self.gen_line(l.all_tokens())?;
-            s.push_str("<p>");
-            s.push_str(&text);
-            s.push_str("</p>");
+        let text = self.gen_line(l.all_tokens())?;
+        s.push_str("<p>");
+        s.push_str(&text);
+        s.push_str("</p>");
+        Ok(s)
+    }
+
+    fn gen_blank(&self, ls: Vec<&parser::Line>) -> Result<String, Box<dyn Error>> {
+        let mut s = String::new();
+        for _ in ls {
+            s.push_str("<p></p>");
         }
         Ok(s)
     }

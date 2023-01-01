@@ -5,10 +5,11 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::{fmt, io};
 
-pub trait BlockHandler {
+pub trait HtmlGenerate {
     fn gen_title(&self, l: &Line) -> Result<String, Box<dyn Error>>;
     fn gen_dividling(&self, l: &Line) -> Result<String, Box<dyn Error>>;
-    fn gen_normal(&self, ls: Vec<&Line>) -> Result<String, Box<dyn Error>>;
+    fn gen_normal(&self, l: &Line) -> Result<String, Box<dyn Error>>;
+    fn gen_blank(&self, ls: Vec<&Line>) -> Result<String, Box<dyn Error>>;
     fn gen_sorted_list(&self, ls: Vec<&Line>) -> Result<String, Box<dyn Error>>;
     fn gen_disordered_list(&self, ls: Vec<&Line>) -> Result<String, Box<dyn Error>>;
     fn gen_quote(&self, ls: Vec<&Line>) -> Result<String, Box<dyn Error>>;
@@ -68,18 +69,28 @@ impl Ast {
         Ok(())
     }
 
-    // Iterate through each block of the Ast and process the block into a string
-    pub fn to_html(&self, gen: &impl BlockHandler) -> Result<String, Box<dyn Error>> {
+    // Iterate through each block of the Ast and process the block into a 'html' string
+    pub fn to_html(&self, gen: &impl HtmlGenerate) -> Result<String, Box<dyn Error>> {
         let mut ss: Vec<String> = Vec::new();
         for b in self.blocks() {
             let ls = self.lines_in_block(b);
             let res = match b.kind {
-                Kind::Title => Some(gen.gen_title(ls.first().unwrap())?),
+                Kind::Title => match ls.first() {
+                    None => None,
+                    Some(l) => Some(gen.gen_title(l)?),
+                },
+                Kind::NormalText => match ls.first() {
+                    None => None,
+                    Some(l) => Some(gen.gen_normal(l)?),
+                },
+                Kind::DividingLine => match ls.first() {
+                    None => None,
+                    Some(l) => Some(gen.gen_dividling(l)?),
+                },
                 Kind::CodeMark => None,
                 Kind::Code => None,
                 Kind::DisorderedList => Some(gen.gen_disordered_list(ls)?),
-                Kind::DividingLine => Some(gen.gen_dividling(ls.first().unwrap())?),
-                Kind::Blank | Kind::NormalText => Some(gen.gen_normal(ls)?),
+                Kind::Blank => Some(gen.gen_blank(ls)?),
                 Kind::Quote => Some(gen.gen_quote(ls)?),
                 Kind::SortedList => Some(gen.gen_sorted_list(ls)?),
             };
@@ -193,7 +204,7 @@ pub struct Line {
 }
 
 #[derive(Debug, PartialEq, Copy, Clone)]
-pub enum Kind {
+enum Kind {
     NormalText,
     Blank,
     Title,
@@ -222,11 +233,6 @@ pub enum TokenKind {
 }
 
 impl Line {
-    // Get kind of the Line
-    pub fn kind(&self) -> Kind {
-        self.kind
-    }
-
     // Get the first token in the Line
     pub fn first_token(&self) -> Option<&Token> {
         self.buffer.get(0)

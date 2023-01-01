@@ -14,6 +14,9 @@ const TITLE_TEMPLATE: &str = "{{ if is_l1 }}<h1>{text}</h1>{{ endif }}
 const URL_TEMPLATE_NAME: &str = "url";
 const URL_TEMPLATE: &str = "<a href=\"{location}\">{show_name}</a>";
 
+const IMG_TEMPLATE_NAME: &str = "img";
+const IMG_TEMPLATE: &str = "<img src=\"{location}\" alt=\"{alt}\">";
+
 const SORTED_LIST_TEMPLATE_NAME: &str = "sorted_list";
 const SORTED_LIST_TEMPLATE: &str = "<ol> 
     {{ for item in list }} 
@@ -66,7 +69,10 @@ struct UrlContext<'uc> {
 }
 
 #[derive(Serialize)]
-struct ImageContext {}
+struct ImageContext<'ic> {
+    alt: &'ic str,
+    location: &'ic str,
+}
 
 pub struct Generator<'generator> {
     tt: TinyTemplate<'generator>,
@@ -87,6 +93,7 @@ impl<'generator> Generator<'generator> {
             .add_template(DISORDERED_LIST_TEMPLATE_NAME, DISORDERED_LIST_TEMPLATE)?;
         self.tt.add_template(TITLE_TEMPLATE_NAME, TITLE_TEMPLATE)?;
         self.tt.add_template(QUOTE_TEMPLATE_NAME, QUOTE_TEMPLATE)?;
+        self.tt.add_template(IMG_TEMPLATE_NAME, IMG_TEMPLATE)?;
         Ok(())
     }
 
@@ -105,12 +112,18 @@ impl<'generator> Generator<'generator> {
                     in_bold = !in_bold;
                 }
                 parser::TokenKind::Url => {
-                    if let (Some(show_name), Some(addr)) = (t.get_show_name(), t.get_location()) {
-                        let s = self.gen_url(show_name, addr)?;
+                    if let (Some(show_name), Some(location)) = (t.get_show_name(), t.get_location())
+                    {
+                        let s = self.gen_url(show_name, location)?;
                         text.push_str(&s);
                     }
                 }
-                parser::TokenKind::Image => {} // TODO:
+                parser::TokenKind::Image => {
+                    if let (Some(alt), Some(location)) = (t.get_show_name(), t.get_location()) {
+                        let s = self.gen_image(alt, location)?;
+                        text.push_str(&s);
+                    }
+                }
                 _ => (),
             }
         }
@@ -128,8 +141,11 @@ impl<'generator> Generator<'generator> {
         Ok(s)
     }
 
-    fn gen_image(&self) -> Result<(), Box<dyn Error>> {
-        Ok(())
+    fn gen_image(&self, alt: &str, location: &str) -> Result<String, Box<dyn Error>> {
+        let s = self
+            .tt
+            .render(IMG_TEMPLATE_NAME, &ImageContext { alt, location })?;
+        Ok(s)
     }
 }
 

@@ -108,11 +108,11 @@ impl Ast {
 
     fn lines_in_block(&self, b: &Block) -> Vec<&Line> {
         let mut ls = vec![];
-        for i in &b.indices {
-            if let Some(l) = self.buffer.get(*i) {
+        b.indices.iter().for_each(|x| {
+            if let Some(l) = self.buffer.get(*x) {
                 ls.push(l);
             }
-        }
+        });
         ls
     }
 
@@ -371,7 +371,7 @@ impl Token {
         if self.kind != TokenKind::Url && self.kind != TokenKind::Image {
             return None;
         }
-        if let Some(kvs) = &self.kvs {
+        if let Some(kvs) = self.kvs.as_ref() {
             return kvs.get("show_name").map(|x| &**x);
         }
         None
@@ -382,7 +382,7 @@ impl Token {
         if self.kind != TokenKind::Url && self.kind != TokenKind::Image {
             return None;
         }
-        if let Some(kvs) = &self.kvs {
+        if let Some(kvs) = self.kvs.as_ref() {
             return kvs.get("location").map(|x| &**x);
         }
         None
@@ -482,12 +482,9 @@ impl<'lex> Lexer<'lex> {
             }
             State::Normal => {
                 if let Some(ts) = self.split_normal_text() {
-                    for t in ts {
-                        if t.value.is_empty() {
-                            continue;
-                        }
-                        self.line_tokens.push(t);
-                    }
+                    ts.into_iter()
+                        .filter(|x| !x.value().is_empty())
+                        .for_each(|x| self.line_tokens.push(x));
                 }
             }
             State::Finished => {}
@@ -821,14 +818,12 @@ impl<'lex> Lexer<'lex> {
         }
 
         // in bold
-        for (b, e) in tmp {
-            for t in buff[b..=e].iter_mut() {
-                if t.kind == TokenKind::BoldMark {
-                    continue;
-                }
-                t.parent_kind = Some(TokenKind::BoldMark);
-            }
-        }
+        tmp.into_iter().for_each(|(b, e)| {
+            buff[b..=e]
+                .iter_mut()
+                .filter(|x| x.kind() != TokenKind::BoldMark)
+                .for_each(|x| x.parent_kind = Some(TokenKind::BoldMark));
+        });
     }
 
     // find 'line break', double spaces or <br> at the end of the line

@@ -38,6 +38,11 @@ const QUOTE_TEMPLATE: &str = "<blockquote>
     {{ endfor }} 
 </blockquote>";
 
+const CODE_TEMPLATE_NAME: &str = "code_block";
+const CODE_TEMPLATE: &str = "<pre><code class=\"language-{name}\">
+{text}
+</code></pre>";
+
 #[derive(Serialize)]
 struct TitleContext {
     is_l1: bool,
@@ -74,6 +79,12 @@ struct ImageContext<'ic> {
     location: &'ic str,
 }
 
+#[derive(Serialize)]
+struct CodeBlockContext<'cbc> {
+    name: &'cbc str,
+    text: &'cbc str,
+}
+
 pub struct Generator<'generator> {
     tt: TinyTemplate<'generator>,
 }
@@ -94,6 +105,7 @@ impl<'generator> Generator<'generator> {
         self.tt.add_template(TITLE_TEMPLATE_NAME, TITLE_TEMPLATE)?;
         self.tt.add_template(QUOTE_TEMPLATE_NAME, QUOTE_TEMPLATE)?;
         self.tt.add_template(IMG_TEMPLATE_NAME, IMG_TEMPLATE)?;
+        self.tt.add_template(CODE_TEMPLATE_NAME, CODE_TEMPLATE)?;
         Ok(())
     }
 
@@ -224,6 +236,21 @@ impl<'generator> parser::HtmlGenerate for Generator<'generator> {
         let s = self
             .tt
             .render(QUOTE_TEMPLATE_NAME, &QuoteContext { lines })?;
+        Ok(s)
+    }
+
+    fn gen_code(&self, ls: Vec<&parser::Line>) -> Result<String, Box<dyn Error>> {
+        let mut text = String::new();
+        for l in ls {
+            text.push_str(l.text());
+        }
+        let s = self.tt.render(
+            CODE_TEMPLATE_NAME,
+            &CodeBlockContext {
+                name: "rust",
+                text: &text,
+            },
+        )?;
         Ok(s)
     }
 }

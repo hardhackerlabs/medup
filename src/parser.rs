@@ -13,7 +13,7 @@ pub trait HtmlGenerate {
     fn gen_sorted_list(&self, ls: Vec<&Line>) -> Result<String, Box<dyn Error>>;
     fn gen_disordered_list(&self, ls: Vec<&Line>) -> Result<String, Box<dyn Error>>;
     fn gen_quote(&self, ls: Vec<&Line>) -> Result<String, Box<dyn Error>>;
-    // fn gen_code(&self) -> Result<(), Box<dyn Error>>;
+    fn gen_code(&self, ls: Vec<&Line>) -> Result<String, Box<dyn Error>>;
 }
 
 // Ast represents the abstract syntax tree of the markdown file, it structurally represents the entire file.
@@ -88,7 +88,7 @@ impl Ast {
                     Some(l) => Some(gen.gen_dividling(l)?),
                 },
                 Kind::CodeMark => None,
-                Kind::Code => None,
+                Kind::Code => Some(gen.gen_code(ls)?),
                 Kind::DisorderedList => Some(gen.gen_disordered_list(ls)?),
                 Kind::Blank => Some(gen.gen_blank(ls)?),
                 Kind::Quote => Some(gen.gen_quote(ls)?),
@@ -246,6 +246,11 @@ impl Line {
     // Get all tokens in the Line
     pub fn all_tokens(&self) -> &Vec<Token> {
         &self.buffer
+    }
+
+    // Get the line text
+    pub fn text(&self) -> &str {
+        &self.text
     }
 
     fn new(ln: usize, line: String) -> Self {

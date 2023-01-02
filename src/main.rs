@@ -1,4 +1,4 @@
-use med::render;
+use med::markdown;
 
 fn main() {
     // Get path for the markdown file from command line arguments
@@ -6,6 +6,6 @@ fn main() {
         .nth(1)
         .expect("not specified path of the markdown file");
 
-    let html = render::process_file(&path).unwrap();
+    let html = markdown::file_to_html(&path).unwrap();
     println!("{}", html);
 }

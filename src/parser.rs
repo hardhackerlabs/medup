@@ -61,9 +61,9 @@ impl Ast {
             num += 1;
             self.parse_line(num, buf);
         }
-        for i in self.defer_queue.iter() {
-            self.buffer[*i].parse()
-        }
+        self.defer_queue
+            .iter()
+            .for_each(|x| self.buffer[*x].parse());
         self.defer_queue.clear();
         self.build_blocks();
         Ok(())
@@ -76,15 +76,15 @@ impl Ast {
             let ls = self.lines_in_block(b);
             let res = match b.kind {
                 Kind::Title => match ls.first() {
-                    None => None,
+                    None => return Err(Into::into("Invalid title block")),
                     Some(l) => Some(gen.gen_title(l)?),
                 },
                 Kind::NormalText => match ls.first() {
-                    None => None,
+                    None => return Err(Into::into("Invalid normal text block")),
                     Some(l) => Some(gen.gen_normal(l)?),
                 },
                 Kind::DividingLine => match ls.first() {
-                    None => None,
+                    None => return Err(Into::into("Invalid dividling line block")),
                     Some(l) => Some(gen.gen_dividling(l)?),
                 },
                 Kind::CodeMark => None,
@@ -100,6 +100,11 @@ impl Ast {
         }
 
         Ok(ss.join("\n"))
+    }
+
+    // Count the lines in ast
+    pub fn count(&self) -> usize {
+        self.buffer.len()
     }
 
     fn blocks(&self) -> &Vec<Block> {
@@ -309,7 +314,6 @@ impl Line {
 pub struct Token {
     value: String,
     kind: TokenKind,
-    parent_kind: Option<TokenKind>,
     kvs: Option<HashMap<String, String>>,
 }
 
@@ -318,16 +322,6 @@ impl Token {
         Token {
             value,
             kind,
-            parent_kind: None,
-            kvs: None,
-        }
-    }
-
-    fn new_with_parent(value: String, kind: TokenKind, parent: TokenKind) -> Self {
-        Token {
-            value,
-            kind,
-            parent_kind: Some(parent),
             kvs: None,
         }
     }
@@ -452,21 +446,18 @@ impl<'lex> Lexer<'lex> {
                 }
             }
             State::Title => {
-                if let Some(t) = self.split_title(cur_pos, cur_char) {
-                    self.line_tokens.push(t)
+                if let Some(mut ts) = self.split_title(cur_pos, cur_char) {
+                    self.line_tokens.append(&mut ts);
                 }
             }
             State::DisorderedList => {
-                if let Some(t) =
-                    self.split_list_item(cur_pos, cur_char, TokenKind::DisorderListMark)
-                {
-                    self.line_tokens.push(t)
+                if let Some(mut ts) = self.split_list_item(cur_pos, cur_char) {
+                    self.line_tokens.append(&mut ts);
                 }
             }
             State::SortedList => {
-                if let Some(t) = self.split_list_item(cur_pos, cur_char, TokenKind::SortedListMark)
-                {
-                    self.line_tokens.push(t)
+                if let Some(mut ts) = self.split_list_item(cur_pos, cur_char) {
+                    self.line_tokens.append(&mut ts);
                 }
             }
             State::VerifyDividing => {
@@ -641,7 +632,7 @@ impl<'lex> Lexer<'lex> {
     }
 
     // parse the rest of the line as title token
-    fn split_title(&mut self, cur_pos: usize, cur_char: char) -> Option<Token> {
+    fn split_title(&mut self, cur_pos: usize, cur_char: char) -> Option<Vec<Token>> {
         // skip all whitespace characters after the mark token.
         if cur_char.is_whitespace() {
             self.unparsed = cur_pos + 1;
@@ -649,20 +640,11 @@ impl<'lex> Lexer<'lex> {
         }
         let rest = utf8_slice::from(self.line_text, cur_pos);
         self.end();
-        Some(Token::new_with_parent(
-            rest.trim_end().to_string(),
-            TokenKind::Text,
-            TokenKind::TitleMark,
-        ))
+        Some(Lexer::parse_inside(rest))
     }
 
     // parse the rest of the line as a list item token.
-    fn split_list_item(
-        &mut self,
-        cur_pos: usize,
-        cur_char: char,
-        parent: TokenKind,
-    ) -> Option<Token> {
+    fn split_list_item(&mut self, cur_pos: usize, cur_char: char) -> Option<Vec<Token>> {
         // skip all whitespace characters after the mark token.
         if cur_char.is_whitespace() {
             self.unparsed = cur_pos + 1;
@@ -670,11 +652,7 @@ impl<'lex> Lexer<'lex> {
         }
         let rest = utf8_slice::from(self.line_text, cur_pos);
         self.end();
-        Some(Token::new_with_parent(
-            rest.trim_end().to_string(),
-            TokenKind::Text,
-            parent,
-        ))
+        Some(Lexer::parse_inside(rest))
     }
 
     // parse the rest of the line as the quote token.
@@ -686,11 +664,7 @@ impl<'lex> Lexer<'lex> {
         }
         let rest = utf8_slice::from(self.line_text, cur_pos);
         self.end();
-        Some(Token::new_with_parent(
-            rest.trim_end().to_string(),
-            TokenKind::Text,
-            TokenKind::QuoteMark,
-        ))
+        Some(Token::new(rest.trim_end().to_string(), TokenKind::Text))
     }
 
     // parse the line as the normal token.
@@ -797,7 +771,6 @@ impl<'lex> Lexer<'lex> {
     }
 
     fn tidy_inside_tokens(buff: &mut [Token]) {
-        let mut tmp: Vec<(usize, usize)> = Vec::new();
         let mut in_bold = false;
         let mut begin = 0;
 
@@ -805,8 +778,6 @@ impl<'lex> Lexer<'lex> {
             if t.kind == TokenKind::BoldMark {
                 if !in_bold {
                     begin = i;
-                } else {
-                    tmp.push((begin, i));
                 }
                 in_bold = !in_bold;
             }
@@ -816,14 +787,6 @@ impl<'lex> Lexer<'lex> {
             let t = &mut buff[begin];
             t.kind = TokenKind::Text;
         }
-
-        // in bold
-        tmp.into_iter().for_each(|(b, e)| {
-            buff[b..=e]
-                .iter_mut()
-                .filter(|x| x.kind() != TokenKind::BoldMark)
-                .for_each(|x| x.parent_kind = Some(TokenKind::BoldMark));
-        });
     }
 
     // find 'line break', double spaces or <br> at the end of the line
@@ -945,11 +908,7 @@ _____________
                     l.buffer,
                     vec![
                         Token::new(mark.to_string(), TokenKind::TitleMark),
-                        Token::new_with_parent(
-                            titles.get(0).unwrap().trim().to_string(),
-                            TokenKind::Text,
-                            TokenKind::TitleMark
-                        )
+                        Token::new(titles.get(0).unwrap().trim().to_string(), TokenKind::Text,)
                     ]
                 );
             }
@@ -960,11 +919,7 @@ _____________
                     l.buffer,
                     vec![
                         Token::new(mark.to_string(), TokenKind::TitleMark,),
-                        Token::new_with_parent(
-                            titles.get(1).unwrap().trim().to_string(),
-                            TokenKind::Text,
-                            TokenKind::TitleMark
-                        )
+                        Token::new(titles.get(1).unwrap().trim().to_string(), TokenKind::Text,)
                     ]
                 );
             }
@@ -975,11 +930,7 @@ _____________
                     l.buffer,
                     vec![
                         Token::new(mark.to_string(), TokenKind::TitleMark,),
-                        Token::new_with_parent(
-                            titles.get(2).unwrap().trim().to_string(),
-                            TokenKind::Text,
-                            TokenKind::TitleMark
-                        )
+                        Token::new(titles.get(2).unwrap().trim().to_string(), TokenKind::Text,)
                     ]
                 );
             }
@@ -1000,6 +951,33 @@ _____________
                 );
             }
         }
+    }
+
+    #[test]
+    fn test_parse_title2() {
+        let title = "# header1 [这是一个链接](https://example.com)";
+        let ast = create_ast(title);
+
+        assert_eq!(ast.count(), 1);
+        assert_eq!(ast.buffer.get(0).unwrap().kind, Kind::Title);
+
+        let mut kvs = HashMap::new();
+        kvs.insert("show_name".to_string(), "这是一个链接".to_string());
+        kvs.insert("location".to_string(), "https://example.com".to_string());
+
+        let mut url = Token::new(
+            "[这是一个链接](https://example.com)".to_string(),
+            TokenKind::Url,
+        );
+        url.kvs = Some(kvs);
+        assert_eq!(
+            ast.buffer.get(0).unwrap().buffer,
+            vec![
+                Token::new("#".to_string(), TokenKind::TitleMark),
+                Token::new("header1 ".to_string(), TokenKind::Text),
+                url,
+            ]
+        )
     }
 
     #[test]
@@ -1085,11 +1063,7 @@ _____________
                     ast.buffer.get(0).unwrap().buffer,
                     vec![
                         Token::new("**".to_string(), TokenKind::BoldMark),
-                        Token::new_with_parent(
-                            "1".to_string(),
-                            TokenKind::Text,
-                            TokenKind::BoldMark
-                        ),
+                        Token::new("1".to_string(), TokenKind::Text,),
                         Token::new("**".to_string(), TokenKind::BoldMark),
                     ]
                 )
@@ -1142,7 +1116,7 @@ _____________
             ast.buffer[0].buffer,
             vec![
                 Token::new(mark.to_string(), TokenKind::QuoteMark),
-                Token::new_with_parent(content.to_string(), TokenKind::Text, TokenKind::QuoteMark)
+                Token::new(content.to_string(), TokenKind::Text)
             ]
         )
     }
@@ -1165,11 +1139,7 @@ _____________
             ast.buffer[0].buffer,
             vec![
                 Token::new(mark.to_string(), TokenKind::DisorderListMark),
-                Token::new_with_parent(
-                    content.to_string(),
-                    TokenKind::Text,
-                    TokenKind::DisorderListMark
-                )
+                Token::new(content.to_string(), TokenKind::Text,)
             ]
         )
     }
@@ -1192,11 +1162,7 @@ _____________
                 ast.buffer[0].buffer,
                 vec![
                     Token::new(mark.to_string(), TokenKind::SortedListMark),
-                    Token::new_with_parent(
-                        content.to_string(),
-                        TokenKind::Text,
-                        TokenKind::SortedListMark
-                    )
+                    Token::new(content.to_string(), TokenKind::Text,)
                 ]
             )
         }

@@ -43,6 +43,9 @@ const CODE_TEMPLATE: &str = "<pre><code class=\"language-{name}\">
 {text}
 </code></pre>";
 
+const TEXT_PARAGRAPH_TEMPLATE_NAME: &str = "paragraph";
+const TEXT_PARAGRAPH_TEMPLATE: &str = "<p>{text}</p>";
+
 #[derive(Serialize)]
 struct TitleContext {
     is_l1: bool,
@@ -85,8 +88,19 @@ struct CodeBlockContext<'cbc> {
     text: &'cbc str,
 }
 
+#[derive(Serialize)]
+struct TextParagraphContext<'tpc> {
+    text: &'tpc str,
+}
+
 pub struct Generator<'generator> {
     tt: TinyTemplate<'generator>,
+}
+
+impl<'generator> Default for Generator<'generator> {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl<'generator> Generator<'generator> {
@@ -106,6 +120,11 @@ impl<'generator> Generator<'generator> {
         self.tt.add_template(QUOTE_TEMPLATE_NAME, QUOTE_TEMPLATE)?;
         self.tt.add_template(IMG_TEMPLATE_NAME, IMG_TEMPLATE)?;
         self.tt.add_template(CODE_TEMPLATE_NAME, CODE_TEMPLATE)?;
+        self.tt
+            .add_template(TEXT_PARAGRAPH_TEMPLATE_NAME, TEXT_PARAGRAPH_TEMPLATE)?;
+
+        self.tt
+            .set_default_formatter(&tinytemplate::format_unescaped);
         Ok(())
     }
 
@@ -186,11 +205,11 @@ impl<'generator> parser::HtmlGenerate for Generator<'generator> {
     }
 
     fn gen_normal(&self, l: &parser::Line) -> Result<String, Box<dyn Error>> {
-        let mut s = String::new();
         let text = self.gen_line(l.all_tokens())?;
-        s.push_str("<p>");
-        s.push_str(&text);
-        s.push_str("</p>");
+        let s = self.tt.render(
+            TEXT_PARAGRAPH_TEMPLATE_NAME,
+            &TextParagraphContext { text: &text },
+        )?;
         Ok(s)
     }
 

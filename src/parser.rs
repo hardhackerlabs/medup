@@ -146,8 +146,7 @@ impl Ast {
                 | Kind::SortedList
                 | Kind::Quote
                 | Kind::Code => {
-                    let last = self.blocks.last_mut();
-                    if let Some(b) = last {
+                    if let Some(b) = self.blocks.last_mut() {
                         if b.kind == l.kind {
                             b.indices.push(i);
                             continue;
@@ -194,6 +193,7 @@ impl Debug for Ast {
     }
 }
 
+#[derive(Debug)]
 // Block is a group of multiple lines.
 struct Block {
     indices: Vec<usize>, // it stores the index of 'Line' struct in 'ast.doc'
@@ -219,22 +219,6 @@ enum Kind {
     Quote,
     CodeMark,
     Code,
-}
-
-#[derive(Debug, PartialEq, Copy, Clone)]
-pub enum TokenKind {
-    TitleMark,        // #, ##, ###, ####
-    DisorderListMark, // *
-    SortedListMark,   // 1.
-    DividingMark,     // ---, ***, ___
-    QuoteMark,        // >
-    BoldMark,         // ** **
-    CodeMark,         // ```
-    BlankLine,        // \n
-    LineBreak,        // <br>, double whitespace
-    Image,            // ![]()
-    Url,              // []()
-    Text,             //
 }
 
 impl Line {
@@ -315,6 +299,22 @@ pub struct Token {
     value: String,
     kind: TokenKind,
     kvs: Option<HashMap<String, String>>,
+}
+
+#[derive(Debug, PartialEq, Copy, Clone)]
+pub enum TokenKind {
+    TitleMark,        // #, ##, ###, ####
+    DisorderListMark, // *
+    SortedListMark,   // 1.
+    DividingMark,     // ---, ***, ___
+    QuoteMark,        // >
+    BoldMark,         // ** **
+    CodeMark,         // ```
+    BlankLine,        // \n
+    LineBreak,        // <br>, double whitespace
+    Image,            // ![]()
+    Url,              // []()
+    Text,             //
 }
 
 impl Token {
@@ -1295,7 +1295,7 @@ _____________
         let mut ast = Ast::new();
         ast.parse_string(md).unwrap();
 
-        assert_eq!(ast.buffer.len(), md.lines().count());
+        assert_eq!(ast.count(), md.lines().count());
         assert_eq!(ast.blocks.len(), 8);
 
         assert_eq!(ast.blocks[2].kind, Kind::Code);

@@ -258,7 +258,11 @@ impl<'generator> parser::HtmlGenerate for Generator<'generator> {
         Ok(s)
     }
 
-    fn gen_code(&self, ls: Vec<&parser::Line>) -> Result<String, Box<dyn Error>> {
+    fn gen_code(
+        &self,
+        code_mark_line: &parser::Line,
+        ls: Vec<&parser::Line>,
+    ) -> Result<String, Box<dyn Error>> {
         let mut text = String::new();
         for l in ls {
             text.push_str(l.text());
@@ -266,7 +270,11 @@ impl<'generator> parser::HtmlGenerate for Generator<'generator> {
         let s = self.tt.render(
             CODE_TEMPLATE_NAME,
             &CodeBlockContext {
-                name: "rust",
+                name: if let Some(name) = code_mark_line.get(1) {
+                    name.value()
+                } else {
+                    ""
+                },
                 text: &text,
             },
         )?;

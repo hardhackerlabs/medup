@@ -13,7 +13,7 @@ pub trait HtmlGenerate {
     fn gen_sorted_list(&self, ls: Vec<&Line>) -> Result<String, Box<dyn Error>>;
     fn gen_disordered_list(&self, ls: Vec<&Line>) -> Result<String, Box<dyn Error>>;
     fn gen_quote(&self, ls: Vec<&Line>) -> Result<String, Box<dyn Error>>;
-    fn gen_code(&self, ls: Vec<&Line>) -> Result<String, Box<dyn Error>>;
+    fn gen_code(&self, code_mark_line: &Line, ls: Vec<&Line>) -> Result<String, Box<dyn Error>>;
 }
 
 // Ast represents the abstract syntax tree of the markdown file, it structurally represents the entire file.
@@ -28,7 +28,7 @@ impl Ast {
     // Create a Ast instance.
     pub fn new() -> Self {
         Ast {
-            buffer: Vec::new(),
+            buffer: vec![Line::meta()],
             blocks: Vec::new(),
             defer_queue: Vec::new(),
             enable_defer_parse: false,
@@ -70,29 +70,35 @@ impl Ast {
     }
 
     // Iterate through each block of the Ast and process the block into a 'html' string
-    pub fn to_html(&self, gen: &impl HtmlGenerate) -> Result<String, Box<dyn Error>> {
+    pub fn to_html(&self, html: &impl HtmlGenerate) -> Result<String, Box<dyn Error>> {
         let mut ss: Vec<String> = Vec::new();
         for b in self.blocks() {
-            let ls = self.lines_in_block(b);
+            let ls = self.get_block_lines(b);
             let res = match b.kind {
-                Kind::Title => match ls.first() {
-                    None => return Err(Into::into("Invalid title block")),
-                    Some(l) => Some(gen.gen_title(l)?),
-                },
-                Kind::NormalText => match ls.first() {
-                    None => return Err(Into::into("Invalid normal text block")),
-                    Some(l) => Some(gen.gen_normal(l)?),
-                },
-                Kind::DividingLine => match ls.first() {
-                    None => return Err(Into::into("Invalid dividling line block")),
-                    Some(l) => Some(gen.gen_dividling(l)?),
-                },
+                Kind::Title => Some(html.gen_title(ls.first().ok_or("Invalid title block")?)?),
+                Kind::NormalText => {
+                    Some(html.gen_normal(ls.first().ok_or("Invalid normal text block")?)?)
+                }
+                Kind::DividingLine => {
+                    Some(html.gen_dividling(ls.first().ok_or("Invalid dividling line block")?)?)
+                }
                 Kind::CodeMark => None,
-                Kind::Code => Some(gen.gen_code(ls)?),
-                Kind::DisorderedList => Some(gen.gen_disordered_list(ls)?),
-                Kind::Blank => Some(gen.gen_blank(ls)?),
-                Kind::Quote => Some(gen.gen_quote(ls)?),
-                Kind::SortedList => Some(gen.gen_sorted_list(ls)?),
+                Kind::Code => {
+                    let pre = self
+                        .get_pre_block(b)
+                        .ok_or("not found the previous code mark block of code")?;
+                    let code_mark_line = self
+                        .get_block_lines(pre)
+                        .first()
+                        .map(|l| *l)
+                        .ok_or("Invalid code mark block")?;
+                    Some(html.gen_code(code_mark_line, ls)?)
+                }
+                Kind::DisorderedList => Some(html.gen_disordered_list(ls)?),
+                Kind::Blank => Some(html.gen_blank(ls)?),
+                Kind::Quote => Some(html.gen_quote(ls)?),
+                Kind::SortedList => Some(html.gen_sorted_list(ls)?),
+                Kind::Meta => None,
             };
             if let Some(s) = res {
                 ss.push(s);
@@ -103,22 +109,31 @@ impl Ast {
     }
 
     // Count the lines in ast
-    pub fn count(&self) -> usize {
-        self.buffer.len()
+    pub fn count_lines(&self) -> usize {
+        self.buffer.len() - 1
+    }
+
+    // Get the Line object with line number
+    pub fn get_line(&self, num: usize) -> Option<&Line> {
+        self.buffer.get(num)
     }
 
     fn blocks(&self) -> &Vec<Block> {
         &self.blocks
     }
 
-    fn lines_in_block(&self, b: &Block) -> Vec<&Line> {
+    fn get_block_lines(&self, b: &Block) -> Vec<&Line> {
         let mut ls = vec![];
-        b.indices.iter().for_each(|x| {
-            if let Some(l) = self.buffer.get(*x) {
+        b.indices.iter().for_each(|n| {
+            if let Some(l) = self.get_line(*n) {
                 ls.push(l);
             }
         });
         ls
+    }
+
+    fn get_pre_block(&self, b: &Block) -> Option<&Block> {
+        self.blocks().get(b.seq - 1)
     }
 
     fn parse_line(&mut self, num: usize, line: String) {
@@ -136,10 +151,16 @@ impl Ast {
             }
         }
         self.buffer.push(l);
+        assert_eq!(self.count_lines(), num);
+        assert_eq!(self.buffer[num].num, num);
+    }
+
+    fn defer_parse(&self) -> bool {
+        false
     }
 
     fn build_blocks(&mut self) {
-        for (i, l) in self.buffer.iter().enumerate() {
+        for l in self.buffer.iter() {
             match l.kind {
                 Kind::Blank
                 | Kind::DisorderedList
@@ -148,23 +169,35 @@ impl Ast {
                 | Kind::Code => {
                     if let Some(b) = self.blocks.last_mut() {
                         if b.kind == l.kind {
-                            b.indices.push(i);
+                            b.indices.push(l.num);
                             continue;
                         }
                     }
-                    self.blocks.push(Block {
-                        indices: vec![i],
-                        kind: l.kind,
-                    });
+                    Ast::insert_block(
+                        &mut self.blocks,
+                        Block {
+                            indices: vec![l.num],
+                            kind: l.kind,
+                            seq: 0,
+                        },
+                    )
                 }
-                _ => {
-                    self.blocks.push(Block {
-                        indices: vec![i],
+                Kind::Meta => {}
+                _ => Ast::insert_block(
+                    &mut self.blocks,
+                    Block {
+                        indices: vec![l.num],
                         kind: l.kind,
-                    });
-                }
+                        seq: 0,
+                    },
+                ),
             }
         }
+    }
+
+    fn insert_block(blocks: &mut Vec<Block>, mut b: Block) {
+        b.seq = blocks.len();
+        blocks.push(b);
     }
 
     fn peek_not(s1: &str, s2: &str) -> bool {
@@ -198,6 +231,7 @@ impl Debug for Ast {
 struct Block {
     indices: Vec<usize>, // it stores the index of 'Line' struct in 'ast.doc'
     kind: Kind,
+    seq: usize,
 }
 
 // Line is a line of the markdown file, it be parsed into some tokens.
@@ -219,6 +253,7 @@ enum Kind {
     Quote,
     CodeMark,
     Code,
+    Meta,
 }
 
 impl Line {
@@ -259,6 +294,15 @@ impl Line {
             text: line,
             kind: Kind::Code,
             buffer: Vec::new(),
+        }
+    }
+
+    fn meta() -> Self {
+        Line {
+            buffer: vec![],
+            kind: Kind::Meta,
+            num: 0,
+            text: "".to_string(),
         }
     }
 
@@ -858,7 +902,7 @@ _____________
 
         let mut ast = Ast::new();
         ast.parse_string(md).unwrap();
-        assert_eq!(ast.buffer.len(), md.lines().count());
+        assert_eq!(ast.count_lines(), md.lines().count());
     }
 
     #[test]
@@ -879,7 +923,7 @@ _____________
         let mut ast = Ast::new();
         ast.parse_string(md).unwrap();
 
-        assert_eq!(ast.buffer.len(), md.lines().count());
+        assert_eq!(ast.count_lines(), md.lines().count());
         assert_eq!(ast.blocks.len(), 8);
     }
 
@@ -900,9 +944,9 @@ _____________
                 ast.parse_line(n, s)
             }
 
-            assert_eq!(ast.buffer.len(), n as usize);
+            assert_eq!(ast.count_lines(), n as usize);
             {
-                let l = ast.buffer.get(0).unwrap();
+                let l = ast.get_line(1).unwrap();
                 assert_eq!(l.kind, Kind::Title);
                 assert_eq!(
                     l.buffer,
@@ -913,7 +957,7 @@ _____________
                 );
             }
             {
-                let l = ast.buffer.get(1).unwrap();
+                let l = ast.get_line(2).unwrap();
                 assert_eq!(l.kind, Kind::Title);
                 assert_eq!(
                     l.buffer,
@@ -924,7 +968,7 @@ _____________
                 );
             }
             {
-                let l = ast.buffer.get(2).unwrap();
+                let l = ast.get_line(3).unwrap();
                 assert_eq!(l.kind, Kind::Title);
                 assert_eq!(
                     l.buffer,
@@ -935,7 +979,7 @@ _____________
                 );
             }
             {
-                let l = ast.buffer.get(3).unwrap();
+                let l = ast.get_line(4).unwrap();
                 assert_eq!(l.kind, Kind::Title);
                 assert_eq!(
                     l.buffer,
@@ -943,7 +987,7 @@ _____________
                 );
             }
             {
-                let l = ast.buffer.get(4).unwrap();
+                let l = ast.get_line(5).unwrap();
                 assert_eq!(l.kind, Kind::Title);
                 assert_eq!(
                     l.buffer,
@@ -958,8 +1002,8 @@ _____________
         let title = "# header1 [这是一个链接](https://example.com)";
         let ast = create_ast(title);
 
-        assert_eq!(ast.count(), 1);
-        assert_eq!(ast.buffer.get(0).unwrap().kind, Kind::Title);
+        assert_eq!(ast.count_lines(), 1);
+        assert_eq!(ast.get_line(1).unwrap().kind, Kind::Title);
 
         let mut kvs = HashMap::new();
         kvs.insert("show_name".to_string(), "这是一个链接".to_string());
@@ -971,7 +1015,7 @@ _____________
         );
         url.kvs = Some(kvs);
         assert_eq!(
-            ast.buffer.get(0).unwrap().buffer,
+            ast.get_line(1).unwrap().buffer,
             vec![
                 Token::new("#".to_string(), TokenKind::TitleMark),
                 Token::new("header1 ".to_string(), TokenKind::Text),
@@ -995,10 +1039,10 @@ _____________
         for mark in marks {
             let ast = create_ast(mark);
 
-            assert_eq!(ast.buffer.len(), 1);
-            assert_eq!(ast.buffer.get(0).unwrap().kind, Kind::DividingLine);
+            assert_eq!(ast.count_lines(), 1);
+            assert_eq!(ast.get_line(1).unwrap().kind, Kind::DividingLine);
             assert_eq!(
-                ast.buffer.get(0).unwrap().buffer,
+                ast.get_line(1).unwrap().buffer,
                 vec![Token::new(
                     mark.trim_end().to_string(),
                     TokenKind::DividingMark,
@@ -1026,10 +1070,10 @@ _____________
             for cnt in contents {
                 let ast = create_ast(cnt);
 
-                assert_eq!(ast.buffer.len(), 1);
-                assert_eq!(ast.buffer.get(0).unwrap().kind, Kind::NormalText);
+                assert_eq!(ast.count_lines(), 1);
+                assert_eq!(ast.get_line(1).unwrap().kind, Kind::NormalText);
                 assert_eq!(
-                    ast.buffer.get(0).unwrap().buffer,
+                    ast.get_line(1).unwrap().buffer,
                     vec![Token::new(cnt.to_string(), TokenKind::Text)]
                 )
             }
@@ -1040,10 +1084,10 @@ _____________
             for cnt in contents {
                 let ast = create_ast(cnt);
 
-                assert_eq!(ast.buffer.len(), 1);
-                assert_eq!(ast.buffer.get(0).unwrap().kind, Kind::NormalText);
+                assert_eq!(ast.count_lines(), 1);
+                assert_eq!(ast.get_line(1).unwrap().kind, Kind::NormalText);
                 assert_eq!(
-                    ast.buffer.get(0).unwrap().buffer,
+                    ast.get_line(1).unwrap().buffer,
                     vec![
                         Token::new("**".to_string(), TokenKind::Text),
                         Token::new("*xxxx".to_string(), TokenKind::Text)
@@ -1057,10 +1101,10 @@ _____________
             for cnt in contents {
                 let ast = create_ast(cnt);
 
-                assert_eq!(ast.buffer.len(), 1);
-                assert_eq!(ast.buffer.get(0).unwrap().kind, Kind::NormalText);
+                assert_eq!(ast.count_lines(), 1);
+                assert_eq!(ast.get_line(1).unwrap().kind, Kind::NormalText);
                 assert_eq!(
-                    ast.buffer.get(0).unwrap().buffer,
+                    ast.get_line(1).unwrap().buffer,
                     vec![
                         Token::new("**".to_string(), TokenKind::BoldMark),
                         Token::new("1".to_string(), TokenKind::Text,),
@@ -1083,10 +1127,10 @@ _____________
         for cnt in contents {
             let ast = create_ast(cnt);
 
-            assert_eq!(ast.buffer.len(), 1);
-            assert_eq!(ast.buffer.get(0).unwrap().kind, Kind::NormalText);
+            assert_eq!(ast.count_lines(), 1);
+            assert_eq!(ast.get_line(1).unwrap().kind, Kind::NormalText);
             assert_eq!(
-                ast.buffer.get(0).unwrap().buffer,
+                ast.get_line(1).unwrap().buffer,
                 vec![
                     Token::new(
                         cnt.trim().trim_end_matches("<br>").to_string(),
@@ -1110,10 +1154,10 @@ _____________
 
         let ast = create_ast(&s);
 
-        assert_eq!(ast.buffer.len(), 1);
-        assert_eq!(ast.buffer[0].kind, Kind::Quote);
+        assert_eq!(ast.count_lines(), 1);
+        assert_eq!(ast.get_line(1).unwrap().kind, Kind::Quote);
         assert_eq!(
-            ast.buffer[0].buffer,
+            ast.get_line(1).unwrap().buffer,
             vec![
                 Token::new(mark.to_string(), TokenKind::QuoteMark),
                 Token::new(content.to_string(), TokenKind::Text)
@@ -1133,10 +1177,10 @@ _____________
 
         let ast = create_ast(&s);
 
-        assert_eq!(ast.buffer.len(), 1);
-        assert_eq!(ast.buffer[0].kind, Kind::DisorderedList);
+        assert_eq!(ast.count_lines(), 1);
+        assert_eq!(ast.get_line(1).unwrap().kind, Kind::DisorderedList);
         assert_eq!(
-            ast.buffer[0].buffer,
+            ast.get_line(1).unwrap().buffer,
             vec![
                 Token::new(mark.to_string(), TokenKind::DisorderListMark),
                 Token::new(content.to_string(), TokenKind::Text,)
@@ -1156,10 +1200,10 @@ _____________
             s.push_str(content);
             let ast = create_ast(&s);
 
-            assert_eq!(ast.buffer.len(), 1);
-            assert_eq!(ast.buffer[0].kind, Kind::SortedList);
+            assert_eq!(ast.count_lines(), 1);
+            assert_eq!(ast.get_line(1).unwrap().kind, Kind::SortedList);
             assert_eq!(
-                ast.buffer[0].buffer,
+                ast.get_line(1).unwrap().buffer,
                 vec![
                     Token::new(mark.to_string(), TokenKind::SortedListMark),
                     Token::new(content.to_string(), TokenKind::Text,)
@@ -1182,10 +1226,10 @@ _____________
         for cnt in contents {
             let ast = create_ast(cnt);
 
-            assert_eq!(ast.buffer.len(), 1);
-            assert_eq!(ast.buffer[0].kind, Kind::Blank);
+            assert_eq!(ast.count_lines(), 1);
+            assert_eq!(ast.get_line(1).unwrap().kind, Kind::Blank);
             assert_eq!(
-                ast.buffer[0].buffer,
+                ast.get_line(1).unwrap().buffer,
                 vec![Token::new("".to_string(), TokenKind::BlankLine)]
             )
         }
@@ -1210,20 +1254,20 @@ _____________
                 let s = cnt.to_string() + pic;
                 let ast = create_ast(&s);
 
-                assert_eq!(ast.buffer.len(), 1);
-                assert_eq!(ast.buffer[0].kind, Kind::NormalText);
+                assert_eq!(ast.count_lines(), 1);
+                assert_eq!(ast.get_line(1).unwrap().kind, Kind::NormalText);
                 if cnt.is_empty() {
                     // token 0
-                    assert_eq!(ast.buffer[0].buffer[0].kind, TokenKind::Image);
-                    assert_eq!(ast.buffer[0].buffer[0].value, pic.to_string());
+                    assert_eq!(ast.get_line(1).unwrap().buffer[0].kind, TokenKind::Image);
+                    assert_eq!(ast.get_line(1).unwrap().buffer[0].value, pic.to_string());
                 } else {
                     // token 0
-                    assert_eq!(ast.buffer[0].buffer[0].kind, TokenKind::Text);
-                    assert_eq!(ast.buffer[0].buffer[0].value, cnt.to_string());
+                    assert_eq!(ast.get_line(1).unwrap().buffer[0].kind, TokenKind::Text);
+                    assert_eq!(ast.get_line(1).unwrap().buffer[0].value, cnt.to_string());
 
                     // token 1
-                    assert_eq!(ast.buffer[0].buffer[1].kind, TokenKind::Image);
-                    assert_eq!(ast.buffer[0].buffer[1].value, pic.to_string());
+                    assert_eq!(ast.get_line(1).unwrap().buffer[1].kind, TokenKind::Image);
+                    assert_eq!(ast.get_line(1).unwrap().buffer[1].value, pic.to_string());
                 }
             }
         }
@@ -1246,20 +1290,20 @@ _____________
                 let s = cnt.to_string() + url;
                 let ast = create_ast(&s);
 
-                assert_eq!(ast.buffer.len(), 1);
-                assert_eq!(ast.buffer[0].kind, Kind::NormalText);
+                assert_eq!(ast.count_lines(), 1);
+                assert_eq!(ast.get_line(1).unwrap().kind, Kind::NormalText);
                 if cnt.is_empty() {
                     // token 0
-                    assert_eq!(ast.buffer[0].buffer[0].kind, TokenKind::Url);
-                    assert_eq!(ast.buffer[0].buffer[0].value, url.to_string());
+                    assert_eq!(ast.get_line(1).unwrap().buffer[0].kind, TokenKind::Url);
+                    assert_eq!(ast.get_line(1).unwrap().buffer[0].value, url.to_string());
                 } else {
                     // token 0
-                    assert_eq!(ast.buffer[0].buffer[0].kind, TokenKind::Text);
-                    assert_eq!(ast.buffer[0].buffer[0].value, cnt.to_string());
+                    assert_eq!(ast.get_line(1).unwrap().buffer[0].kind, TokenKind::Text);
+                    assert_eq!(ast.get_line(1).unwrap().buffer[0].value, cnt.to_string());
 
                     // token 1
-                    assert_eq!(ast.buffer[0].buffer[1].kind, TokenKind::Url);
-                    assert_eq!(ast.buffer[0].buffer[1].value, url.to_string());
+                    assert_eq!(ast.get_line(1).unwrap().buffer[1].kind, TokenKind::Url);
+                    assert_eq!(ast.get_line(1).unwrap().buffer[1].value, url.to_string());
                 }
             }
         }
@@ -1272,10 +1316,10 @@ _____________
         let mut ast = Ast::new();
         ast.parse_string(md).unwrap();
 
-        assert_eq!(ast.buffer.len(), md.lines().count());
-        assert_eq!(ast.buffer[0].kind, Kind::CodeMark);
+        assert_eq!(ast.count_lines(), md.lines().count());
+        assert_eq!(ast.get_line(1).unwrap().kind, Kind::CodeMark);
         assert_eq!(
-            ast.buffer[0].buffer,
+            ast.get_line(1).unwrap().buffer,
             vec![Token::new(md.trim_end().to_string(), TokenKind::CodeMark)]
         )
     }
@@ -1295,7 +1339,7 @@ _____________
         let mut ast = Ast::new();
         ast.parse_string(md).unwrap();
 
-        assert_eq!(ast.count(), md.lines().count());
+        assert_eq!(ast.count_lines(), md.lines().count());
         assert_eq!(ast.blocks.len(), 8);
 
         assert_eq!(ast.blocks[2].kind, Kind::Code);

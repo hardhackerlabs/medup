@@ -18,20 +18,20 @@ pub trait HtmlGenerate {
 
 // Ast represents the abstract syntax tree of the markdown file, it structurally represents the entire file.
 pub struct Ast {
-    buffer: Vec<Line>,
+    lines: Vec<Line>,
     blocks: Vec<Block>,
-    enable_defer_parse: bool,
-    defer_queue: Vec<usize>, // usize is index to 'doc'
+    enabled_defer: bool,
+    defer_queue: Vec<usize>, // usize is index to Line
 }
 
 impl Ast {
     // Create a Ast instance.
     pub fn new() -> Self {
         Ast {
-            buffer: vec![Line::meta()],
+            lines: vec![Line::meta()],
             blocks: Vec::new(),
             defer_queue: Vec::new(),
-            enable_defer_parse: false,
+            enabled_defer: false,
         }
     }
 
@@ -61,9 +61,7 @@ impl Ast {
             num += 1;
             self.parse_line(num, buf);
         }
-        self.defer_queue
-            .iter()
-            .for_each(|x| self.buffer[*x].parse());
+        self.defer_queue.iter().for_each(|x| self.lines[*x].parse());
         self.defer_queue.clear();
         self.build_blocks();
         Ok(())
@@ -110,12 +108,12 @@ impl Ast {
 
     // Count the lines in ast
     pub fn count_lines(&self) -> usize {
-        self.buffer.len() - 1
+        self.lines.len() - 1
     }
 
     // Get the Line object with line number
     pub fn get_line(&self, num: usize) -> Option<&Line> {
-        self.buffer.get(num)
+        self.lines.get(num)
     }
 
     fn blocks(&self) -> &Vec<Block> {
@@ -136,31 +134,36 @@ impl Ast {
         self.blocks().get(b.seq - 1)
     }
 
+    fn get_next_block(&self, b: &Block) -> Option<&Block> {
+        self.blocks().get(b.seq + 1)
+    }
+
     fn parse_line(&mut self, num: usize, line: String) {
-        let l = if self.enable_defer_parse && Self::peek_not(&line, "```") {
-            self.defer_queue.push(self.buffer.len());
+        let l = if self.defer_parse(&line) {
+            self.defer_queue.push(num);
             Line::new_without_parsing(num, line)
         } else {
             Line::new(num, line)
         };
         if l.kind == Kind::CodeMark {
-            self.enable_defer_parse = !self.enable_defer_parse;
-            if !self.enable_defer_parse {
+            self.enabled_defer = !self.enabled_defer;
+            if !self.enabled_defer {
                 // closed code block
                 self.defer_queue.clear();
             }
         }
-        self.buffer.push(l);
+        self.lines.push(l);
+        // DON'T PANIC
         assert_eq!(self.count_lines(), num);
-        assert_eq!(self.buffer[num].num, num);
+        assert_eq!(self.lines[num].num, num);
     }
 
-    fn defer_parse(&self) -> bool {
-        false
+    fn defer_parse(&self, s: &str) -> bool {
+        self.enabled_defer && s.trim() != "```"
     }
 
     fn build_blocks(&mut self) {
-        for l in self.buffer.iter() {
+        for l in self.lines.iter() {
             match l.kind {
                 Kind::Blank
                 | Kind::DisorderedList
@@ -199,10 +202,6 @@ impl Ast {
         b.seq = blocks.len();
         blocks.push(b);
     }
-
-    fn peek_not(s1: &str, s2: &str) -> bool {
-        s1.trim() != s2
-    }
 }
 
 impl Default for Ast {
@@ -214,9 +213,9 @@ impl Default for Ast {
 impl Debug for Ast {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut debug = String::new();
-        for line in &self.buffer {
+        for line in &self.lines {
             debug.push_str(format!("[{}, {:?}]: ", line.num, line.kind).as_str());
-            for t in &line.buffer {
+            for t in &line.buff {
                 let s = format!("{:?} ", t);
                 debug.push_str(&s);
             }
@@ -236,7 +235,7 @@ struct Block {
 
 // Line is a line of the markdown file, it be parsed into some tokens.
 pub struct Line {
-    buffer: Vec<Token>,
+    buff: Vec<Token>,
     kind: Kind,
     num: usize,
     text: String,
@@ -259,17 +258,17 @@ enum Kind {
 impl Line {
     // Get the first token in the Line
     pub fn first_token(&self) -> Option<&Token> {
-        self.buffer.get(0)
+        self.buff.get(0)
     }
 
     // Get the Nth Token in the Line
     pub fn get(&self, index: usize) -> Option<&Token> {
-        self.buffer.get(index)
+        self.buff.get(index)
     }
 
     // Get all tokens in the Line
     pub fn all_tokens(&self) -> &Vec<Token> {
-        &self.buffer
+        &self.buff
     }
 
     // Get the line text
@@ -282,7 +281,7 @@ impl Line {
             num: ln,
             text: line,
             kind: Kind::NormalText,
-            buffer: Vec::new(),
+            buff: Vec::new(),
         };
         l.parse();
         l
@@ -293,13 +292,13 @@ impl Line {
             num: ln,
             text: line,
             kind: Kind::Code,
-            buffer: Vec::new(),
+            buff: Vec::new(),
         }
     }
 
     fn meta() -> Self {
         Line {
-            buffer: vec![],
+            buff: vec![],
             kind: Kind::Meta,
             num: 0,
             text: "".to_string(),
@@ -309,7 +308,7 @@ impl Line {
     // Parses a line of text into 'Line' struct that contains multi tokens.
     // Line's kind is determinded by the first token's kind.
     fn parse(&mut self) {
-        let mut lx = Lexer::new(&self.text, &mut self.buffer);
+        let mut lx = Lexer::new(&self.text, &mut self.buff);
 
         for (cur_pos, cur_char) in self.text.chars().enumerate() {
             let stopped = lx.process(cur_pos, cur_char);
@@ -949,7 +948,7 @@ _____________
                 let l = ast.get_line(1).unwrap();
                 assert_eq!(l.kind, Kind::Title);
                 assert_eq!(
-                    l.buffer,
+                    l.buff,
                     vec![
                         Token::new(mark.to_string(), TokenKind::TitleMark),
                         Token::new(titles.get(0).unwrap().trim().to_string(), TokenKind::Text,)
@@ -960,7 +959,7 @@ _____________
                 let l = ast.get_line(2).unwrap();
                 assert_eq!(l.kind, Kind::Title);
                 assert_eq!(
-                    l.buffer,
+                    l.buff,
                     vec![
                         Token::new(mark.to_string(), TokenKind::TitleMark,),
                         Token::new(titles.get(1).unwrap().trim().to_string(), TokenKind::Text,)
@@ -971,7 +970,7 @@ _____________
                 let l = ast.get_line(3).unwrap();
                 assert_eq!(l.kind, Kind::Title);
                 assert_eq!(
-                    l.buffer,
+                    l.buff,
                     vec![
                         Token::new(mark.to_string(), TokenKind::TitleMark,),
                         Token::new(titles.get(2).unwrap().trim().to_string(), TokenKind::Text,)
@@ -982,7 +981,7 @@ _____________
                 let l = ast.get_line(4).unwrap();
                 assert_eq!(l.kind, Kind::Title);
                 assert_eq!(
-                    l.buffer,
+                    l.buff,
                     vec![Token::new(mark.to_string(), TokenKind::TitleMark)]
                 );
             }
@@ -990,7 +989,7 @@ _____________
                 let l = ast.get_line(5).unwrap();
                 assert_eq!(l.kind, Kind::Title);
                 assert_eq!(
-                    l.buffer,
+                    l.buff,
                     vec![Token::new(mark.to_string(), TokenKind::TitleMark)]
                 );
             }
@@ -1015,7 +1014,7 @@ _____________
         );
         url.kvs = Some(kvs);
         assert_eq!(
-            ast.get_line(1).unwrap().buffer,
+            ast.get_line(1).unwrap().buff,
             vec![
                 Token::new("#".to_string(), TokenKind::TitleMark),
                 Token::new("header1 ".to_string(), TokenKind::Text),
@@ -1042,7 +1041,7 @@ _____________
             assert_eq!(ast.count_lines(), 1);
             assert_eq!(ast.get_line(1).unwrap().kind, Kind::DividingLine);
             assert_eq!(
-                ast.get_line(1).unwrap().buffer,
+                ast.get_line(1).unwrap().buff,
                 vec![Token::new(
                     mark.trim_end().to_string(),
                     TokenKind::DividingMark,
@@ -1073,7 +1072,7 @@ _____________
                 assert_eq!(ast.count_lines(), 1);
                 assert_eq!(ast.get_line(1).unwrap().kind, Kind::NormalText);
                 assert_eq!(
-                    ast.get_line(1).unwrap().buffer,
+                    ast.get_line(1).unwrap().buff,
                     vec![Token::new(cnt.to_string(), TokenKind::Text)]
                 )
             }
@@ -1087,7 +1086,7 @@ _____________
                 assert_eq!(ast.count_lines(), 1);
                 assert_eq!(ast.get_line(1).unwrap().kind, Kind::NormalText);
                 assert_eq!(
-                    ast.get_line(1).unwrap().buffer,
+                    ast.get_line(1).unwrap().buff,
                     vec![
                         Token::new("**".to_string(), TokenKind::Text),
                         Token::new("*xxxx".to_string(), TokenKind::Text)
@@ -1104,7 +1103,7 @@ _____________
                 assert_eq!(ast.count_lines(), 1);
                 assert_eq!(ast.get_line(1).unwrap().kind, Kind::NormalText);
                 assert_eq!(
-                    ast.get_line(1).unwrap().buffer,
+                    ast.get_line(1).unwrap().buff,
                     vec![
                         Token::new("**".to_string(), TokenKind::BoldMark),
                         Token::new("1".to_string(), TokenKind::Text,),
@@ -1130,7 +1129,7 @@ _____________
             assert_eq!(ast.count_lines(), 1);
             assert_eq!(ast.get_line(1).unwrap().kind, Kind::NormalText);
             assert_eq!(
-                ast.get_line(1).unwrap().buffer,
+                ast.get_line(1).unwrap().buff,
                 vec![
                     Token::new(
                         cnt.trim().trim_end_matches("<br>").to_string(),
@@ -1157,7 +1156,7 @@ _____________
         assert_eq!(ast.count_lines(), 1);
         assert_eq!(ast.get_line(1).unwrap().kind, Kind::Quote);
         assert_eq!(
-            ast.get_line(1).unwrap().buffer,
+            ast.get_line(1).unwrap().buff,
             vec![
                 Token::new(mark.to_string(), TokenKind::QuoteMark),
                 Token::new(content.to_string(), TokenKind::Text)
@@ -1180,7 +1179,7 @@ _____________
         assert_eq!(ast.count_lines(), 1);
         assert_eq!(ast.get_line(1).unwrap().kind, Kind::DisorderedList);
         assert_eq!(
-            ast.get_line(1).unwrap().buffer,
+            ast.get_line(1).unwrap().buff,
             vec![
                 Token::new(mark.to_string(), TokenKind::DisorderListMark),
                 Token::new(content.to_string(), TokenKind::Text,)
@@ -1203,7 +1202,7 @@ _____________
             assert_eq!(ast.count_lines(), 1);
             assert_eq!(ast.get_line(1).unwrap().kind, Kind::SortedList);
             assert_eq!(
-                ast.get_line(1).unwrap().buffer,
+                ast.get_line(1).unwrap().buff,
                 vec![
                     Token::new(mark.to_string(), TokenKind::SortedListMark),
                     Token::new(content.to_string(), TokenKind::Text,)
@@ -1229,7 +1228,7 @@ _____________
             assert_eq!(ast.count_lines(), 1);
             assert_eq!(ast.get_line(1).unwrap().kind, Kind::Blank);
             assert_eq!(
-                ast.get_line(1).unwrap().buffer,
+                ast.get_line(1).unwrap().buff,
                 vec![Token::new("".to_string(), TokenKind::BlankLine)]
             )
         }
@@ -1258,16 +1257,16 @@ _____________
                 assert_eq!(ast.get_line(1).unwrap().kind, Kind::NormalText);
                 if cnt.is_empty() {
                     // token 0
-                    assert_eq!(ast.get_line(1).unwrap().buffer[0].kind, TokenKind::Image);
-                    assert_eq!(ast.get_line(1).unwrap().buffer[0].value, pic.to_string());
+                    assert_eq!(ast.get_line(1).unwrap().buff[0].kind, TokenKind::Image);
+                    assert_eq!(ast.get_line(1).unwrap().buff[0].value, pic.to_string());
                 } else {
                     // token 0
-                    assert_eq!(ast.get_line(1).unwrap().buffer[0].kind, TokenKind::Text);
-                    assert_eq!(ast.get_line(1).unwrap().buffer[0].value, cnt.to_string());
+                    assert_eq!(ast.get_line(1).unwrap().buff[0].kind, TokenKind::Text);
+                    assert_eq!(ast.get_line(1).unwrap().buff[0].value, cnt.to_string());
 
                     // token 1
-                    assert_eq!(ast.get_line(1).unwrap().buffer[1].kind, TokenKind::Image);
-                    assert_eq!(ast.get_line(1).unwrap().buffer[1].value, pic.to_string());
+                    assert_eq!(ast.get_line(1).unwrap().buff[1].kind, TokenKind::Image);
+                    assert_eq!(ast.get_line(1).unwrap().buff[1].value, pic.to_string());
                 }
             }
         }
@@ -1294,16 +1293,16 @@ _____________
                 assert_eq!(ast.get_line(1).unwrap().kind, Kind::NormalText);
                 if cnt.is_empty() {
                     // token 0
-                    assert_eq!(ast.get_line(1).unwrap().buffer[0].kind, TokenKind::Url);
-                    assert_eq!(ast.get_line(1).unwrap().buffer[0].value, url.to_string());
+                    assert_eq!(ast.get_line(1).unwrap().buff[0].kind, TokenKind::Url);
+                    assert_eq!(ast.get_line(1).unwrap().buff[0].value, url.to_string());
                 } else {
                     // token 0
-                    assert_eq!(ast.get_line(1).unwrap().buffer[0].kind, TokenKind::Text);
-                    assert_eq!(ast.get_line(1).unwrap().buffer[0].value, cnt.to_string());
+                    assert_eq!(ast.get_line(1).unwrap().buff[0].kind, TokenKind::Text);
+                    assert_eq!(ast.get_line(1).unwrap().buff[0].value, cnt.to_string());
 
                     // token 1
-                    assert_eq!(ast.get_line(1).unwrap().buffer[1].kind, TokenKind::Url);
-                    assert_eq!(ast.get_line(1).unwrap().buffer[1].value, url.to_string());
+                    assert_eq!(ast.get_line(1).unwrap().buff[1].kind, TokenKind::Url);
+                    assert_eq!(ast.get_line(1).unwrap().buff[1].value, url.to_string());
                 }
             }
         }
@@ -1319,7 +1318,7 @@ _____________
         assert_eq!(ast.count_lines(), md.lines().count());
         assert_eq!(ast.get_line(1).unwrap().kind, Kind::CodeMark);
         assert_eq!(
-            ast.get_line(1).unwrap().buffer,
+            ast.get_line(1).unwrap().buff,
             vec![Token::new(md.trim_end().to_string(), TokenKind::CodeMark)]
         )
     }
@@ -1347,5 +1346,13 @@ _____________
 
         assert_eq!(ast.blocks[7].kind, Kind::NormalText);
         assert_eq!(ast.blocks[7].indices.len(), 1);
+
+        ast.blocks()
+            .iter()
+            .filter(|b| b.kind == Kind::Code)
+            .for_each(|b| {
+                assert_eq!(ast.get_pre_block(b).unwrap().kind, Kind::CodeMark);
+                assert_eq!(ast.get_next_block(b).unwrap().kind, Kind::CodeMark);
+            })
     }
 }

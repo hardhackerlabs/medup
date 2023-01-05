@@ -3,7 +3,7 @@ use serde::Serialize;
 use std::error::Error;
 use tinytemplate::TinyTemplate;
 
-use crate::parser;
+use crate::parser::{HtmlGenerate, SharedLine, Token, TokenKind};
 
 const TITLE_TEMPLATE_NAME: &str = "title";
 const TITLE_TEMPLATE: &str = "{{ if is_l1 }}<h1>{text}</h1>{{ endif }}
@@ -128,13 +128,13 @@ impl<'generator> Generator<'generator> {
         Ok(())
     }
 
-    fn gen_line(&self, tokens: &Vec<parser::Token>) -> Result<String, Box<dyn Error>> {
+    fn gen_line(&self, tokens: &Vec<Token>) -> Result<String, Box<dyn Error>> {
         let mut text = String::new();
         let mut in_bold = false;
         for t in tokens {
             match t.kind() {
-                parser::TokenKind::Text => text.push_str(t.value()),
-                parser::TokenKind::BoldMark => {
+                TokenKind::Text => text.push_str(t.value()),
+                TokenKind::BoldMark => {
                     if in_bold {
                         text.push_str("</strong>");
                     } else {
@@ -142,14 +142,14 @@ impl<'generator> Generator<'generator> {
                     }
                     in_bold = !in_bold;
                 }
-                parser::TokenKind::Url => {
+                TokenKind::Url => {
                     if let (Some(show_name), Some(location)) = (t.get_show_name(), t.get_location())
                     {
                         let s = self.gen_url(show_name, location)?;
                         text.push_str(&s);
                     }
                 }
-                parser::TokenKind::Image => {
+                TokenKind::Image => {
                     if let (Some(alt), Some(location)) = (t.get_show_name(), t.get_location()) {
                         let s = self.gen_image(alt, location)?;
                         text.push_str(&s);
@@ -180,8 +180,9 @@ impl<'generator> Generator<'generator> {
     }
 }
 
-impl<'generator> parser::HtmlGenerate for Generator<'generator> {
-    fn gen_title(&self, l: &parser::Line) -> Result<String, Box<dyn Error>> {
+impl<'generator> HtmlGenerate for Generator<'generator> {
+    fn gen_title(&self, l: &SharedLine) -> Result<String, Box<dyn Error>> {
+        let l = l.borrow();
         let first = l
             .first_token()
             .ok_or("not found the first mark token in a title line")?;
@@ -200,11 +201,12 @@ impl<'generator> parser::HtmlGenerate for Generator<'generator> {
         Ok(s)
     }
 
-    fn gen_dividling(&self, _l: &parser::Line) -> Result<String, Box<dyn Error>> {
+    fn gen_dividling(&self, _l: &SharedLine) -> Result<String, Box<dyn Error>> {
         Ok("<hr>".to_string())
     }
 
-    fn gen_normal(&self, l: &parser::Line) -> Result<String, Box<dyn Error>> {
+    fn gen_normal(&self, l: &SharedLine) -> Result<String, Box<dyn Error>> {
+        let l = l.borrow();
         let text = self.gen_line(l.all_tokens())?;
         let s = self.tt.render(
             TEXT_PARAGRAPH_TEMPLATE_NAME,
@@ -213,7 +215,7 @@ impl<'generator> parser::HtmlGenerate for Generator<'generator> {
         Ok(s)
     }
 
-    fn gen_blank(&self, ls: Vec<&parser::Line>) -> Result<String, Box<dyn Error>> {
+    fn gen_blank(&self, ls: &[SharedLine]) -> Result<String, Box<dyn Error>> {
         let mut s = String::new();
         for _ in ls {
             s.push_str("<p></p>");
@@ -221,9 +223,10 @@ impl<'generator> parser::HtmlGenerate for Generator<'generator> {
         Ok(s)
     }
 
-    fn gen_sorted_list(&self, ls: Vec<&parser::Line>) -> Result<String, Box<dyn Error>> {
+    fn gen_sorted_list(&self, ls: &[SharedLine]) -> Result<String, Box<dyn Error>> {
         let mut list = Vec::new();
         for l in ls {
+            let l = l.borrow();
             let value = self.gen_line(l.all_tokens())?;
             list.push(value);
         }
@@ -233,9 +236,10 @@ impl<'generator> parser::HtmlGenerate for Generator<'generator> {
         Ok(s)
     }
 
-    fn gen_disordered_list(&self, ls: Vec<&parser::Line>) -> Result<String, Box<dyn Error>> {
+    fn gen_disordered_list(&self, ls: &[SharedLine]) -> Result<String, Box<dyn Error>> {
         let mut list = Vec::new();
         for l in ls {
+            let l = l.borrow();
             let value = self.gen_line(l.all_tokens())?;
             list.push(value);
         }
@@ -246,9 +250,10 @@ impl<'generator> parser::HtmlGenerate for Generator<'generator> {
         Ok(s)
     }
 
-    fn gen_quote(&self, ls: Vec<&parser::Line>) -> Result<String, Box<dyn Error>> {
+    fn gen_quote(&self, ls: &[SharedLine]) -> Result<String, Box<dyn Error>> {
         let mut lines = Vec::new();
         for l in ls {
+            let l = l.borrow();
             let value = self.gen_line(l.all_tokens())?;
             lines.push(value);
         }
@@ -260,17 +265,18 @@ impl<'generator> parser::HtmlGenerate for Generator<'generator> {
 
     fn gen_code(
         &self,
-        code_mark_line: &parser::Line,
-        ls: Vec<&parser::Line>,
+        code_mark_line: &SharedLine,
+        ls: &[SharedLine],
     ) -> Result<String, Box<dyn Error>> {
         let mut text = String::new();
         for l in ls {
+            let l = l.borrow();
             text.push_str(l.text());
         }
         let s = self.tt.render(
             CODE_TEMPLATE_NAME,
             &CodeBlockContext {
-                name: if let Some(name) = code_mark_line.get(1) {
+                name: if let Some(name) = code_mark_line.borrow().get(1) {
                     name.value()
                 } else {
                     ""

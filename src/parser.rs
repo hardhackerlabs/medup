@@ -1,36 +1,44 @@
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::Debug;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
+use std::rc::Rc;
 use std::{fmt, io};
 
+pub type SharedLine = Rc<RefCell<Line>>;
+
 pub trait HtmlGenerate {
-    fn gen_title(&self, l: &Line) -> Result<String, Box<dyn Error>>;
-    fn gen_dividling(&self, l: &Line) -> Result<String, Box<dyn Error>>;
-    fn gen_normal(&self, l: &Line) -> Result<String, Box<dyn Error>>;
-    fn gen_blank(&self, ls: Vec<&Line>) -> Result<String, Box<dyn Error>>;
-    fn gen_sorted_list(&self, ls: Vec<&Line>) -> Result<String, Box<dyn Error>>;
-    fn gen_disordered_list(&self, ls: Vec<&Line>) -> Result<String, Box<dyn Error>>;
-    fn gen_quote(&self, ls: Vec<&Line>) -> Result<String, Box<dyn Error>>;
-    fn gen_code(&self, code_mark_line: &Line, ls: Vec<&Line>) -> Result<String, Box<dyn Error>>;
+    fn gen_title(&self, l: &SharedLine) -> Result<String, Box<dyn Error>>;
+    fn gen_dividling(&self, l: &SharedLine) -> Result<String, Box<dyn Error>>;
+    fn gen_normal(&self, l: &SharedLine) -> Result<String, Box<dyn Error>>;
+    fn gen_blank(&self, ls: &[SharedLine]) -> Result<String, Box<dyn Error>>;
+    fn gen_sorted_list(&self, ls: &[SharedLine]) -> Result<String, Box<dyn Error>>;
+    fn gen_disordered_list(&self, ls: &[SharedLine]) -> Result<String, Box<dyn Error>>;
+    fn gen_quote(&self, ls: &[SharedLine]) -> Result<String, Box<dyn Error>>;
+    fn gen_code(
+        &self,
+        code_mark_line: &SharedLine,
+        ls: &[SharedLine],
+    ) -> Result<String, Box<dyn Error>>;
 }
 
 // Ast represents the abstract syntax tree of the markdown file, it structurally represents the entire file.
 pub struct Ast {
-    lines: Vec<Line>,
+    lines: Vec<SharedLine>,
     blocks: Vec<Block>,
+    defer_queue: Vec<SharedLine>, // usize is index to Line
     enabled_defer: bool,
-    defer_queue: Vec<usize>, // usize is index to Line
 }
 
 impl Ast {
     // Create a Ast instance.
     pub fn new() -> Self {
         Ast {
-            lines: vec![Line::meta()],
-            blocks: Vec::new(),
-            defer_queue: Vec::new(),
+            lines: vec![Rc::new(RefCell::new(Line::meta()))],
+            blocks: vec![],
+            defer_queue: vec![],
             enabled_defer: false,
         }
     }
@@ -61,7 +69,7 @@ impl Ast {
             num += 1;
             self.parse_line(num, buf);
         }
-        self.defer_queue.iter().for_each(|x| self.lines[*x].parse());
+        self.defer_queue.iter().for_each(|l| l.borrow_mut().parse());
         self.defer_queue.clear();
         self.build_blocks();
         Ok(())
@@ -71,34 +79,29 @@ impl Ast {
     pub fn to_html(&self, html: &impl HtmlGenerate) -> Result<String, Box<dyn Error>> {
         let mut ss: Vec<String> = Vec::new();
         for b in self.blocks() {
-            let ls = self.get_block_lines(b);
-            let res = match b.kind {
-                Kind::Title => Some(html.gen_title(ls.first().ok_or("Invalid title block")?)?),
+            let s = match b.kind() {
+                Kind::Title => Some(html.gen_title(b.first().ok_or("Invalid title block")?)?),
                 Kind::NormalText => {
-                    Some(html.gen_normal(ls.first().ok_or("Invalid normal text block")?)?)
+                    Some(html.gen_normal(b.first().ok_or("Invalid normal text block")?)?)
                 }
                 Kind::DividingLine => {
-                    Some(html.gen_dividling(ls.first().ok_or("Invalid dividling line block")?)?)
+                    Some(html.gen_dividling(b.first().ok_or("Invalid dividling line block")?)?)
                 }
                 Kind::CodeMark => None,
                 Kind::Code => {
                     let pre = self
                         .get_pre_block(b)
                         .ok_or("not found the previous code mark block of code")?;
-                    let code_mark_line = self
-                        .get_block_lines(pre)
-                        .first()
-                        .map(|l| *l)
-                        .ok_or("Invalid code mark block")?;
-                    Some(html.gen_code(code_mark_line, ls)?)
+                    let code_mark_line = pre.first().ok_or("Invalid code mark block")?;
+                    Some(html.gen_code(code_mark_line, b.lines())?)
                 }
-                Kind::DisorderedList => Some(html.gen_disordered_list(ls)?),
-                Kind::Blank => Some(html.gen_blank(ls)?),
-                Kind::Quote => Some(html.gen_quote(ls)?),
-                Kind::SortedList => Some(html.gen_sorted_list(ls)?),
+                Kind::DisorderedList => Some(html.gen_disordered_list(b.lines())?),
+                Kind::Blank => Some(html.gen_blank(b.lines())?),
+                Kind::Quote => Some(html.gen_quote(b.lines())?),
+                Kind::SortedList => Some(html.gen_sorted_list(b.lines())?),
                 Kind::Meta => None,
             };
-            if let Some(s) = res {
+            if let Some(s) = s {
                 ss.push(s);
             }
         }
@@ -112,22 +115,12 @@ impl Ast {
     }
 
     // Get the Line object with line number
-    pub fn get_line(&self, num: usize) -> Option<&Line> {
+    pub fn get_line(&self, num: usize) -> Option<&SharedLine> {
         self.lines.get(num)
     }
 
     fn blocks(&self) -> &Vec<Block> {
         &self.blocks
-    }
-
-    fn get_block_lines(&self, b: &Block) -> Vec<&Line> {
-        let mut ls = vec![];
-        b.indices.iter().for_each(|n| {
-            if let Some(l) = self.get_line(*n) {
-                ls.push(l);
-            }
-        });
-        ls
     }
 
     fn get_pre_block(&self, b: &Block) -> Option<&Block> {
@@ -140,12 +133,16 @@ impl Ast {
 
     fn parse_line(&mut self, num: usize, line: String) {
         let l = if self.defer_parse(&line) {
-            self.defer_queue.push(num);
-            Line::new_without_parsing(num, line)
+            let c = RefCell::new(Line::new_without_parsing(num, line));
+            let l1 = Rc::new(c);
+            let l2 = Rc::clone(&l1);
+            self.defer_queue.push(l1);
+            l2
         } else {
-            Line::new(num, line)
+            let c = RefCell::new(Line::new(num, line));
+            Rc::new(c)
         };
-        if l.kind == Kind::CodeMark {
+        if l.borrow().kind == Kind::CodeMark {
             self.enabled_defer = !self.enabled_defer;
             if !self.enabled_defer {
                 // closed code block
@@ -155,7 +152,7 @@ impl Ast {
         self.lines.push(l);
         // DON'T PANIC
         assert_eq!(self.count_lines(), num);
-        assert_eq!(self.lines[num].num, num);
+        assert_eq!(self.lines[num].borrow().num, num);
     }
 
     fn defer_parse(&self, s: &str) -> bool {
@@ -163,7 +160,8 @@ impl Ast {
     }
 
     fn build_blocks(&mut self) {
-        for l in self.lines.iter() {
+        for r in self.lines.iter() {
+            let l = r.borrow();
             match l.kind {
                 Kind::Blank
                 | Kind::DisorderedList
@@ -171,15 +169,15 @@ impl Ast {
                 | Kind::Quote
                 | Kind::Code => {
                     if let Some(b) = self.blocks.last_mut() {
-                        if b.kind == l.kind {
-                            b.indices.push(l.num);
+                        if b.kind() == l.kind {
+                            b.push(Rc::clone(r));
                             continue;
                         }
                     }
                     Ast::insert_block(
                         &mut self.blocks,
                         Block {
-                            indices: vec![l.num],
+                            indices: vec![Rc::clone(r)],
                             kind: l.kind,
                             seq: 0,
                         },
@@ -189,7 +187,7 @@ impl Ast {
                 _ => Ast::insert_block(
                     &mut self.blocks,
                     Block {
-                        indices: vec![l.num],
+                        indices: vec![Rc::clone(r)],
                         kind: l.kind,
                         seq: 0,
                     },
@@ -213,9 +211,9 @@ impl Default for Ast {
 impl Debug for Ast {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut debug = String::new();
-        for line in &self.lines {
-            debug.push_str(format!("[{}, {:?}]: ", line.num, line.kind).as_str());
-            for t in &line.buff {
+        for line in self.lines.iter() {
+            debug.push_str(format!("[{}, {:?}]: ", line.borrow().num, line.borrow().kind).as_str());
+            for t in line.borrow().all_tokens() {
                 let s = format!("{:?} ", t);
                 debug.push_str(&s);
             }
@@ -225,15 +223,38 @@ impl Debug for Ast {
     }
 }
 
-#[derive(Debug)]
 // Block is a group of multiple lines.
+#[derive(Debug)]
 struct Block {
-    indices: Vec<usize>, // it stores the index of 'Line' struct in 'ast.doc'
+    indices: Vec<SharedLine>, // it stores the index of 'Line' struct in 'ast.doc'
     kind: Kind,
     seq: usize,
 }
 
+impl Block {
+    fn lines(&self) -> &Vec<SharedLine> {
+        &self.indices
+    }
+
+    fn first(&self) -> Option<&SharedLine> {
+        self.indices.first()
+    }
+
+    fn kind(&self) -> Kind {
+        self.kind
+    }
+
+    fn push(&mut self, l: SharedLine) {
+        self.indices.push(l)
+    }
+
+    fn count(&self) -> usize {
+        self.indices.len()
+    }
+}
+
 // Line is a line of the markdown file, it be parsed into some tokens.
+#[derive(Debug)]
 pub struct Line {
     buff: Vec<Token>,
     kind: Kind,
@@ -945,7 +966,7 @@ _____________
 
             assert_eq!(ast.count_lines(), n as usize);
             {
-                let l = ast.get_line(1).unwrap();
+                let l = ast.get_line(1).unwrap().borrow();
                 assert_eq!(l.kind, Kind::Title);
                 assert_eq!(
                     l.buff,
@@ -956,7 +977,7 @@ _____________
                 );
             }
             {
-                let l = ast.get_line(2).unwrap();
+                let l = ast.get_line(2).unwrap().borrow();
                 assert_eq!(l.kind, Kind::Title);
                 assert_eq!(
                     l.buff,
@@ -967,7 +988,7 @@ _____________
                 );
             }
             {
-                let l = ast.get_line(3).unwrap();
+                let l = ast.get_line(3).unwrap().borrow();
                 assert_eq!(l.kind, Kind::Title);
                 assert_eq!(
                     l.buff,
@@ -978,7 +999,7 @@ _____________
                 );
             }
             {
-                let l = ast.get_line(4).unwrap();
+                let l = ast.get_line(4).unwrap().borrow();
                 assert_eq!(l.kind, Kind::Title);
                 assert_eq!(
                     l.buff,
@@ -986,7 +1007,7 @@ _____________
                 );
             }
             {
-                let l = ast.get_line(5).unwrap();
+                let l = ast.get_line(5).unwrap().borrow();
                 assert_eq!(l.kind, Kind::Title);
                 assert_eq!(
                     l.buff,
@@ -1002,7 +1023,7 @@ _____________
         let ast = create_ast(title);
 
         assert_eq!(ast.count_lines(), 1);
-        assert_eq!(ast.get_line(1).unwrap().kind, Kind::Title);
+        assert_eq!(ast.get_line(1).unwrap().borrow().kind, Kind::Title);
 
         let mut kvs = HashMap::new();
         kvs.insert("show_name".to_string(), "这是一个链接".to_string());
@@ -1014,13 +1035,13 @@ _____________
         );
         url.kvs = Some(kvs);
         assert_eq!(
-            ast.get_line(1).unwrap().buff,
+            ast.get_line(1).unwrap().borrow().buff,
             vec![
                 Token::new("#".to_string(), TokenKind::TitleMark),
                 Token::new("header1 ".to_string(), TokenKind::Text),
                 url,
             ]
-        )
+        );
     }
 
     #[test]
@@ -1039,14 +1060,14 @@ _____________
             let ast = create_ast(mark);
 
             assert_eq!(ast.count_lines(), 1);
-            assert_eq!(ast.get_line(1).unwrap().kind, Kind::DividingLine);
+            assert_eq!(ast.get_line(1).unwrap().borrow().kind, Kind::DividingLine);
             assert_eq!(
-                ast.get_line(1).unwrap().buff,
+                ast.get_line(1).unwrap().borrow().buff,
                 vec![Token::new(
                     mark.trim_end().to_string(),
                     TokenKind::DividingMark,
                 )]
-            )
+            );
         }
     }
 
@@ -1070,11 +1091,11 @@ _____________
                 let ast = create_ast(cnt);
 
                 assert_eq!(ast.count_lines(), 1);
-                assert_eq!(ast.get_line(1).unwrap().kind, Kind::NormalText);
+                assert_eq!(ast.get_line(1).unwrap().borrow().kind, Kind::NormalText);
                 assert_eq!(
-                    ast.get_line(1).unwrap().buff,
+                    ast.get_line(1).unwrap().borrow().buff,
                     vec![Token::new(cnt.to_string(), TokenKind::Text)]
-                )
+                );
             }
         }
         {
@@ -1084,14 +1105,14 @@ _____________
                 let ast = create_ast(cnt);
 
                 assert_eq!(ast.count_lines(), 1);
-                assert_eq!(ast.get_line(1).unwrap().kind, Kind::NormalText);
+                assert_eq!(ast.get_line(1).unwrap().borrow().kind, Kind::NormalText);
                 assert_eq!(
-                    ast.get_line(1).unwrap().buff,
+                    ast.get_line(1).unwrap().borrow().buff,
                     vec![
                         Token::new("**".to_string(), TokenKind::Text),
                         Token::new("*xxxx".to_string(), TokenKind::Text)
                     ]
-                )
+                );
             }
         }
         {
@@ -1101,15 +1122,15 @@ _____________
                 let ast = create_ast(cnt);
 
                 assert_eq!(ast.count_lines(), 1);
-                assert_eq!(ast.get_line(1).unwrap().kind, Kind::NormalText);
+                assert_eq!(ast.get_line(1).unwrap().borrow().kind, Kind::NormalText);
                 assert_eq!(
-                    ast.get_line(1).unwrap().buff,
+                    ast.get_line(1).unwrap().borrow().buff,
                     vec![
                         Token::new("**".to_string(), TokenKind::BoldMark),
                         Token::new("1".to_string(), TokenKind::Text,),
                         Token::new("**".to_string(), TokenKind::BoldMark),
                     ]
-                )
+                );
             }
         }
     }
@@ -1127,9 +1148,9 @@ _____________
             let ast = create_ast(cnt);
 
             assert_eq!(ast.count_lines(), 1);
-            assert_eq!(ast.get_line(1).unwrap().kind, Kind::NormalText);
+            assert_eq!(ast.get_line(1).unwrap().borrow().kind, Kind::NormalText);
             assert_eq!(
-                ast.get_line(1).unwrap().buff,
+                ast.get_line(1).unwrap().borrow().buff,
                 vec![
                     Token::new(
                         cnt.trim().trim_end_matches("<br>").to_string(),
@@ -1137,7 +1158,7 @@ _____________
                     ),
                     Token::new("<br>".to_string(), TokenKind::LineBreak)
                 ]
-            )
+            );
         }
     }
 
@@ -1154,14 +1175,14 @@ _____________
         let ast = create_ast(&s);
 
         assert_eq!(ast.count_lines(), 1);
-        assert_eq!(ast.get_line(1).unwrap().kind, Kind::Quote);
+        assert_eq!(ast.get_line(1).unwrap().borrow().kind, Kind::Quote);
         assert_eq!(
-            ast.get_line(1).unwrap().buff,
+            ast.get_line(1).unwrap().borrow().buff,
             vec![
                 Token::new(mark.to_string(), TokenKind::QuoteMark),
                 Token::new(content.to_string(), TokenKind::Text)
             ]
-        )
+        );
     }
 
     #[test]
@@ -1177,14 +1198,14 @@ _____________
         let ast = create_ast(&s);
 
         assert_eq!(ast.count_lines(), 1);
-        assert_eq!(ast.get_line(1).unwrap().kind, Kind::DisorderedList);
+        assert_eq!(ast.get_line(1).unwrap().borrow().kind, Kind::DisorderedList);
         assert_eq!(
-            ast.get_line(1).unwrap().buff,
+            ast.get_line(1).unwrap().borrow().buff,
             vec![
                 Token::new(mark.to_string(), TokenKind::DisorderListMark),
                 Token::new(content.to_string(), TokenKind::Text,)
             ]
-        )
+        );
     }
 
     #[test]
@@ -1200,14 +1221,14 @@ _____________
             let ast = create_ast(&s);
 
             assert_eq!(ast.count_lines(), 1);
-            assert_eq!(ast.get_line(1).unwrap().kind, Kind::SortedList);
+            assert_eq!(ast.get_line(1).unwrap().borrow().kind, Kind::SortedList);
             assert_eq!(
-                ast.get_line(1).unwrap().buff,
+                ast.get_line(1).unwrap().borrow().buff,
                 vec![
                     Token::new(mark.to_string(), TokenKind::SortedListMark),
                     Token::new(content.to_string(), TokenKind::Text,)
                 ]
-            )
+            );
         }
     }
 
@@ -1226,11 +1247,11 @@ _____________
             let ast = create_ast(cnt);
 
             assert_eq!(ast.count_lines(), 1);
-            assert_eq!(ast.get_line(1).unwrap().kind, Kind::Blank);
+            assert_eq!(ast.get_line(1).unwrap().borrow().kind, Kind::Blank);
             assert_eq!(
-                ast.get_line(1).unwrap().buff,
+                ast.get_line(1).unwrap().borrow().buff,
                 vec![Token::new("".to_string(), TokenKind::BlankLine)]
-            )
+            );
         }
     }
 
@@ -1254,19 +1275,37 @@ _____________
                 let ast = create_ast(&s);
 
                 assert_eq!(ast.count_lines(), 1);
-                assert_eq!(ast.get_line(1).unwrap().kind, Kind::NormalText);
+                assert_eq!(ast.get_line(1).unwrap().borrow().kind, Kind::NormalText);
                 if cnt.is_empty() {
                     // token 0
-                    assert_eq!(ast.get_line(1).unwrap().buff[0].kind, TokenKind::Image);
-                    assert_eq!(ast.get_line(1).unwrap().buff[0].value, pic.to_string());
+                    assert_eq!(
+                        ast.get_line(1).unwrap().borrow().buff[0].kind,
+                        TokenKind::Image
+                    );
+                    assert_eq!(
+                        ast.get_line(1).unwrap().borrow().buff[0].value,
+                        pic.to_string()
+                    );
                 } else {
                     // token 0
-                    assert_eq!(ast.get_line(1).unwrap().buff[0].kind, TokenKind::Text);
-                    assert_eq!(ast.get_line(1).unwrap().buff[0].value, cnt.to_string());
+                    assert_eq!(
+                        ast.get_line(1).unwrap().borrow().buff[0].kind,
+                        TokenKind::Text
+                    );
+                    assert_eq!(
+                        ast.get_line(1).unwrap().borrow().buff[0].value,
+                        cnt.to_string()
+                    );
 
                     // token 1
-                    assert_eq!(ast.get_line(1).unwrap().buff[1].kind, TokenKind::Image);
-                    assert_eq!(ast.get_line(1).unwrap().buff[1].value, pic.to_string());
+                    assert_eq!(
+                        ast.get_line(1).unwrap().borrow().buff[1].kind,
+                        TokenKind::Image
+                    );
+                    assert_eq!(
+                        ast.get_line(1).unwrap().borrow().buff[1].value,
+                        pic.to_string()
+                    );
                 }
             }
         }
@@ -1290,19 +1329,37 @@ _____________
                 let ast = create_ast(&s);
 
                 assert_eq!(ast.count_lines(), 1);
-                assert_eq!(ast.get_line(1).unwrap().kind, Kind::NormalText);
+                assert_eq!(ast.get_line(1).unwrap().borrow().kind, Kind::NormalText);
                 if cnt.is_empty() {
                     // token 0
-                    assert_eq!(ast.get_line(1).unwrap().buff[0].kind, TokenKind::Url);
-                    assert_eq!(ast.get_line(1).unwrap().buff[0].value, url.to_string());
+                    assert_eq!(
+                        ast.get_line(1).unwrap().borrow().buff[0].kind,
+                        TokenKind::Url
+                    );
+                    assert_eq!(
+                        ast.get_line(1).unwrap().borrow().buff[0].value,
+                        url.to_string()
+                    );
                 } else {
                     // token 0
-                    assert_eq!(ast.get_line(1).unwrap().buff[0].kind, TokenKind::Text);
-                    assert_eq!(ast.get_line(1).unwrap().buff[0].value, cnt.to_string());
+                    assert_eq!(
+                        ast.get_line(1).unwrap().borrow().buff[0].kind,
+                        TokenKind::Text
+                    );
+                    assert_eq!(
+                        ast.get_line(1).unwrap().borrow().buff[0].value,
+                        cnt.to_string()
+                    );
 
                     // token 1
-                    assert_eq!(ast.get_line(1).unwrap().buff[1].kind, TokenKind::Url);
-                    assert_eq!(ast.get_line(1).unwrap().buff[1].value, url.to_string());
+                    assert_eq!(
+                        ast.get_line(1).unwrap().borrow().buff[1].kind,
+                        TokenKind::Url
+                    );
+                    assert_eq!(
+                        ast.get_line(1).unwrap().borrow().buff[1].value,
+                        url.to_string()
+                    );
                 }
             }
         }
@@ -1316,11 +1373,11 @@ _____________
         ast.parse_string(md).unwrap();
 
         assert_eq!(ast.count_lines(), md.lines().count());
-        assert_eq!(ast.get_line(1).unwrap().kind, Kind::CodeMark);
+        assert_eq!(ast.get_line(1).unwrap().borrow().kind, Kind::CodeMark);
         assert_eq!(
-            ast.get_line(1).unwrap().buff,
+            ast.get_line(1).unwrap().borrow().buff,
             vec![Token::new(md.trim_end().to_string(), TokenKind::CodeMark)]
-        )
+        );
     }
 
     #[test]
@@ -1341,18 +1398,18 @@ _____________
         assert_eq!(ast.count_lines(), md.lines().count());
         assert_eq!(ast.blocks.len(), 8);
 
-        assert_eq!(ast.blocks[2].kind, Kind::Code);
-        assert_eq!(ast.blocks[2].indices.len(), 2);
+        assert_eq!(ast.blocks[2].kind(), Kind::Code);
+        assert_eq!(ast.blocks[2].count(), 2);
 
-        assert_eq!(ast.blocks[7].kind, Kind::NormalText);
-        assert_eq!(ast.blocks[7].indices.len(), 1);
+        assert_eq!(ast.blocks[7].kind(), Kind::NormalText);
+        assert_eq!(ast.blocks[7].count(), 1);
 
         ast.blocks()
             .iter()
-            .filter(|b| b.kind == Kind::Code)
+            .filter(|b| b.kind() == Kind::Code)
             .for_each(|b| {
-                assert_eq!(ast.get_pre_block(b).unwrap().kind, Kind::CodeMark);
-                assert_eq!(ast.get_next_block(b).unwrap().kind, Kind::CodeMark);
+                assert_eq!(ast.get_pre_block(b).unwrap().kind(), Kind::CodeMark);
+                assert_eq!(ast.get_next_block(b).unwrap().kind(), Kind::CodeMark);
             })
     }
 }

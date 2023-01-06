@@ -28,7 +28,7 @@ pub trait HtmlGenerate {
 pub struct Ast {
     lines: Vec<SharedLine>,
     blocks: Vec<Block>,
-    defer_queue: Vec<SharedLine>, // usize is index to Line
+    defer_queue: Vec<SharedLine>,
     enabled_defer: bool,
 }
 
@@ -226,7 +226,7 @@ impl Debug for Ast {
 // Block is a group of multiple lines.
 #[derive(Debug)]
 struct Block {
-    indices: Vec<SharedLine>, // it stores the index of 'Line' struct in 'ast.doc'
+    indices: Vec<SharedLine>,
     kind: Kind,
     seq: usize,
 }
@@ -373,12 +373,15 @@ pub enum TokenKind {
     DividingMark,     // ---, ***, ___
     QuoteMark,        // >
     BoldMark,         // ** **
+    ItalicMark,       // * *
+    ItalicBoldMark,   // *** ***
     CodeMark,         // ```
     BlankLine,        // \n
     LineBreak,        // <br>, double whitespace
     Image,            // ![]()
     Url,              // []()
-    Text,             //
+    Text,
+    StarMark,
 }
 
 impl Token {
@@ -473,8 +476,8 @@ enum State {
 #[derive(PartialEq, Clone, Copy)]
 enum TextState {
     Normal,
-    // usize is start position in line
-    Bold(usize),
+    // means *, usize is start position in line
+    Star(usize),
     // means !, usize is the index of '!'
     PicBegin(usize),
     // means [, (usize, usize) is the index of ('!', '[')
@@ -748,7 +751,8 @@ impl<'lex> Lexer<'lex> {
         let mut buff: Vec<Token> = Vec::new();
         let mut state = TextState::Normal;
 
-        for (i, ch) in content.chars().enumerate() {
+        let mut content_iter = content.chars().enumerate().peekable();
+        while let Some((i, ch)) = content_iter.next() {
             match (state, ch) {
                 (_, '\n') => {
                     // end of the line
@@ -762,7 +766,27 @@ impl<'lex> Lexer<'lex> {
                     break;
                 }
                 (TextState::Normal, _) => match ch {
-                    '*' => state = TextState::Bold(i),
+                    '*' => {
+                        // the part of normal text before '*' mark.
+                        let s = utf8_slice::slice(content, last, i);
+                        if !s.is_empty() {
+                            buff.push(Token::new(s.to_string(), TokenKind::Text));
+                        }
+
+                        last = i;
+
+                        if let Some((_, n)) = content_iter.peek() {
+                            if *n == '*' {
+                                state = TextState::Star(i);
+                            } else {
+                                // '*' mark
+                                let s = utf8_slice::slice(content, i, i + 1);
+                                buff.push(Token::new(s.to_string(), TokenKind::StarMark));
+
+                                last = i + 1;
+                            }
+                        }
+                    }
                     '!' => state = TextState::PicBegin(i), // begin of picture
                     '[' => state = TextState::UrlTitleBegin(i), // begin of url
                     _ => (),
@@ -812,44 +836,56 @@ impl<'lex> Lexer<'lex> {
                         state = TextState::Normal;
                     }
                 }
-                (TextState::Bold(p), _) => match ch {
-                    // so it's '**'.
-                    '*' => {
-                        // the part of normal text before '**' mark.
-                        let s = utf8_slice::slice(content, last, p);
-                        if !s.is_empty() {
-                            buff.push(Token::new(s.to_string(), TokenKind::Text));
-                        }
-                        // '**' mark.
-                        buff.push(Token::new("**".to_string(), TokenKind::BoldMark));
+                (TextState::Star(p), _) => {
+                    if let Some((_, n)) = content_iter.peek() {
+                        if *n != '*' {
+                            let s = utf8_slice::slice(content, p, i + 1);
+                            buff.push(Token::new(s.to_string(), TokenKind::StarMark));
 
-                        last = i + 1;
-                        state = TextState::Normal;
+                            last = i + 1;
+                            state = TextState::Normal;
+                        }
                     }
-                    _ => state = TextState::Normal,
-                },
+                }
             }
         }
-        Self::tidy_inside_tokens(&mut buff);
+        Self::tidy_inside(&mut buff);
         buff
     }
 
-    fn tidy_inside_tokens(buff: &mut [Token]) {
-        let mut in_bold = false;
-        let mut begin = 0;
+    fn tidy_inside(buff: &mut [Token]) {
+        let mut buff_iter = buff
+            .iter_mut()
+            .filter(|t| t.kind() == TokenKind::StarMark)
+            .peekable();
+        while let Some(t) = buff_iter.next() {
+            match t.value() {
+                "*" | "**" | "***" => {
+                    if let Some(next) = buff_iter.peek() {
+                        if next.value() == t.value() {
+                            // update current token to correct kind
+                            t.kind = match t.value() {
+                                "*" => TokenKind::ItalicMark,
+                                "**" => TokenKind::BoldMark,
+                                "***" => TokenKind::ItalicBoldMark,
+                                _ => TokenKind::StarMark,
+                            };
+                            // update next token to correct kind
+                            // Note: here consumed the next element(a token)
+                            match buff_iter.next() {
+                                None => break,
+                                Some(n) => n.kind = t.kind(),
+                            }
+                            continue;
+                        }
+                    }
 
-        for (i, t) in buff.iter().enumerate() {
-            if t.kind == TokenKind::BoldMark {
-                if !in_bold {
-                    begin = i;
+                    t.kind = TokenKind::Text;
                 }
-                in_bold = !in_bold;
+                _ => {
+                    t.kind = TokenKind::Text;
+                }
             }
-        }
-        // the bold not be closed, so change kind of the bold mark to text.
-        if in_bold {
-            let t = &mut buff[begin];
-            t.kind = TokenKind::Text;
         }
     }
 
@@ -1083,7 +1119,6 @@ _____________
                 "#这不是标题",
                 "##这也不是标题",
                 ">这不是引用",
-                "*这不是列表",
                 "1.这也不是列表",
             ];
 
@@ -1109,8 +1144,8 @@ _____________
                 assert_eq!(
                     ast.get_line(1).unwrap().borrow().buff,
                     vec![
-                        Token::new("**".to_string(), TokenKind::Text),
-                        Token::new("*xxxx".to_string(), TokenKind::Text)
+                        Token::new("***".to_string(), TokenKind::Text),
+                        Token::new("xxxx".to_string(), TokenKind::Text)
                     ]
                 );
             }
@@ -1132,6 +1167,36 @@ _____________
                     ]
                 );
             }
+        }
+        {
+            let cnt = "*1*";
+            let ast = create_ast(cnt);
+
+            assert_eq!(ast.count_lines(), 1);
+            assert_eq!(ast.get_line(1).unwrap().borrow().kind, Kind::NormalText);
+            assert_eq!(
+                ast.get_line(1).unwrap().borrow().buff,
+                vec![
+                    Token::new("*".to_string(), TokenKind::ItalicMark),
+                    Token::new("1".to_string(), TokenKind::Text,),
+                    Token::new("*".to_string(), TokenKind::ItalicMark),
+                ]
+            );
+        }
+        {
+            let cnt = "***1***";
+            let ast = create_ast(cnt);
+
+            assert_eq!(ast.count_lines(), 1);
+            assert_eq!(ast.get_line(1).unwrap().borrow().kind, Kind::NormalText);
+            assert_eq!(
+                ast.get_line(1).unwrap().borrow().buff,
+                vec![
+                    Token::new("***".to_string(), TokenKind::ItalicBoldMark),
+                    Token::new("1".to_string(), TokenKind::Text,),
+                    Token::new("***".to_string(), TokenKind::ItalicBoldMark),
+                ]
+            );
         }
     }
 

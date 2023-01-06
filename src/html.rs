@@ -130,17 +130,33 @@ impl<'generator> Generator<'generator> {
 
     fn gen_line(&self, tokens: &Vec<Token>) -> Result<String, Box<dyn Error>> {
         let mut text = String::new();
-        let mut in_bold = false;
+        let mut opened = false;
         for t in tokens {
             match t.kind() {
                 TokenKind::Text => text.push_str(t.value()),
                 TokenKind::BoldMark => {
-                    if in_bold {
+                    if opened {
                         text.push_str("</strong>");
                     } else {
                         text.push_str("<strong>");
                     }
-                    in_bold = !in_bold;
+                    opened = !opened;
+                }
+                TokenKind::ItalicMark => {
+                    if opened {
+                        text.push_str("</em>")
+                    } else {
+                        text.push_str("<em>")
+                    }
+                    opened = !opened;
+                }
+                TokenKind::ItalicBoldMark => {
+                    if opened {
+                        text.push_str("</em></strong>")
+                    } else {
+                        text.push_str("<strong><em>")
+                    }
+                    opened = !opened;
                 }
                 TokenKind::Url => {
                     if let (Some(show_name), Some(location)) = (t.get_show_name(), t.get_location())

@@ -223,7 +223,7 @@ impl Block {
     fn new(l: SharedLine, kind: Kind) -> Self {
         Block {
             indices: vec![l],
-            kind: kind,
+            kind,
             seq: 0,
         }
     }

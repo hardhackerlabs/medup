@@ -97,20 +97,16 @@ pub struct Generator<'generator> {
     tt: TinyTemplate<'generator>,
 }
 
-impl<'generator> Default for Generator<'generator> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl<'generator> Generator<'generator> {
-    pub fn new() -> Self {
-        Generator {
+    pub fn new() -> Result<Self, Box<dyn Error>> {
+        let mut g = Generator {
             tt: TinyTemplate::new(),
-        }
+        };
+        g.init()?;
+        Ok(g)
     }
 
-    pub fn init(&mut self) -> Result<(), Box<dyn Error>> {
+    fn init(&mut self) -> Result<(), Box<dyn Error>> {
         self.tt.add_template(URL_TEMPLATE_NAME, URL_TEMPLATE)?;
         self.tt
             .add_template(SORTED_LIST_TEMPLATE_NAME, SORTED_LIST_TEMPLATE)?;

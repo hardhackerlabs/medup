@@ -135,27 +135,19 @@ impl<'generator> Generator<'generator> {
             match t.kind() {
                 TokenKind::Text => text.push_str(t.value()),
                 TokenKind::BoldMark => {
-                    if opened {
-                        text.push_str("</strong>");
-                    } else {
-                        text.push_str("<strong>");
-                    }
+                    text.push_str(if opened { "</strong>" } else { "<strong>" });
                     opened = !opened;
                 }
                 TokenKind::ItalicMark => {
-                    if opened {
-                        text.push_str("</em>")
-                    } else {
-                        text.push_str("<em>")
-                    }
+                    text.push_str(if opened { "</em>" } else { "<em>" });
                     opened = !opened;
                 }
                 TokenKind::ItalicBoldMark => {
-                    if opened {
-                        text.push_str("</em></strong>")
+                    text.push_str(if opened {
+                        "</em></strong>"
                     } else {
-                        text.push_str("<strong><em>")
-                    }
+                        "<strong><em>"
+                    });
                     opened = !opened;
                 }
                 TokenKind::Url => {
@@ -232,10 +224,7 @@ impl<'generator> HtmlGenerate for Generator<'generator> {
     }
 
     fn gen_blank(&self, ls: &[SharedLine]) -> Result<String, Box<dyn Error>> {
-        let mut s = String::new();
-        for _ in ls {
-            s.push_str("<p></p>");
-        }
+        let s: String = ls.iter().map(|_| "<p></p>").collect();
         Ok(s)
     }
 
@@ -284,19 +273,11 @@ impl<'generator> HtmlGenerate for Generator<'generator> {
         code_mark_line: &SharedLine,
         ls: &[SharedLine],
     ) -> Result<String, Box<dyn Error>> {
-        let mut text = String::new();
-        for l in ls {
-            let l = l.borrow();
-            text.push_str(l.text());
-        }
+        let text: String = ls.iter().map(|l| l.borrow().text().to_string()).collect(); // TODO: optimize to_string()
         let s = self.tt.render(
             CODE_TEMPLATE_NAME,
             &CodeBlockContext {
-                name: if let Some(name) = code_mark_line.borrow().get(1) {
-                    name.value()
-                } else {
-                    ""
-                },
+                name: code_mark_line.borrow().get(1).map_or("", |t| t.value()),
                 text: &text,
             },
         )?;

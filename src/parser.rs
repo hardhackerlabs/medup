@@ -447,10 +447,9 @@ impl Token {
         if self.kind != TokenKind::Url && self.kind != TokenKind::Image {
             return None;
         }
-        if let Some(kvs) = self.details.as_ref() {
-            return kvs.get("show_name").map(|x| &**x);
-        }
-        None
+        self.details
+            .as_ref()
+            .and_then(|x| x.get("show_name").map(|x| &**x))
     }
 
     // Get location of the URL / Image
@@ -458,10 +457,9 @@ impl Token {
         if self.kind != TokenKind::Url && self.kind != TokenKind::Image {
             return None;
         }
-        if let Some(kvs) = self.details.as_ref() {
-            return kvs.get("location").map(|x| &**x);
-        }
-        None
+        self.details
+            .as_ref()
+            .and_then(|x| x.get("location").map(|x| &**x))
     }
 }
 
@@ -829,8 +827,7 @@ impl<'lex> Lexer<'lex> {
                 (TextState::LocationBegin(p1, p2, p3, p4), _) => {
                     if ch == ')' {
                         // when found ')', this means that we found a valid picture or url.
-
-                        let begin = if let Some(p1) = p1 { p1 } else { p2 };
+                        let begin = p1.unwrap_or(p2);
                         // the part of normal text before '![]()' or '[]()' mark.
                         let s = utf8_slice::slice(content, last, begin);
                         if !s.is_empty() {

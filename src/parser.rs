@@ -129,7 +129,7 @@ impl Ast {
         self.blocks().get(b.seq - 1)
     }
 
-    fn get_next_block(&self, b: &Block) -> Option<&Block> {
+    fn _get_next_block(&self, b: &Block) -> Option<&Block> {
         self.blocks().get(b.seq + 1)
     }
 
@@ -165,6 +165,7 @@ impl Ast {
         for r in self.lines.iter() {
             let l = r.borrow();
             match l.kind {
+                Kind::Meta => {}
                 Kind::Blank
                 | Kind::DisorderedList
                 | Kind::SortedList
@@ -176,24 +177,9 @@ impl Ast {
                             continue;
                         }
                     }
-                    Ast::insert_block(
-                        &mut self.blocks,
-                        Block {
-                            indices: vec![Rc::clone(r)],
-                            kind: l.kind,
-                            seq: 0,
-                        },
-                    )
+                    Ast::insert_block(&mut self.blocks, Block::new(Rc::clone(r), l.kind))
                 }
-                Kind::Meta => {}
-                _ => Ast::insert_block(
-                    &mut self.blocks,
-                    Block {
-                        indices: vec![Rc::clone(r)],
-                        kind: l.kind,
-                        seq: 0,
-                    },
-                ),
+                _ => Ast::insert_block(&mut self.blocks, Block::new(Rc::clone(r), l.kind)),
             }
         }
     }
@@ -234,12 +220,19 @@ struct Block {
 }
 
 impl Block {
+    fn new(l: SharedLine, kind: Kind) -> Self {
+        Block {
+            indices: vec![l],
+            kind: kind,
+            seq: 0,
+        }
+    }
     fn lines(&self) -> &Vec<SharedLine> {
         &self.indices
     }
 
     fn first(&self) -> &SharedLine {
-        self.indices.first().unwrap()
+        &self.indices[0]
     }
 
     fn kind(&self) -> Kind {
@@ -250,7 +243,7 @@ impl Block {
         self.indices.push(l)
     }
 
-    fn count(&self) -> usize {
+    fn _count(&self) -> usize {
         self.indices.len()
     }
 }
@@ -281,7 +274,7 @@ enum Kind {
 impl Line {
     // Get the first token in the Line
     pub fn first_token(&self) -> &Token {
-        self.buff.get(0).unwrap()
+        &self.buff[0]
     }
 
     // Get the Nth Token in the Line
@@ -341,7 +334,7 @@ impl Line {
         }
         lx.finish();
 
-        let calc_kind = |kind| match kind {
+        self.kind = match self.first_token().kind() {
             TokenKind::BlankLine => Kind::Blank,
             TokenKind::TitleMark => Kind::Title,
             TokenKind::DisorderListMark => Kind::DisorderedList,
@@ -351,8 +344,6 @@ impl Line {
             TokenKind::CodeMark => Kind::CodeMark,
             _ => Kind::NormalText,
         };
-
-        self.kind = calc_kind(self.first_token().kind());
     }
 }
 
@@ -381,6 +372,7 @@ pub enum TokenKind {
     Url,              // []()
     Text,
     StarMark,
+    Unknown,
 }
 
 impl Token {
@@ -914,18 +906,7 @@ impl<'lex> Lexer<'lex> {
 
     // find 'line break', double spaces or <br> at the end of the line
     fn has_line_break(s: &str) -> bool {
-        let mut ws_count = 0;
-        for ch in s.chars().rev() {
-            if ch == '\n' {
-                continue;
-            }
-            if ch.is_whitespace() {
-                ws_count += 1;
-                continue;
-            }
-            break;
-        }
-        if ws_count >= 2 {
+        if s.ends_with("  \n") {
             true
         } else {
             s.trim_end().ends_with("<br>")
@@ -1487,17 +1468,17 @@ _____________
         assert_eq!(ast.blocks.len(), 8);
 
         assert_eq!(ast.blocks[2].kind(), Kind::Code);
-        assert_eq!(ast.blocks[2].count(), 2);
+        assert_eq!(ast.blocks[2]._count(), 2);
 
         assert_eq!(ast.blocks[7].kind(), Kind::NormalText);
-        assert_eq!(ast.blocks[7].count(), 1);
+        assert_eq!(ast.blocks[7]._count(), 1);
 
         ast.blocks()
             .iter()
             .filter(|b| b.kind() == Kind::Code)
             .for_each(|b| {
                 assert_eq!(ast.get_pre_block(b).unwrap().kind(), Kind::CodeMark);
-                assert_eq!(ast.get_next_block(b).unwrap().kind(), Kind::CodeMark);
+                assert_eq!(ast._get_next_block(b).unwrap().kind(), Kind::CodeMark);
             })
     }
 }

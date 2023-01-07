@@ -77,7 +77,16 @@ impl Ast {
 
     // Iterate through each block of the Ast and process the block into a 'html' string
     pub fn to_html(&self, html: &impl HtmlGenerate) -> Result<String, Box<dyn Error>> {
-        let mut ss: Vec<String> = Vec::new();
+        let mut ss: Vec<String> = vec![String::from(
+            "<!doctype html>
+<html>
+<head>
+<meta charset='UTF-8'><meta name='viewport' content='width=device-width initial-scale=1'>
+<title></title>
+</head>
+<body>",
+        )];
+
         for b in self.blocks() {
             let s = match b.kind() {
                 Kind::Title => Some(html.gen_title(b.first().ok_or("Invalid title block")?)?),
@@ -106,6 +115,7 @@ impl Ast {
             }
         }
 
+        ss.push("</body></html>".to_string());
         Ok(ss.join("\n"))
     }
 
@@ -875,8 +885,8 @@ impl<'lex> Lexer<'lex> {
                 pre = t.value().len();
             }
         });
-        splits_at.iter().for_each(|(ix, at)| {
-            let off = buff[*ix].split_off(*at);
+        splits_at.into_iter().for_each(|(ix, at)| {
+            let off = buff[ix].split_off(at);
             buff.insert(ix + 1, off);
         });
 

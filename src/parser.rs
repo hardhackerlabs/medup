@@ -10,18 +10,14 @@ use std::{fmt, io};
 pub type SharedLine = Rc<RefCell<Line>>;
 
 pub trait HtmlGenerate {
-    fn gen_title(&self, l: &SharedLine) -> Result<String, Box<dyn Error>>;
-    fn gen_dividling(&self, l: &SharedLine) -> Result<String, Box<dyn Error>>;
-    fn gen_normal(&self, l: &SharedLine) -> Result<String, Box<dyn Error>>;
-    fn gen_blank(&self, ls: &[SharedLine]) -> Result<String, Box<dyn Error>>;
-    fn gen_sorted_list(&self, ls: &[SharedLine]) -> Result<String, Box<dyn Error>>;
-    fn gen_disordered_list(&self, ls: &[SharedLine]) -> Result<String, Box<dyn Error>>;
-    fn gen_quote(&self, ls: &[SharedLine]) -> Result<String, Box<dyn Error>>;
-    fn gen_code(
-        &self,
-        code_mark_line: &SharedLine,
-        ls: &[SharedLine],
-    ) -> Result<String, Box<dyn Error>>;
+    fn gen_title(&self, l: &SharedLine) -> String;
+    fn gen_dividling(&self, l: &SharedLine) -> String;
+    fn gen_normal(&self, l: &SharedLine) -> String;
+    fn gen_blank(&self, ls: &[SharedLine]) -> String;
+    fn gen_sorted_list(&self, ls: &[SharedLine]) -> String;
+    fn gen_disordered_list(&self, ls: &[SharedLine]) -> String;
+    fn gen_quote(&self, ls: &[SharedLine]) -> String;
+    fn gen_code(&self, code_mark_line: &SharedLine, ls: &[SharedLine]) -> String;
 }
 
 // Ast represents the abstract syntax tree of the markdown file, it structurally represents the entire file.
@@ -89,25 +85,21 @@ impl Ast {
 
         for b in self.blocks() {
             let s = match b.kind() {
-                Kind::Title => Some(html.gen_title(b.first().ok_or("Invalid title block")?)?),
-                Kind::NormalText => {
-                    Some(html.gen_normal(b.first().ok_or("Invalid normal text block")?)?)
-                }
-                Kind::DividingLine => {
-                    Some(html.gen_dividling(b.first().ok_or("Invalid dividling line block")?)?)
-                }
+                Kind::Title => Some(html.gen_title(b.first())),
+                Kind::NormalText => Some(html.gen_normal(b.first())),
+                Kind::DividingLine => Some(html.gen_dividling(b.first())),
                 Kind::CodeMark => None,
                 Kind::Code => {
                     let pre = self
                         .get_pre_block(b)
                         .ok_or("not found the previous code mark block of code")?;
-                    let code_mark_line = pre.first().ok_or("Invalid code mark block")?;
-                    Some(html.gen_code(code_mark_line, b.lines())?)
+                    let code_mark_line = pre.first();
+                    Some(html.gen_code(code_mark_line, b.lines()))
                 }
-                Kind::DisorderedList => Some(html.gen_disordered_list(b.lines())?),
-                Kind::Blank => Some(html.gen_blank(b.lines())?),
-                Kind::Quote => Some(html.gen_quote(b.lines())?),
-                Kind::SortedList => Some(html.gen_sorted_list(b.lines())?),
+                Kind::DisorderedList => Some(html.gen_disordered_list(b.lines())),
+                Kind::Blank => Some(html.gen_blank(b.lines())),
+                Kind::Quote => Some(html.gen_quote(b.lines())),
+                Kind::SortedList => Some(html.gen_sorted_list(b.lines())),
                 Kind::Meta => None,
             };
             if let Some(s) = s {
@@ -223,7 +215,7 @@ impl Debug for Ast {
         let mut debug = String::new();
         for line in self.lines.iter() {
             debug.push_str(format!("[{}, {:?}]: ", line.borrow().num, line.borrow().kind).as_str());
-            for t in line.borrow().all_tokens() {
+            for t in line.borrow().all() {
                 let s = format!("{:?} ", t);
                 debug.push_str(&s);
             }
@@ -246,8 +238,8 @@ impl Block {
         &self.indices
     }
 
-    fn first(&self) -> Option<&SharedLine> {
-        self.indices.first()
+    fn first(&self) -> &SharedLine {
+        self.indices.first().unwrap()
     }
 
     fn kind(&self) -> Kind {
@@ -288,17 +280,17 @@ enum Kind {
 
 impl Line {
     // Get the first token in the Line
-    pub fn first_token(&self) -> Option<&Token> {
-        self.buff.get(0)
+    pub fn first_token(&self) -> &Token {
+        self.buff.get(0).unwrap()
     }
 
     // Get the Nth Token in the Line
-    pub fn get(&self, index: usize) -> Option<&Token> {
-        self.buff.get(index)
+    pub fn get(&self, at: usize) -> Option<&Token> {
+        self.buff.get(at)
     }
 
     // Get all tokens in the Line
-    pub fn all_tokens(&self) -> &Vec<Token> {
+    pub fn all(&self) -> &Vec<Token> {
         &self.buff
     }
 
@@ -360,10 +352,7 @@ impl Line {
             _ => Kind::NormalText,
         };
 
-        self.kind = match self.first_token() {
-            None => Kind::NormalText,
-            Some(t) => calc_kind(t.kind),
-        }
+        self.kind = calc_kind(self.first_token().kind());
     }
 }
 

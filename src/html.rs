@@ -128,7 +128,7 @@ impl<'generator> Generator<'generator> {
         Ok(())
     }
 
-    fn gen_line(&self, tokens: &Vec<Token>) -> Result<String, Box<dyn Error>> {
+    fn gen_line(&self, tokens: &Vec<Token>) -> String {
         let mut text = String::new();
         let mut opened = false;
         for t in tokens {
@@ -153,49 +153,46 @@ impl<'generator> Generator<'generator> {
                 TokenKind::Url => {
                     if let (Some(show_name), Some(location)) = (t.get_show_name(), t.get_location())
                     {
-                        let s = self.gen_url(show_name, location)?;
+                        let s = self.gen_url(show_name, location);
                         text.push_str(&s);
                     }
                 }
                 TokenKind::Image => {
                     if let (Some(alt), Some(location)) = (t.get_show_name(), t.get_location()) {
-                        let s = self.gen_image(alt, location)?;
+                        let s = self.gen_image(alt, location);
                         text.push_str(&s);
                     }
                 }
                 _ => (),
             }
         }
-        Ok(text)
+        text
     }
 
-    fn gen_url(&self, show_name: &str, location: &str) -> Result<String, Box<dyn Error>> {
-        let s = self.tt.render(
-            URL_TEMPLATE_NAME,
-            &UrlContext {
-                show_name,
-                location,
-            },
-        )?;
-        Ok(s)
+    fn gen_url(&self, show_name: &str, location: &str) -> String {
+        self.tt
+            .render(
+                URL_TEMPLATE_NAME,
+                &UrlContext {
+                    show_name,
+                    location,
+                },
+            )
+            .unwrap()
     }
 
-    fn gen_image(&self, alt: &str, location: &str) -> Result<String, Box<dyn Error>> {
-        let s = self
-            .tt
-            .render(IMG_TEMPLATE_NAME, &ImageContext { alt, location })?;
-        Ok(s)
+    fn gen_image(&self, alt: &str, location: &str) -> String {
+        self.tt
+            .render(IMG_TEMPLATE_NAME, &ImageContext { alt, location })
+            .unwrap()
     }
 }
 
 impl<'generator> HtmlGenerate for Generator<'generator> {
-    fn gen_title(&self, l: &SharedLine) -> Result<String, Box<dyn Error>> {
+    fn gen_title(&self, l: &SharedLine) -> String {
         let l = l.borrow();
-        let first = l
-            .first_token()
-            .ok_or("not found the first mark token in a title line")?;
-        let level = first.len();
-        let value = self.gen_line(l.all_tokens())?;
+        let level = l.first_token().len();
+        let value = self.gen_line(l.all());
 
         let ctx = TitleContext {
             is_l1: level == 1,
@@ -205,82 +202,61 @@ impl<'generator> HtmlGenerate for Generator<'generator> {
             text: value,
         };
 
-        let s = self.tt.render(TITLE_TEMPLATE_NAME, &ctx)?;
-        Ok(s)
+        self.tt.render(TITLE_TEMPLATE_NAME, &ctx).unwrap()
     }
 
-    fn gen_dividling(&self, _l: &SharedLine) -> Result<String, Box<dyn Error>> {
-        Ok("<hr>".to_string())
+    fn gen_dividling(&self, _l: &SharedLine) -> String {
+        "<hr>".to_string()
     }
 
-    fn gen_normal(&self, l: &SharedLine) -> Result<String, Box<dyn Error>> {
-        let l = l.borrow();
-        let text = self.gen_line(l.all_tokens())?;
-        let s = self.tt.render(
-            TEXT_PARAGRAPH_TEMPLATE_NAME,
-            &TextParagraphContext { text: &text },
-        )?;
-        Ok(s)
+    fn gen_normal(&self, l: &SharedLine) -> String {
+        let text = self.gen_line(l.borrow().all());
+        self.tt
+            .render(
+                TEXT_PARAGRAPH_TEMPLATE_NAME,
+                &TextParagraphContext { text: &text },
+            )
+            .unwrap()
     }
 
-    fn gen_blank(&self, ls: &[SharedLine]) -> Result<String, Box<dyn Error>> {
-        let s: String = ls.iter().map(|_| "<p></p>").collect();
-        Ok(s)
+    fn gen_blank(&self, ls: &[SharedLine]) -> String {
+        ls.iter().map(|_| "<p></p>").collect()
     }
 
-    fn gen_sorted_list(&self, ls: &[SharedLine]) -> Result<String, Box<dyn Error>> {
-        let mut list = Vec::new();
-        for l in ls {
-            let l = l.borrow();
-            let value = self.gen_line(l.all_tokens())?;
-            list.push(value);
-        }
-        let s = self
-            .tt
-            .render(SORTED_LIST_TEMPLATE_NAME, &SortedListContext { list })?;
-        Ok(s)
+    fn gen_sorted_list(&self, ls: &[SharedLine]) -> String {
+        let list: Vec<String> = ls.iter().map(|l| self.gen_line(l.borrow().all())).collect();
+        self.tt
+            .render(SORTED_LIST_TEMPLATE_NAME, &SortedListContext { list })
+            .unwrap()
     }
 
-    fn gen_disordered_list(&self, ls: &[SharedLine]) -> Result<String, Box<dyn Error>> {
-        let mut list = Vec::new();
-        for l in ls {
-            let l = l.borrow();
-            let value = self.gen_line(l.all_tokens())?;
-            list.push(value);
-        }
-        let s = self.tt.render(
-            DISORDERED_LIST_TEMPLATE_NAME,
-            &DisorderedListContext { list },
-        )?;
-        Ok(s)
+    fn gen_disordered_list(&self, ls: &[SharedLine]) -> String {
+        let list = ls.iter().map(|l| self.gen_line(l.borrow().all())).collect();
+        self.tt
+            .render(
+                DISORDERED_LIST_TEMPLATE_NAME,
+                &DisorderedListContext { list },
+            )
+            .unwrap()
     }
 
-    fn gen_quote(&self, ls: &[SharedLine]) -> Result<String, Box<dyn Error>> {
-        let mut lines = Vec::new();
-        for l in ls {
-            let l = l.borrow();
-            let value = self.gen_line(l.all_tokens())?;
-            lines.push(value);
-        }
-        let s = self
-            .tt
-            .render(QUOTE_TEMPLATE_NAME, &QuoteContext { lines })?;
-        Ok(s)
+    fn gen_quote(&self, ls: &[SharedLine]) -> String {
+        let lines: Vec<String> = ls.iter().map(|l| self.gen_line(l.borrow().all())).collect();
+        self.tt
+            .render(QUOTE_TEMPLATE_NAME, &QuoteContext { lines })
+            .unwrap()
     }
 
-    fn gen_code(
-        &self,
-        code_mark_line: &SharedLine,
-        ls: &[SharedLine],
-    ) -> Result<String, Box<dyn Error>> {
+    fn gen_code(&self, code_mark_line: &SharedLine, ls: &[SharedLine]) -> String {
         let text: String = ls.iter().map(|l| l.borrow().text().to_string()).collect(); // TODO: optimize to_string()
-        let s = self.tt.render(
-            CODE_TEMPLATE_NAME,
-            &CodeBlockContext {
-                name: code_mark_line.borrow().get(1).map_or("", |t| t.value()),
-                text: &text,
-            },
-        )?;
-        Ok(s)
+        self.tt
+            .render(
+                CODE_TEMPLATE_NAME,
+                &CodeBlockContext {
+                    name: code_mark_line.borrow().get(1).map_or("", |t| t.value()),
+                    text: &text,
+                },
+            )
+            .unwrap()
     }
 }

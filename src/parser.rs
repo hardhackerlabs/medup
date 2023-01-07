@@ -362,7 +362,7 @@ impl Line {
 pub struct Token {
     value: String,
     kind: TokenKind,
-    kvs: Option<HashMap<String, String>>,
+    details: Option<HashMap<String, String>>,
 }
 
 #[derive(Debug, PartialEq, Copy, Clone)]
@@ -389,12 +389,17 @@ impl Token {
         Token {
             value,
             kind,
-            kvs: None,
+            details: None,
         }
     }
 
+    fn split_off(&mut self, at: usize) -> Token {
+        let off = self.value.split_off(at);
+        Token::new(off, self.kind())
+    }
+
     fn insert(&mut self, k: &str, v: &str) {
-        self.kvs
+        self.details
             .get_or_insert(HashMap::new())
             .insert(k.to_string(), v.to_string());
     }
@@ -432,7 +437,7 @@ impl Token {
         if self.kind != TokenKind::Url && self.kind != TokenKind::Image {
             return None;
         }
-        if let Some(kvs) = self.kvs.as_ref() {
+        if let Some(kvs) = self.details.as_ref() {
             return kvs.get("show_name").map(|x| &**x);
         }
         None
@@ -443,7 +448,7 @@ impl Token {
         if self.kind != TokenKind::Url && self.kind != TokenKind::Image {
             return None;
         }
-        if let Some(kvs) = self.kvs.as_ref() {
+        if let Some(kvs) = self.details.as_ref() {
             return kvs.get("location").map(|x| &**x);
         }
         None
@@ -853,7 +858,28 @@ impl<'lex> Lexer<'lex> {
         buff
     }
 
-    fn tidy_inside(buff: &mut [Token]) {
+    // TODO: need to optimize
+    fn tidy_inside(buff: &mut Vec<Token>) {
+        let mut splits_at = vec![];
+        let mut pre = 0;
+        buff.iter().enumerate().for_each(|(ix, t)| {
+            if t.kind() != TokenKind::StarMark {
+                return;
+            }
+            let n = t.value().len() - pre;
+            if pre > 0 && n > 0 {
+                let l = splits_at.len();
+                splits_at.push((ix + l, pre));
+                pre = n;
+            } else {
+                pre = t.value().len();
+            }
+        });
+        splits_at.iter().for_each(|(ix, at)| {
+            let off = buff[*ix].split_off(*at);
+            buff.insert(ix + 1, off);
+        });
+
         let mut buff_iter = buff
             .iter_mut()
             .filter(|t| t.kind() == TokenKind::StarMark)
@@ -883,6 +909,7 @@ impl<'lex> Lexer<'lex> {
                     t.kind = TokenKind::Text;
                 }
                 _ => {
+                    // TODO:
                     t.kind = TokenKind::Text;
                 }
             }
@@ -1069,7 +1096,7 @@ _____________
             "[这是一个链接](https://example.com)".to_string(),
             TokenKind::Url,
         );
-        url.kvs = Some(kvs);
+        url.details = Some(kvs);
         assert_eq!(
             ast.get_line(1).unwrap().borrow().buff,
             vec![

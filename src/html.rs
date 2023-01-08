@@ -187,7 +187,7 @@ impl<'generator> Generator<'generator> {
 impl<'generator> HtmlGenerate for Generator<'generator> {
     fn gen_title(&self, l: &SharedLine) -> String {
         let l = l.borrow();
-        let level = l.first_token().len();
+        let level = l.get_mark().len();
         let value = self.gen_line(l.all());
 
         let ctx = TitleContext {

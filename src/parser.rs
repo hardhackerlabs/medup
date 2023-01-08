@@ -67,7 +67,7 @@ impl Ast {
         }
         self.defer_queue.iter().for_each(|l| l.borrow_mut().parse());
         self.defer_queue.clear();
-        self.build_blocks();
+        self.establish_blocks();
         Ok(())
     }
 
@@ -100,7 +100,7 @@ impl Ast {
                 Kind::Blank => Some(html.gen_blank(b.lines())),
                 Kind::Quote => Some(html.gen_quote(b.lines())),
                 Kind::SortedList => Some(html.gen_sorted_list(b.lines())),
-                Kind::Meta => None,
+                Kind::Meta | Kind::ListConcatenation => None,
             };
             if let Some(s) = s {
                 ss.push(s);
@@ -161,26 +161,59 @@ impl Ast {
         self.enabled_defer && s.trim() != "```"
     }
 
-    fn build_blocks(&mut self) {
-        for r in self.lines.iter() {
-            let l = r.borrow();
-            match l.kind {
+    fn establish_blocks(&mut self) {
+        let mut pre_line: Option<&SharedLine> = None;
+        let mut state: Option<Kind> = None;
+
+        let mut iter = self.lines.iter().peekable();
+        while let Some(lr) = iter.next() {
+            let l = lr.borrow();
+            match state.unwrap_or(l.kind) {
                 Kind::Meta => {}
-                Kind::Blank
-                | Kind::DisorderedList
-                | Kind::SortedList
-                | Kind::Quote
-                | Kind::Code => {
-                    if let Some(b) = self.blocks.last_mut() {
-                        if b.kind() == l.kind {
-                            b.push(Rc::clone(r));
-                            continue;
+
+                Kind::DisorderedList | Kind::SortedList => {
+                    if let Some(b) = self.blocks.last_mut().filter(|b| b.kind() == l.kind) {
+                        b.push(Rc::clone(lr));
+                    } else {
+                        Ast::insert_block(&mut self.blocks, Block::new(Rc::clone(lr), l.kind))
+                    }
+
+                    if let Some(next) = iter.peek() {
+                        let next = next.borrow();
+                        // TODO: concatenation
+                        if next.indents() - l.indents() == 1 {
+                            state = Some(Kind::ListConcatenation);
                         }
                     }
-                    Ast::insert_block(&mut self.blocks, Block::new(Rc::clone(r), l.kind))
                 }
-                _ => Ast::insert_block(&mut self.blocks, Block::new(Rc::clone(r), l.kind)),
+
+                Kind::ListConcatenation => {
+                    if let Some(pre) = pre_line {
+                        let mut pre = pre.borrow_mut();
+                        pre.concatenation.push(Rc::clone(lr));
+                    }
+
+                    if let Some(next) = iter.next() {
+                        let next = next.borrow();
+                        // TODO: concatenation
+                    }
+                    state = None;
+                }
+
+                Kind::Blank | Kind::Quote | Kind::Code => {
+                    if let Some(b) = self.blocks.last_mut().filter(|b| b.kind() == l.kind) {
+                        b.push(Rc::clone(lr));
+                    } else {
+                        Ast::insert_block(&mut self.blocks, Block::new(Rc::clone(lr), l.kind))
+                    }
+                }
+
+                Kind::CodeMark | Kind::NormalText | Kind::DividingLine | Kind::Title => {
+                    Ast::insert_block(&mut self.blocks, Block::new(Rc::clone(lr), l.kind))
+                }
             }
+            // save the previous line object
+            pre_line = Some(lr);
         }
     }
 
@@ -255,6 +288,7 @@ pub struct Line {
     kind: Kind,
     num: usize,
     text: String,
+    concatenation: Vec<SharedLine>,
 }
 
 #[derive(Debug, PartialEq, Copy, Clone)]
@@ -269,12 +303,19 @@ enum Kind {
     CodeMark,
     Code,
     Meta,
+    ListConcatenation,
 }
 
 impl Line {
-    // Get the first token in the Line
-    pub fn first_token(&self) -> &Token {
-        &self.buff[0]
+    // Get the mark token in the Line, the mark token may be the first or second
+    pub fn get_mark(&self) -> &Token {
+        let first = self.first_token();
+        if first.kind() == TokenKind::WhiteSpace {
+            // if the first token is 'WhiteSpace', the second token must be exist
+            &self.buff[1]
+        } else {
+            first
+        }
     }
 
     // Get the Nth Token in the Line
@@ -297,7 +338,8 @@ impl Line {
             num: ln,
             text: line,
             kind: Kind::NormalText,
-            buff: Vec::new(),
+            buff: vec![],
+            concatenation: vec![],
         };
         l.parse();
         l
@@ -308,7 +350,8 @@ impl Line {
             num: ln,
             text: line,
             kind: Kind::Code,
-            buff: Vec::new(),
+            buff: vec![],
+            concatenation: vec![],
         }
     }
 
@@ -317,7 +360,8 @@ impl Line {
             buff: vec![],
             kind: Kind::Meta,
             num: 0,
-            text: "".to_string(),
+            text: "meta".to_string(),
+            concatenation: vec![],
         }
     }
 
@@ -334,7 +378,7 @@ impl Line {
         }
         lx.finish();
 
-        self.kind = match self.first_token().kind() {
+        self.kind = match self.get_mark().kind() {
             TokenKind::BlankLine => Kind::Blank,
             TokenKind::TitleMark => Kind::Title,
             TokenKind::DisorderListMark => Kind::DisorderedList,
@@ -344,6 +388,26 @@ impl Line {
             TokenKind::CodeMark => Kind::CodeMark,
             _ => Kind::NormalText,
         };
+    }
+
+    fn indents(&self) -> usize {
+        let first = self.first_token();
+        if first.kind() != TokenKind::WhiteSpace {
+            return 0;
+        }
+        let l = first.value().len();
+        if first.value().chars().filter(|c| *c == '\t').count() == l {
+            return l;
+        }
+        if first.value().chars().filter(|c| *c == ' ').count() == l && l % 2 == 0 {
+            l / 2
+        } else {
+            0
+        }
+    }
+
+    fn first_token(&self) -> &Token {
+        &self.buff[0]
     }
 }
 
@@ -372,7 +436,7 @@ pub enum TokenKind {
     Url,              // []()
     Text,
     StarMark,
-    Unknown,
+    WhiteSpace,
 }
 
 impl Token {
@@ -564,15 +628,23 @@ impl<'lex> Lexer<'lex> {
     // skip all whitespace characters at the beginning of the line,
     // or generate a blank line token if the line contains only whitespace characters.
     fn split_prefix_whitespaces(&mut self, cur_pos: usize, cur_char: char) -> Option<Token> {
+        if cur_char == '\n' {
+            self.end();
+            return Some(Token::new(
+                self.line_text.trim_end_matches('\n').to_string(),
+                TokenKind::BlankLine,
+            ));
+        }
         if cur_char.is_whitespace() {
-            if cur_char == '\n' {
-                self.end();
-                return Some(Token::new("".to_string(), TokenKind::BlankLine));
-            }
             return None;
         }
         self.set_state(cur_pos, State::Mark);
-        None
+        let s = utf8_slice::slice(self.line_text, 0, cur_pos).to_string();
+        if !s.is_empty() {
+            Some(Token::new(s, TokenKind::WhiteSpace))
+        } else {
+            None
+        }
     }
 
     fn find_word(&self, cur_pos: usize) -> Option<&str> {
@@ -1319,7 +1391,10 @@ _____________
             assert_eq!(ast.get_line(1).unwrap().borrow().kind, Kind::Blank);
             assert_eq!(
                 ast.get_line(1).unwrap().borrow().buff,
-                vec![Token::new("".to_string(), TokenKind::BlankLine)]
+                vec![Token::new(
+                    cnt.trim_end_matches('\n').to_string(),
+                    TokenKind::BlankLine
+                )]
             );
         }
     }

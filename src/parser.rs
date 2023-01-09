@@ -17,7 +17,7 @@ pub trait HtmlGenerate {
     fn gen_sorted_list(&self, ls: &[SharedLine]) -> String;
     fn gen_disordered_list(&self, ls: &[SharedLine]) -> String;
     fn gen_quote(&self, ls: &[SharedLine]) -> String;
-    fn gen_code(&self, code_mark_line: &SharedLine, ls: &[SharedLine]) -> String;
+    fn gen_code(&self, ls: &[SharedLine]) -> String;
 }
 
 // Ast represents the abstract syntax tree of the markdown file, it structurally represents the entire file.
@@ -89,13 +89,7 @@ impl Ast {
                 Kind::NormalText => Some(html.gen_normal(b.first())),
                 Kind::DividingLine => Some(html.gen_dividling(b.first())),
                 Kind::CodeMark => None,
-                Kind::Code => {
-                    let pre = self
-                        .get_pre_block(b)
-                        .ok_or("not found the previous code mark block of code")?;
-                    let code_mark_line = pre.first();
-                    Some(html.gen_code(code_mark_line, b.lines()))
-                }
+                Kind::Code => Some(html.gen_code(b.lines())),
                 Kind::DisorderedList => Some(html.gen_disordered_list(b.lines())),
                 Kind::Blank => Some(html.gen_blank(b.lines())),
                 Kind::Quote => Some(html.gen_quote(b.lines())),
@@ -123,14 +117,6 @@ impl Ast {
 
     fn blocks(&self) -> &Vec<Block> {
         &self.blocks
-    }
-
-    fn get_pre_block(&self, b: &Block) -> Option<&Block> {
-        self.blocks().get(b.seq - 1)
-    }
-
-    fn _get_next_block(&self, b: &Block) -> Option<&Block> {
-        self.blocks().get(b.seq + 1)
     }
 
     fn parse_line(&mut self, num: usize, line: String) {
@@ -195,6 +181,9 @@ impl Ast {
                 }
 
                 Kind::ListNesting => {
+                    // leader must not be None
+                    debug_assert!(state.is_some());
+
                     if let Some(leader) = leader {
                         let mut leader = leader.borrow_mut();
                         leader.nesting_lines.push(Rc::clone(l));
@@ -214,10 +203,38 @@ impl Ast {
                             }
                         }
                     }
-                    // TODO: leader must not be None
                 }
 
-                Kind::Blank | Kind::Quote | Kind::Code => {
+                Kind::CodeMark => {
+                    let mut k: Option<Kind> = None;
+                    if let Some(next) = iter.peek() {
+                        let next = next.borrow();
+                        if next.kind == Kind::CodeMark || next.kind == Kind::Code {
+                            k = Some(Kind::Code);
+                            state = Some(Kind::Code);
+                        }
+                    }
+                    Ast::insert_block(
+                        &mut self.blocks,
+                        Block::new(Rc::clone(l), k.unwrap_or(Kind::CodeMark)),
+                    );
+                }
+
+                Kind::Code => {
+                    let b = self.blocks.last_mut().filter(|b| b.kind() == Kind::Code);
+                    debug_assert!(b.is_some());
+
+                    if let Some(b) = b {
+                        b.push(Rc::clone(l));
+                    }
+
+                    if current.kind == Kind::CodeMark {
+                        // close this code block
+                        state = None;
+                    }
+                }
+
+                Kind::Blank | Kind::Quote => {
                     if let Some(b) = self.blocks.last_mut().filter(|b| b.kind() == current.kind) {
                         b.push(Rc::clone(l));
                     } else {
@@ -225,7 +242,7 @@ impl Ast {
                     }
                 }
 
-                Kind::CodeMark | Kind::NormalText | Kind::DividingLine | Kind::Title => {
+                Kind::NormalText | Kind::DividingLine | Kind::Title => {
                     Ast::insert_block(&mut self.blocks, Block::new(Rc::clone(l), current.kind))
                 }
             }
@@ -1567,20 +1584,15 @@ _____________
         ast.parse_string(md).unwrap();
 
         assert_eq!(ast.count_lines(), md.lines().count());
-        assert_eq!(ast.blocks.len(), 8);
+        assert_eq!(ast.blocks.len(), 6);
 
-        assert_eq!(ast.blocks[2].kind(), Kind::Code);
-        assert_eq!(ast.blocks[2]._count(), 2);
+        assert_eq!(ast.blocks[1].kind(), Kind::Code);
+        assert_eq!(ast.blocks[1]._count(), 4);
 
-        assert_eq!(ast.blocks[7].kind(), Kind::NormalText);
-        assert_eq!(ast.blocks[7]._count(), 1);
+        assert_eq!(ast.blocks[2].kind(), Kind::CodeMark);
+        assert_eq!(ast.blocks[2]._count(), 1);
 
-        ast.blocks()
-            .iter()
-            .filter(|b| b.kind() == Kind::Code)
-            .for_each(|b| {
-                assert_eq!(ast.get_pre_block(b).unwrap().kind(), Kind::CodeMark);
-                assert_eq!(ast._get_next_block(b).unwrap().kind(), Kind::CodeMark);
-            })
+        assert_eq!(ast.blocks[5].kind(), Kind::NormalText);
+        assert_eq!(ast.blocks[5]._count(), 1);
     }
 }

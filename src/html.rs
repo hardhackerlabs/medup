@@ -3,6 +3,8 @@ use serde::Serialize;
 use std::error::Error;
 use tinytemplate::TinyTemplate;
 
+use itertools::Itertools;
+
 use crate::parser::{HtmlGenerate, SharedLine, Token, TokenKind};
 
 const TITLE_TEMPLATE_NAME: &str = "title";
@@ -34,7 +36,7 @@ const DISORDERED_LIST_TEMPLATE: &str = "<ul>
 const QUOTE_TEMPLATE_NAME: &str = "quote";
 const QUOTE_TEMPLATE: &str = "<blockquote> 
     {{ for text in lines }} 
-    {text}<br> 
+    <p>{text}</p>
     {{ endfor }} 
 </blockquote>";
 
@@ -243,13 +245,18 @@ impl<'generator> HtmlGenerate for Generator<'generator> {
             .unwrap()
     }
 
-    fn gen_code(&self, code_mark_line: &SharedLine, ls: &[SharedLine]) -> String {
-        let text: String = ls.iter().map(|l| l.borrow().text().to_string()).collect(); // TODO: optimize to_string()
+    fn gen_code(&self, ls: &[SharedLine]) -> String {
+        debug_assert!(ls.len() >= 2);
+
+        let text: String = ls[1..ls.len() - 1] // skip the first and last elements
+            .iter()
+            .map(|l| l.borrow().text().to_string())
+            .collect(); // TODO: optimize to_string()
         self.tt
             .render(
                 CODE_TEMPLATE_NAME,
                 &CodeBlockContext {
-                    name: code_mark_line.borrow().get(1).map_or("", |t| t.value()),
+                    name: "",
                     text: &text,
                 },
             )

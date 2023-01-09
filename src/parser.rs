@@ -67,7 +67,8 @@ impl Ast {
         }
         self.defer_queue.iter().for_each(|l| l.borrow_mut().parse());
         self.defer_queue.clear();
-        self.establish_blocks();
+        self.blocks
+            .append(&mut Ast::establish_blocks(&self.document));
         Ok(())
     }
 
@@ -138,30 +139,32 @@ impl Ast {
             }
         }
         self.document.push(l);
-        // DON'T PANIC
-        assert_eq!(self.count_lines(), num);
-        assert_eq!(self.document[num].borrow().num, num);
+
+        debug_assert_eq!(self.count_lines(), num);
+        debug_assert_eq!(self.document[num].borrow().num, num);
     }
 
     fn defer_parse(&self, s: &str) -> bool {
         self.enabled_defer && s.trim() != "```"
     }
 
-    fn establish_blocks(&mut self) {
+    fn establish_blocks(all: &[SharedLine]) -> Vec<Block> {
+        let mut blocks: Vec<Block> = vec![];
+
         let mut leader: Option<&SharedLine> = None;
         let mut state: Option<Kind> = None;
 
-        let mut iter = self.document.iter().peekable();
+        let mut iter = all.iter().peekable();
         while let Some(l) = iter.next() {
             let current = l.borrow();
             match state.unwrap_or(current.kind) {
                 Kind::Meta => {}
 
                 Kind::DisorderedList | Kind::SortedList => {
-                    if let Some(b) = self.blocks.last_mut().filter(|b| b.kind() == current.kind) {
+                    if let Some(b) = blocks.last_mut().filter(|b| b.kind() == current.kind) {
                         b.push(Rc::clone(l));
                     } else {
-                        Ast::insert_block(&mut self.blocks, Block::new(Rc::clone(l), current.kind))
+                        Ast::insert_block(&mut blocks, Block::new(Rc::clone(l), current.kind))
                     }
 
                     // Check the next line is a list nesting or not
@@ -179,10 +182,9 @@ impl Ast {
                         }
                     }
                 }
-
                 Kind::ListNesting => {
                     // leader must not be None
-                    debug_assert!(state.is_some());
+                    debug_assert!(leader.is_some());
 
                     if let Some(leader) = leader {
                         let mut leader = leader.borrow_mut();
@@ -215,13 +217,12 @@ impl Ast {
                         }
                     }
                     Ast::insert_block(
-                        &mut self.blocks,
+                        &mut blocks,
                         Block::new(Rc::clone(l), k.unwrap_or(Kind::CodeMark)),
                     );
                 }
-
                 Kind::Code => {
-                    let b = self.blocks.last_mut().filter(|b| b.kind() == Kind::Code);
+                    let b = blocks.last_mut().filter(|b| b.kind() == Kind::Code);
                     debug_assert!(b.is_some());
 
                     if let Some(b) = b {
@@ -235,18 +236,34 @@ impl Ast {
                 }
 
                 Kind::Blank | Kind::Quote => {
-                    if let Some(b) = self.blocks.last_mut().filter(|b| b.kind() == current.kind) {
+                    if let Some(b) = blocks.last_mut().filter(|b| b.kind() == current.kind) {
                         b.push(Rc::clone(l));
                     } else {
-                        Ast::insert_block(&mut self.blocks, Block::new(Rc::clone(l), current.kind))
+                        Ast::insert_block(&mut blocks, Block::new(Rc::clone(l), current.kind))
                     }
                 }
 
                 Kind::NormalText | Kind::DividingLine | Kind::Title => {
-                    Ast::insert_block(&mut self.blocks, Block::new(Rc::clone(l), current.kind))
+                    Ast::insert_block(&mut blocks, Block::new(Rc::clone(l), current.kind))
                 }
             }
         }
+
+        for b in blocks
+            .iter()
+            .filter(|b| b.kind() == Kind::DisorderedList || b.kind() == Kind::SortedList)
+        {
+            b.lines()
+                .iter()
+                .filter(|l| !l.borrow().nesting_lines.is_empty())
+                .for_each(|l| {
+                    let mut l = l.borrow_mut();
+                    let mut bs = Ast::establish_blocks(&l.nesting_lines);
+                    l.nesting_blocks.append(&mut bs);
+                });
+        }
+
+        blocks
     }
 
     fn insert_block(blocks: &mut Vec<Block>, mut b: Block) {
@@ -430,6 +447,8 @@ impl Line {
             TokenKind::CodeMark => Kind::CodeMark,
             _ => Kind::NormalText,
         };
+
+        debug_assert!(!self.all().is_empty());
     }
 
     fn indents(&self) -> usize {
@@ -447,8 +466,6 @@ impl Line {
             0
         }
     }
-
-    fn trim_indents(&self, n: usize) {}
 
     fn first_token(&self) -> &Token {
         &self.buff[0]
@@ -1082,11 +1099,12 @@ _____________
     }
 
     #[test]
-    fn test_build_blocks() {
+    fn test_establish_blocks() {
         let md = "# dice 是一个 markdown 编辑器
 这是我的一个学习 rust 编程语言的项目，我将尝试去开发一个强大的 markdown 编辑器。
 
 * 支持 vim 操作
+  vim1
 * 支持自动化的命令去编辑文档
 
 1. 支持 vim 操作
@@ -1101,6 +1119,27 @@ _____________
 
         assert_eq!(ast.count_lines(), md.lines().count());
         assert_eq!(ast.blocks.len(), 8);
+
+        assert_eq!(
+            ast.blocks[3]
+                .lines()
+                .get(0)
+                .unwrap()
+                .borrow()
+                .nesting_lines
+                .len(),
+            1
+        );
+        assert_eq!(
+            ast.blocks[3]
+                .lines()
+                .get(0)
+                .unwrap()
+                .borrow()
+                .nesting_blocks
+                .len(),
+            1
+        );
     }
 
     #[test]

@@ -3,8 +3,6 @@ use serde::Serialize;
 use std::error::Error;
 use tinytemplate::TinyTemplate;
 
-use itertools::Itertools;
-
 use crate::parser::{HtmlGenerate, SharedLine, Token, TokenKind};
 
 const TITLE_TEMPLATE_NAME: &str = "title";

@@ -22,7 +22,7 @@ pub trait HtmlGenerate {
 
 // Ast represents the abstract syntax tree of the markdown file, it structurally represents the entire file.
 pub struct Ast {
-    lines: Vec<SharedLine>,
+    document: Vec<SharedLine>,
     blocks: Vec<Block>,
     defer_queue: Vec<SharedLine>,
     enabled_defer: bool,
@@ -32,7 +32,7 @@ impl Ast {
     // Create a Ast instance.
     pub fn new() -> Self {
         Ast {
-            lines: vec![Rc::new(RefCell::new(Line::meta()))],
+            document: vec![Rc::new(RefCell::new(Line::meta()))],
             blocks: vec![],
             defer_queue: vec![],
             enabled_defer: false,
@@ -113,12 +113,12 @@ impl Ast {
 
     // Count the lines in ast
     pub fn count_lines(&self) -> usize {
-        self.lines.len() - 1
+        self.document.len() - 1
     }
 
     // Get the Line object with line number
     pub fn get_line(&self, num: usize) -> Option<&SharedLine> {
-        self.lines.get(num)
+        self.document.get(num)
     }
 
     fn blocks(&self) -> &Vec<Block> {
@@ -151,10 +151,10 @@ impl Ast {
                 self.defer_queue.clear();
             }
         }
-        self.lines.push(l);
+        self.document.push(l);
         // DON'T PANIC
         assert_eq!(self.count_lines(), num);
-        assert_eq!(self.lines[num].borrow().num, num);
+        assert_eq!(self.document[num].borrow().num, num);
     }
 
     fn defer_parse(&self, s: &str) -> bool {
@@ -162,58 +162,73 @@ impl Ast {
     }
 
     fn establish_blocks(&mut self) {
-        let mut pre_line: Option<&SharedLine> = None;
+        let mut leader: Option<&SharedLine> = None;
         let mut state: Option<Kind> = None;
 
-        let mut iter = self.lines.iter().peekable();
-        while let Some(lr) = iter.next() {
-            let l = lr.borrow();
-            match state.unwrap_or(l.kind) {
+        let mut iter = self.document.iter().peekable();
+        while let Some(l) = iter.next() {
+            let current = l.borrow();
+            match state.unwrap_or(current.kind) {
                 Kind::Meta => {}
 
                 Kind::DisorderedList | Kind::SortedList => {
-                    if let Some(b) = self.blocks.last_mut().filter(|b| b.kind() == l.kind) {
-                        b.push(Rc::clone(lr));
+                    if let Some(b) = self.blocks.last_mut().filter(|b| b.kind() == current.kind) {
+                        b.push(Rc::clone(l));
                     } else {
-                        Ast::insert_block(&mut self.blocks, Block::new(Rc::clone(lr), l.kind))
+                        Ast::insert_block(&mut self.blocks, Block::new(Rc::clone(l), current.kind))
                     }
 
+                    // Check the next line is a list concatenation or not
                     if let Some(next) = iter.peek() {
                         let next = next.borrow();
-                        // TODO: concatenation
-                        if next.indents() - l.indents() == 1 {
+                        if next.indents() - current.indents() == 1 // indent 1
+                            && next.kind != Kind::Blank
+                            && next.kind != Kind::Title
+                            && next.kind != Kind::DividingLine
+                            && next.kind != Kind::CodeMark
+                            && next.kind != Kind::Code
+                        {
                             state = Some(Kind::ListConcatenation);
+                            leader = Some(l); // save the previous line object
                         }
                     }
                 }
 
                 Kind::ListConcatenation => {
-                    if let Some(pre) = pre_line {
-                        let mut pre = pre.borrow_mut();
-                        pre.concatenation.push(Rc::clone(lr));
-                    }
+                    if let Some(leader) = leader {
+                        let mut leader = leader.borrow_mut();
+                        leader.concatenation.push(Rc::clone(l));
 
-                    if let Some(next) = iter.next() {
-                        let next = next.borrow();
-                        // TODO: concatenation
+                        if let Some(next) = iter.peek() {
+                            let next = next.borrow();
+                            if next.indents() - leader.indents() >= 1 // at least indent 1
+                            && next.kind != Kind::Blank
+                            && next.kind != Kind::Title
+                            && next.kind != Kind::DividingLine
+                            && next.kind != Kind::CodeMark
+                            && next.kind != Kind::Code
+                            {
+                                // keep the state
+                            } else {
+                                state = None;
+                            }
+                        }
                     }
-                    state = None;
+                    // TODO: leader must not be None
                 }
 
                 Kind::Blank | Kind::Quote | Kind::Code => {
-                    if let Some(b) = self.blocks.last_mut().filter(|b| b.kind() == l.kind) {
-                        b.push(Rc::clone(lr));
+                    if let Some(b) = self.blocks.last_mut().filter(|b| b.kind() == current.kind) {
+                        b.push(Rc::clone(l));
                     } else {
-                        Ast::insert_block(&mut self.blocks, Block::new(Rc::clone(lr), l.kind))
+                        Ast::insert_block(&mut self.blocks, Block::new(Rc::clone(l), current.kind))
                     }
                 }
 
                 Kind::CodeMark | Kind::NormalText | Kind::DividingLine | Kind::Title => {
-                    Ast::insert_block(&mut self.blocks, Block::new(Rc::clone(lr), l.kind))
+                    Ast::insert_block(&mut self.blocks, Block::new(Rc::clone(l), current.kind))
                 }
             }
-            // save the previous line object
-            pre_line = Some(lr);
         }
     }
 
@@ -232,7 +247,7 @@ impl Default for Ast {
 impl Debug for Ast {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut debug = String::new();
-        for line in self.lines.iter() {
+        for line in self.document.iter() {
             debug.push_str(format!("[{}, {:?}]: ", line.borrow().num, line.borrow().kind).as_str());
             for t in line.borrow().all() {
                 let s = format!("{:?} ", t);
@@ -288,7 +303,14 @@ pub struct Line {
     kind: Kind,
     num: usize,
     text: String,
+    //
+    // The lines in concatenation:
+    //   Kind::DisorderedList
+    //   Kind::SortedList
+    //   Kind::Quote
+    //   Kind::Normal
     concatenation: Vec<SharedLine>,
+    concatenation_blocks: Vec<Block>,
 }
 
 #[derive(Debug, PartialEq, Copy, Clone)]
@@ -340,6 +362,7 @@ impl Line {
             kind: Kind::NormalText,
             buff: vec![],
             concatenation: vec![],
+            concatenation_blocks: vec![],
         };
         l.parse();
         l
@@ -352,6 +375,7 @@ impl Line {
             kind: Kind::Code,
             buff: vec![],
             concatenation: vec![],
+            concatenation_blocks: vec![],
         }
     }
 
@@ -362,6 +386,7 @@ impl Line {
             num: 0,
             text: "meta".to_string(),
             concatenation: vec![],
+            concatenation_blocks: vec![],
         }
     }
 
@@ -405,6 +430,8 @@ impl Line {
             0
         }
     }
+
+    fn trim_indents(&self, n: usize) {}
 
     fn first_token(&self) -> &Token {
         &self.buff[0]

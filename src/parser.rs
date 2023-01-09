@@ -7,6 +7,8 @@ use std::io::{BufRead, BufReader};
 use std::rc::Rc;
 use std::{fmt, io};
 
+use itertools::Itertools;
+
 pub type SharedLine = Rc<RefCell<Line>>;
 
 pub trait HtmlGenerate {
@@ -74,36 +76,37 @@ impl Ast {
 
     // Iterate through each block of the Ast and process the block into a 'html' string
     pub fn to_html(&self, html: &impl HtmlGenerate) -> Result<String, Box<dyn Error>> {
-        let mut ss: Vec<String> = vec![String::from(
-            "<!doctype html>
+        let ss: Vec<String> = vec![
+            String::from(
+                "<!doctype html>
 <html>
 <head>
 <meta charset='UTF-8'><meta name='viewport' content='width=device-width initial-scale=1'>
 <title></title>
 </head>
 <body>",
-        )];
+            ),
+            String::from("</body></html>"),
+        ];
 
-        for b in self.blocks() {
-            let s = match b.kind() {
-                Kind::Title => Some(html.gen_title(b.first())),
-                Kind::NormalText => Some(html.gen_normal(b.first())),
-                Kind::DividingLine => Some(html.gen_dividling(b.first())),
-                Kind::CodeMark => None,
-                Kind::Code => Some(html.gen_code(b.lines())),
-                Kind::DisorderedList => Some(html.gen_disordered_list(b.lines())),
-                Kind::Blank => Some(html.gen_blank(b.lines())),
-                Kind::Quote => Some(html.gen_quote(b.lines())),
-                Kind::SortedList => Some(html.gen_sorted_list(b.lines())),
-                Kind::Meta | Kind::ListNesting => None,
-            };
-            if let Some(s) = s {
-                ss.push(s);
-            }
-        }
+        let gens = self
+            .blocks()
+            .iter()
+            .filter(|b| b.kind() != Kind::Meta && b.kind() != Kind::ListNesting)
+            .map(|b| match b.kind() {
+                Kind::Title => html.gen_title(b.first()),
+                Kind::NormalText => html.gen_normal(b.first()),
+                Kind::DividingLine => html.gen_dividling(b.first()),
+                Kind::Code => html.gen_code(b.lines()),
+                Kind::DisorderedList => html.gen_disordered_list(b.lines()),
+                Kind::Blank => html.gen_blank(b.lines()),
+                Kind::Quote => html.gen_quote(b.lines()),
+                Kind::SortedList => html.gen_sorted_list(b.lines()),
+                _ => "".to_string(),
+            })
+            .join("\n");
 
-        ss.push("</body></html>".to_string());
-        Ok(ss.join("\n"))
+        Ok(Itertools::intersperse(ss.iter(), &gens).join("\n"))
     }
 
     // Count the lines in ast
@@ -587,7 +590,6 @@ enum State {
     SortedList,
     Quote,
     VerifyDividing,
-    VerifyCodeMark,
     Normal,
     Finished,
 }
@@ -648,9 +650,6 @@ impl<'lex> Lexer<'lex> {
             }
             State::VerifyDividing => {
                 self.verify_dividing(cur_pos, cur_char);
-            }
-            State::VerifyCodeMark => {
-                self.verify_codemark(cur_pos, cur_char);
             }
             State::Quote => {
                 if let Some(t) = self.split_quote(cur_pos, cur_char) {
@@ -789,10 +788,13 @@ impl<'lex> Lexer<'lex> {
                 Some(Token::new(first_word.to_string(), TokenKind::QuoteMark)),
             ),
             // code block mark
-            ['`', '`', '`'] => (
-                cur_pos + 1,
-                State::VerifyCodeMark,
-                Some(Token::new(first_word.to_string(), TokenKind::CodeMark)),
+            // .e.g:
+            //      ```rust
+            //      ``` rust
+            ['`', '`', '`', ..] => (
+                self.unparsed + 3,
+                State::Normal,
+                Some(Token::new("```".to_string(), TokenKind::CodeMark)),
             ),
             // normal (as no mark)
             _ => {
@@ -816,49 +818,43 @@ impl<'lex> Lexer<'lex> {
         None
     }
 
-    //
-    fn verify_codemark(&mut self, _cur_pos: usize, cur_char: char) -> Option<Token> {
-        if !cur_char.is_whitespace() {
-            self.line_tokens.clear();
-            self.set_state(0, State::Normal);
-        }
-        None
-    }
-
     // parse the rest of the line as title token
     fn split_title(&mut self, cur_pos: usize, cur_char: char) -> Option<Vec<Token>> {
-        // skip all whitespace characters after the mark token.
         if cur_char.is_whitespace() {
+            // skip all whitespace characters after the mark token.
             self.unparsed = cur_pos + 1;
-            return None;
+            None
+        } else {
+            let rest = utf8_slice::from(self.line_text, cur_pos);
+            self.end();
+            Some(Lexer::parse_inside(rest))
         }
-        let rest = utf8_slice::from(self.line_text, cur_pos);
-        self.end();
-        Some(Lexer::parse_inside(rest))
     }
 
     // parse the rest of the line as a list item token.
     fn split_list_item(&mut self, cur_pos: usize, cur_char: char) -> Option<Vec<Token>> {
-        // skip all whitespace characters after the mark token.
         if cur_char.is_whitespace() {
+            // skip all whitespace characters after the mark token.
             self.unparsed = cur_pos + 1;
-            return None;
+            None
+        } else {
+            let rest = utf8_slice::from(self.line_text, cur_pos);
+            self.end();
+            Some(Lexer::parse_inside(rest))
         }
-        let rest = utf8_slice::from(self.line_text, cur_pos);
-        self.end();
-        Some(Lexer::parse_inside(rest))
     }
 
     // parse the rest of the line as the quote token.
     fn split_quote(&mut self, cur_pos: usize, cur_char: char) -> Option<Token> {
-        // skip all whitespace characters after the mark token.
         if cur_char.is_whitespace() {
+            // skip all whitespace characters after the mark token.
             self.unparsed = cur_pos + 1;
-            return None;
+            None
+        } else {
+            let rest = utf8_slice::from(self.line_text, cur_pos);
+            self.end();
+            Some(Token::new(rest.trim_end().to_string(), TokenKind::Text))
         }
-        let rest = utf8_slice::from(self.line_text, cur_pos);
-        self.end();
-        Some(Token::new(rest.trim_end().to_string(), TokenKind::Text))
     }
 
     // parse the line as the normal token.
@@ -1594,16 +1590,27 @@ _____________
 
     #[test]
     fn test_code_mark() {
-        let md = "``` ";
-
         let mut ast = Ast::new();
-        ast.parse_string(md).unwrap();
+        ast.parse_string("``` ").unwrap();
 
-        assert_eq!(ast.count_lines(), md.lines().count());
+        assert_eq!(ast.count_lines(), 1);
         assert_eq!(ast.get_line(1).unwrap().borrow().kind, Kind::CodeMark);
         assert_eq!(
             ast.get_line(1).unwrap().borrow().buff,
-            vec![Token::new(md.trim_end().to_string(), TokenKind::CodeMark)]
+            vec![Token::new("```".to_string(), TokenKind::CodeMark)]
+        );
+
+        let mut ast = Ast::new();
+        ast.parse_string("```rust").unwrap();
+
+        assert_eq!(ast.count_lines(), 1);
+        assert_eq!(ast.get_line(1).unwrap().borrow().kind, Kind::CodeMark);
+        assert_eq!(
+            ast.get_line(1).unwrap().borrow().buff,
+            vec![
+                Token::new("```".to_string(), TokenKind::CodeMark),
+                Token::new("rust".to_string(), TokenKind::Text)
+            ]
         );
     }
 

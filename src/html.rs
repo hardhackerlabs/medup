@@ -246,15 +246,17 @@ impl<'generator> HtmlGenerate for Generator<'generator> {
     fn gen_code(&self, ls: &[SharedLine]) -> String {
         debug_assert!(ls.len() >= 2);
 
+        let first = &ls[0];
         let text: String = ls[1..ls.len() - 1] // skip the first and last elements
             .iter()
             .map(|l| l.borrow().text().to_string())
-            .collect(); // TODO: optimize to_string()
+            .collect();
+
         self.tt
             .render(
                 CODE_TEMPLATE_NAME,
                 &CodeBlockContext {
-                    name: "",
+                    name: first.borrow().get(1).map(|t| t.value()).unwrap_or(""),
                     text: &text,
                 },
             )

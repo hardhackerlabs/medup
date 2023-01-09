@@ -100,7 +100,7 @@ impl Ast {
                 Kind::Blank => Some(html.gen_blank(b.lines())),
                 Kind::Quote => Some(html.gen_quote(b.lines())),
                 Kind::SortedList => Some(html.gen_sorted_list(b.lines())),
-                Kind::Meta | Kind::ListConcatenation => None,
+                Kind::Meta | Kind::ListNesting => None,
             };
             if let Some(s) = s {
                 ss.push(s);
@@ -178,7 +178,7 @@ impl Ast {
                         Ast::insert_block(&mut self.blocks, Block::new(Rc::clone(l), current.kind))
                     }
 
-                    // Check the next line is a list concatenation or not
+                    // Check the next line is a list nesting or not
                     if let Some(next) = iter.peek() {
                         let next = next.borrow();
                         if next.indents() - current.indents() == 1 // indent 1
@@ -188,16 +188,16 @@ impl Ast {
                             && next.kind != Kind::CodeMark
                             && next.kind != Kind::Code
                         {
-                            state = Some(Kind::ListConcatenation);
-                            leader = Some(l); // save the previous line object
+                            state = Some(Kind::ListNesting);
+                            leader = Some(l); // save the previous line object as leader
                         }
                     }
                 }
 
-                Kind::ListConcatenation => {
+                Kind::ListNesting => {
                     if let Some(leader) = leader {
                         let mut leader = leader.borrow_mut();
-                        leader.concatenation.push(Rc::clone(l));
+                        leader.nesting_lines.push(Rc::clone(l));
 
                         if let Some(next) = iter.peek() {
                             let next = next.borrow();
@@ -304,13 +304,13 @@ pub struct Line {
     num: usize,
     text: String,
     //
-    // The lines in concatenation:
+    // The lines in nesting:
     //   Kind::DisorderedList
     //   Kind::SortedList
     //   Kind::Quote
     //   Kind::Normal
-    concatenation: Vec<SharedLine>,
-    concatenation_blocks: Vec<Block>,
+    nesting_lines: Vec<SharedLine>,
+    nesting_blocks: Vec<Block>,
 }
 
 #[derive(Debug, PartialEq, Copy, Clone)]
@@ -325,7 +325,7 @@ enum Kind {
     CodeMark,
     Code,
     Meta,
-    ListConcatenation,
+    ListNesting,
 }
 
 impl Line {
@@ -361,8 +361,8 @@ impl Line {
             text: line,
             kind: Kind::NormalText,
             buff: vec![],
-            concatenation: vec![],
-            concatenation_blocks: vec![],
+            nesting_lines: vec![],
+            nesting_blocks: vec![],
         };
         l.parse();
         l
@@ -374,8 +374,8 @@ impl Line {
             text: line,
             kind: Kind::Code,
             buff: vec![],
-            concatenation: vec![],
-            concatenation_blocks: vec![],
+            nesting_lines: vec![],
+            nesting_blocks: vec![],
         }
     }
 
@@ -385,8 +385,8 @@ impl Line {
             kind: Kind::Meta,
             num: 0,
             text: "meta".to_string(),
-            concatenation: vec![],
-            concatenation_blocks: vec![],
+            nesting_lines: vec![],
+            nesting_blocks: vec![],
         }
     }
 

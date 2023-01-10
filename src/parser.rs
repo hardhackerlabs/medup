@@ -333,6 +333,21 @@ impl Block {
     }
 }
 
+#[derive(Debug, PartialEq, Copy, Clone)]
+enum Kind {
+    NormalText,
+    Blank,
+    Title,
+    DisorderedList,
+    SortedList,
+    DividingLine,
+    Quote,
+    CodeMark,
+    Code,
+    Meta,
+    ListNesting,
+}
+
 // Line is a line of the markdown file, it be parsed into some tokens.
 #[derive(Debug)]
 pub struct Line {
@@ -348,21 +363,6 @@ pub struct Line {
     //   Kind::Normal
     nesting_lines: Vec<SharedLine>,
     nesting_blocks: Vec<Block>,
-}
-
-#[derive(Debug, PartialEq, Copy, Clone)]
-enum Kind {
-    NormalText,
-    Blank,
-    Title,
-    DisorderedList,
-    SortedList,
-    DividingLine,
-    Quote,
-    CodeMark,
-    Code,
-    Meta,
-    ListNesting,
 }
 
 impl Line {
@@ -430,15 +430,7 @@ impl Line {
     // Parses a line of text into 'Line' struct that contains multi tokens.
     // Line's kind is determinded by the first token's kind.
     fn parse(&mut self) {
-        let mut lx = Lexer::new(&self.text, &mut self.buff);
-
-        for (cur_pos, cur_char) in self.text.chars().enumerate() {
-            let stopped = lx.process(cur_pos, cur_char);
-            if stopped {
-                break;
-            }
-        }
-        lx.finish();
+        self.buff = Lexer::new(&self.text).split();
 
         self.kind = match self.get_mark().kind() {
             TokenKind::BlankLine => Kind::Blank,
@@ -475,14 +467,6 @@ impl Line {
     }
 }
 
-// Token is a part of the line, the parser will parse the line into some tokens.
-#[derive(PartialEq, Debug)]
-pub struct Token {
-    value: String,
-    kind: TokenKind,
-    details: Option<HashMap<String, String>>,
-}
-
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum TokenKind {
     TitleMark,        // #, ##, ###, ####
@@ -501,6 +485,14 @@ pub enum TokenKind {
     Text,
     StarMark,
     WhiteSpace,
+}
+
+// Token is a part of the line, the parser will parse the line into some tokens.
+#[derive(PartialEq, Debug)]
+pub struct Token {
+    value: String,
+    kind: TokenKind,
+    details: Option<HashMap<String, String>>,
 }
 
 impl Token {
@@ -572,26 +564,12 @@ impl Token {
     }
 }
 
-// Lexer used to split the text of the line into some tokens,
-// It is implemented with a state machine.
-struct Lexer<'lex> {
-    state: State,
-    unparsed: usize,
-    line_tokens: &'lex mut Vec<Token>,
-    line_text: &'lex str,
-}
-
-#[derive(PartialEq)]
+#[derive(PartialEq, Debug)]
 enum State {
     Begin,
-    Mark,
-    Title,
-    DisorderedList,
-    SortedList,
-    Quote,
-    VerifyDividing,
-    Normal,
-    Finished,
+    Mark(usize),
+    VerifyDividing(usize),
+    Normal(usize),
 }
 
 #[derive(PartialEq, Clone, Copy)]
@@ -611,161 +589,137 @@ enum TextState {
     LocationBegin(Option<usize>, usize, usize, usize),
 }
 
+// Lexer is a lexical analyzer that parses lines of text into multiple tokens.
+struct Lexer<'lex> {
+    state: State,
+    line_text: &'lex str,
+}
+
 impl<'lex> Lexer<'lex> {
-    fn new(text: &'lex str, tokens: &'lex mut Vec<Token>) -> Self {
+    fn new(text: &'lex str) -> Self {
         Lexer {
             state: State::Begin,
-            unparsed: 0,
             line_text: text,
-            line_tokens: tokens,
         }
     }
 
-    fn process(&mut self, cur_pos: usize, cur_char: char) -> bool {
-        match self.state {
-            State::Begin => {
-                if let Some(t) = self.split_prefix_whitespaces(cur_pos, cur_char) {
-                    self.line_tokens.push(t)
+    fn split(mut self) -> Vec<Token> {
+        let mut buff = vec![];
+        let iter = self.line_text.chars().enumerate().peekable();
+        for (ix, curr) in iter {
+            match self.state {
+                State::Begin => {
+                    if !curr.is_whitespace() {
+                        let s = self.slice(0, ix);
+                        if !s.is_empty() {
+                            buff.push(Token::new(s, TokenKind::WhiteSpace));
+                        }
+                        self.goto(State::Mark(ix));
+                    } else {
+                        // the end of iterator
+                        if curr == '\n' {
+                            buff.push(Token::new(self.slice(0, ix), TokenKind::BlankLine));
+                        } else {
+                            // keep this state
+                        }
+                    }
                 }
-            }
-            State::Mark => {
-                if let Some(t) = self.split_mark(cur_pos) {
-                    self.line_tokens.push(t)
-                }
-            }
-            State::Title => {
-                if let Some(mut ts) = self.split_title(cur_pos, cur_char) {
-                    self.line_tokens.append(&mut ts);
-                }
-            }
-            State::DisorderedList => {
-                if let Some(mut ts) = self.split_list_item(cur_pos, cur_char) {
-                    self.line_tokens.append(&mut ts);
-                }
-            }
-            State::SortedList => {
-                if let Some(mut ts) = self.split_list_item(cur_pos, cur_char) {
-                    self.line_tokens.append(&mut ts);
-                }
-            }
-            State::VerifyDividing => {
-                self.verify_dividing(cur_pos, cur_char);
-            }
-            State::Quote => {
-                if let Some(t) = self.split_quote(cur_pos, cur_char) {
-                    self.line_tokens.push(t)
-                }
-            }
-            State::Normal => {
-                if let Some(ts) = self.split_normal_text() {
-                    ts.into_iter()
-                        .filter(|x| !x.value().is_empty())
-                        .for_each(|x| self.line_tokens.push(x));
-                }
-            }
-            State::Finished => {}
-        };
 
-        self.state == State::Finished
-    }
+                State::Mark(begin) => {
+                    // find the first word
+                    let first_word = if curr.is_whitespace() {
+                        // the current character is white space
+                        self.slice_str(begin, ix)
+                    } else {
+                        continue;
+                    };
 
-    fn finish(&mut self) {
-        let len = utf8_slice::len(self.line_text);
-        if self.unparsed < len {
-            self.process(len - 1, '\n');
+                    if let Some(m) = self.split_mark(first_word) {
+                        match m.kind() {
+                            TokenKind::DividingMark => self.goto(State::VerifyDividing(begin)),
+                            TokenKind::CodeMark => self.goto(State::Normal(begin + 3)),
+                            _ => self.goto(State::Normal(ix + 1)),
+                        }
+                        buff.push(m);
+                    } else {
+                        // normal text
+                        self.goto(State::Normal(begin));
+                    }
+                }
+                State::VerifyDividing(p) => {
+                    if !curr.is_whitespace() {
+                        // if contains other characters, it's a invalid dividing line
+                        // so remove the dividing mark token
+                        buff.pop();
+                        self.goto(State::Normal(p));
+                    }
+                }
+                State::Normal(_) => {
+                    break;
+                }
+            };
         }
+
+        if let State::Normal(begin) = self.state {
+            let rest = self.slice_rest(begin);
+            let mut ts = Self::split_inside(rest);
+            if Lexer::has_br(rest) {
+                ts.push(Token::new("<br>".to_string(), TokenKind::LineBreak));
+            }
+            for t in ts.into_iter().filter(|t| !t.value().is_empty()) {
+                buff.push(t);
+            }
+        }
+        buff
     }
 
-    fn set_state(&mut self, last: usize, state: State) {
-        self.unparsed = last;
+    fn goto(&mut self, state: State) {
         self.state = state;
     }
 
-    fn end(&mut self) {
-        self.set_state(utf8_slice::len(self.line_text), State::Finished);
+    fn slice_rest(&self, begin: usize) -> &str {
+        utf8_slice::from(self.line_text, begin)
     }
 
-    // skip all whitespace characters at the beginning of the line,
-    // or generate a blank line token if the line contains only whitespace characters.
-    fn split_prefix_whitespaces(&mut self, cur_pos: usize, cur_char: char) -> Option<Token> {
-        if cur_char == '\n' {
-            self.end();
-            return Some(Token::new(
-                self.line_text.trim_end_matches('\n').to_string(),
-                TokenKind::BlankLine,
-            ));
-        }
-        if cur_char.is_whitespace() {
-            return None;
-        }
-        self.set_state(cur_pos, State::Mark);
-        let s = utf8_slice::slice(self.line_text, 0, cur_pos).to_string();
-        if !s.is_empty() {
-            Some(Token::new(s, TokenKind::WhiteSpace))
-        } else {
-            None
-        }
+    fn slice_str(&self, begin: usize, end: usize) -> &str {
+        utf8_slice::slice(self.line_text, begin, end)
     }
 
-    fn find_word(&self, cur_pos: usize) -> Option<&str> {
-        if self.line_text.chars().nth(cur_pos)?.is_whitespace() {
-            Some(utf8_slice::slice(self.line_text, self.unparsed, cur_pos))
-        } else {
-            None
-        }
+    fn slice(&self, begin: usize, end: usize) -> String {
+        self.slice_str(begin, end).to_string()
     }
 
     // parse the first word in the line as the mark token
-    fn split_mark(&mut self, cur_pos: usize) -> Option<Token> {
-        let first_word = self.find_word(cur_pos)?;
+    fn split_mark(&self, first_word: &str) -> Option<Token> {
         let first_word_chars: Vec<char> = first_word.chars().collect();
 
-        let (unparsed, state, token) = match first_word_chars[..] {
+        match first_word_chars[..] {
             // title
-            ['#'] | ['#', '#'] | ['#', '#', '#'] | ['#', '#', '#', '#'] => (
-                cur_pos + 1,
-                State::Title,
-                Some(Token::new(first_word.to_string(), TokenKind::TitleMark)),
-            ),
+            ['#'] | ['#', '#'] | ['#', '#', '#'] | ['#', '#', '#', '#'] => {
+                Some(Token::new(first_word.to_string(), TokenKind::TitleMark))
+            }
             // disordered list
-            ['*'] | ['-'] | ['+'] => (
-                cur_pos + 1,
-                State::DisorderedList,
-                Some(Token::new(
-                    first_word.to_string(),
-                    TokenKind::DisorderListMark,
-                )),
-            ),
+            ['*'] | ['-'] | ['+'] => Some(Token::new(
+                first_word.to_string(),
+                TokenKind::DisorderListMark,
+            )),
             // sorted list
-            [n1, '.'] if ('1'..='9').contains(&n1) => (
-                cur_pos + 1,
-                State::SortedList,
-                Some(Token::new(
-                    first_word.to_string(),
-                    TokenKind::SortedListMark,
-                )),
-            ),
-            [n1, n2, '.'] if ('1'..='9').contains(&n1) && ('0'..='9').contains(&n2) => (
-                cur_pos + 1,
-                State::SortedList,
-                Some(Token::new(
-                    first_word.to_string(),
-                    TokenKind::SortedListMark,
-                )),
+            [n1, '.'] if ('1'..='9').contains(&n1) => Some(Token::new(
+                first_word.to_string(),
+                TokenKind::SortedListMark,
+            )),
+            [n1, n2, '.'] if ('1'..='9').contains(&n1) && ('0'..='9').contains(&n2) => Some(
+                Token::new(first_word.to_string(), TokenKind::SortedListMark),
             ),
             [n1, n2, n3, '.']
                 if ('1'..='9').contains(&n1)
                     && ('0'..='9').contains(&n2)
                     && ('0'..='9').contains(&n3) =>
             {
-                (
-                    cur_pos + 1,
-                    State::SortedList,
-                    Some(Token::new(
-                        first_word.to_string(),
-                        TokenKind::SortedListMark,
-                    )),
-                )
+                Some(Token::new(
+                    first_word.to_string(),
+                    TokenKind::SortedListMark,
+                ))
             }
             // dividing line
             ['*', '*', '*', ..] | ['-', '-', '-', ..] | ['_', '_', '_', ..]
@@ -775,100 +729,25 @@ impl<'lex> Lexer<'lex> {
                     .count()
                     == 0 =>
             {
-                (
-                    cur_pos + 1,
-                    State::VerifyDividing,
-                    Some(Token::new(first_word.to_string(), TokenKind::DividingMark)),
-                )
+                Some(Token::new(first_word.to_string(), TokenKind::DividingMark))
             }
             // quote
-            ['>'] => (
-                cur_pos + 1,
-                State::Quote,
-                Some(Token::new(first_word.to_string(), TokenKind::QuoteMark)),
-            ),
+            ['>'] => Some(Token::new(first_word.to_string(), TokenKind::QuoteMark)),
             // code block mark
             // .e.g:
             //      ```rust
             //      ``` rust
-            ['`', '`', '`', ..] => (
-                self.unparsed + 3,
-                State::Normal,
-                Some(Token::new("```".to_string(), TokenKind::CodeMark)),
-            ),
+            ['`', '`', '`', ..] => Some(Token::new("```".to_string(), TokenKind::CodeMark)),
             // normal (as no mark)
             _ => {
                 // don't change the unparsed pointer, because the first word is not a mark.
-                (self.unparsed, State::Normal, None)
+                None
             }
-        };
-
-        self.set_state(unparsed, state);
-        token
-    }
-
-    // if there is not a valid dividing line, will recreate the token as normal.
-    fn verify_dividing(&mut self, _cur_pos: usize, cur_char: char) -> Option<Token> {
-        if !cur_char.is_whitespace() {
-            // if contains other characters, it's a invalid dividing line
-            // not a valid dividing line, so clear the dividing mark token
-            self.line_tokens.clear();
-            self.set_state(0, State::Normal);
         }
-        None
-    }
-
-    // parse the rest of the line as title token
-    fn split_title(&mut self, cur_pos: usize, cur_char: char) -> Option<Vec<Token>> {
-        if cur_char.is_whitespace() {
-            // skip all whitespace characters after the mark token.
-            self.unparsed = cur_pos + 1;
-            None
-        } else {
-            let rest = utf8_slice::from(self.line_text, cur_pos);
-            self.end();
-            Some(Lexer::parse_inside(rest))
-        }
-    }
-
-    // parse the rest of the line as a list item token.
-    fn split_list_item(&mut self, cur_pos: usize, cur_char: char) -> Option<Vec<Token>> {
-        if cur_char.is_whitespace() {
-            // skip all whitespace characters after the mark token.
-            self.unparsed = cur_pos + 1;
-            None
-        } else {
-            let rest = utf8_slice::from(self.line_text, cur_pos);
-            self.end();
-            Some(Lexer::parse_inside(rest))
-        }
-    }
-
-    // parse the rest of the line as the quote token.
-    fn split_quote(&mut self, cur_pos: usize, cur_char: char) -> Option<Token> {
-        if cur_char.is_whitespace() {
-            // skip all whitespace characters after the mark token.
-            self.unparsed = cur_pos + 1;
-            None
-        } else {
-            let rest = utf8_slice::from(self.line_text, cur_pos);
-            self.end();
-            Some(Token::new(rest.trim_end().to_string(), TokenKind::Text))
-        }
-    }
-
-    // parse the line as the normal token.
-    fn split_normal_text(&mut self) -> Option<Vec<Token>> {
-        let mut buff = Self::parse_inside(utf8_slice::from(self.line_text, self.unparsed));
-        if Self::has_line_break(self.line_text) {
-            buff.push(Token::new("<br>".to_string(), TokenKind::LineBreak));
-        }
-        self.end();
-        Some(buff)
     }
 
     // parse text content, include bold, picture and url etc.
-    fn parse_inside(content: &str) -> Vec<Token> {
+    fn split_inside(content: &str) -> Vec<Token> {
         let mut last = 0;
 
         let mut buff: Vec<Token> = Vec::new();
@@ -1034,7 +913,7 @@ impl<'lex> Lexer<'lex> {
     }
 
     // find 'line break', double spaces or <br> at the end of the line
-    fn has_line_break(s: &str) -> bool {
+    fn has_br(s: &str) -> bool {
         if s.ends_with("  \n") {
             true
         } else {
@@ -1140,8 +1019,8 @@ _____________
 
     #[test]
     fn test_parse_title() {
-        let marks = vec!["#", "##", "###", "####"];
-        let titles = vec![" Header1", " Header1   ", "  Header1 Header1", " ", ""];
+        let marks = vec!["# ", "## ", "### ", "#### "];
+        let titles = vec!["Header1", "Header1 ", " Header1 Header1", " ", ""];
 
         for mark in marks {
             let mut n = 0;
@@ -1162,7 +1041,7 @@ _____________
                 assert_eq!(
                     l.buff,
                     vec![
-                        Token::new(mark.to_string(), TokenKind::TitleMark),
+                        Token::new(mark.trim_end().to_string(), TokenKind::TitleMark),
                         Token::new(titles.get(0).unwrap().trim().to_string(), TokenKind::Text,)
                     ]
                 );
@@ -1173,7 +1052,7 @@ _____________
                 assert_eq!(
                     l.buff,
                     vec![
-                        Token::new(mark.to_string(), TokenKind::TitleMark,),
+                        Token::new(mark.trim_end().to_string(), TokenKind::TitleMark,),
                         Token::new(titles.get(1).unwrap().trim().to_string(), TokenKind::Text,)
                     ]
                 );
@@ -1184,8 +1063,8 @@ _____________
                 assert_eq!(
                     l.buff,
                     vec![
-                        Token::new(mark.to_string(), TokenKind::TitleMark,),
-                        Token::new(titles.get(2).unwrap().trim().to_string(), TokenKind::Text,)
+                        Token::new(mark.trim_end().to_string(), TokenKind::TitleMark,),
+                        Token::new(titles.get(2).unwrap().to_string(), TokenKind::Text,)
                     ]
                 );
             }
@@ -1194,7 +1073,10 @@ _____________
                 assert_eq!(l.kind, Kind::Title);
                 assert_eq!(
                     l.buff,
-                    vec![Token::new(mark.to_string(), TokenKind::TitleMark)]
+                    vec![Token::new(
+                        mark.trim_end().to_string(),
+                        TokenKind::TitleMark
+                    )]
                 );
             }
             {
@@ -1202,7 +1084,10 @@ _____________
                 assert_eq!(l.kind, Kind::Title);
                 assert_eq!(
                     l.buff,
-                    vec![Token::new(mark.to_string(), TokenKind::TitleMark)]
+                    vec![Token::new(
+                        mark.trim_end().to_string(),
+                        TokenKind::TitleMark
+                    )]
                 );
             }
         }

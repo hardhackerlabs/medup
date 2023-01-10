@@ -69,8 +69,7 @@ impl Ast {
         }
         self.defer_queue.iter().for_each(|l| l.borrow_mut().parse());
         self.defer_queue.clear();
-        self.blocks
-            .append(&mut Ast::establish_blocks(&self.document));
+        self.blocks = Ast::establish_blocks(&self.document);
         Ok(())
     }
 
@@ -543,22 +542,54 @@ impl Token {
         self.kind
     }
 
-    // Get show name of the URL / Image
+    // convert the token to url token
+    pub fn into_url(&self) -> UrlToken {
+        UrlToken(self)
+    }
+
+    // convert the token to img token
+    pub fn into_img(&self) -> ImgToken {
+        ImgToken(self)
+    }
+}
+
+#[derive(PartialEq, Debug)]
+pub struct UrlToken<'url_token>(&'url_token Token);
+
+impl<'url_token> UrlToken<'url_token> {
+    // Get show name of the URL
     pub fn get_show_name(&self) -> Option<&str> {
-        if self.kind != TokenKind::Url && self.kind != TokenKind::Image {
-            return None;
-        }
-        self.details
+        self.0
+            .details
             .as_ref()
             .and_then(|x| x.get("show_name").map(|x| &**x))
     }
 
-    // Get location of the URL / Image
+    // Get location of the URL
     pub fn get_location(&self) -> Option<&str> {
-        if self.kind != TokenKind::Url && self.kind != TokenKind::Image {
-            return None;
-        }
-        self.details
+        self.0
+            .details
+            .as_ref()
+            .and_then(|x| x.get("location").map(|x| &**x))
+    }
+}
+
+#[derive(PartialEq, Debug)]
+pub struct ImgToken<'img_token>(&'img_token Token);
+
+impl<'img_token> ImgToken<'img_token> {
+    // Get alt name of the Image
+    pub fn get_alt_name(&self) -> Option<&str> {
+        self.0
+            .details
+            .as_ref()
+            .and_then(|x| x.get("show_name").map(|x| &**x))
+    }
+
+    // Get location of the Image
+    pub fn get_location(&self) -> Option<&str> {
+        self.0
+            .details
             .as_ref()
             .and_then(|x| x.get("location").map(|x| &**x))
     }

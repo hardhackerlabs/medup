@@ -147,14 +147,17 @@ impl<'generator> Generator<'generator> {
                     opened = !opened;
                 }
                 TokenKind::Url => {
-                    if let (Some(show_name), Some(location)) = (t.get_show_name(), t.get_location())
+                    if let (Some(show_name), Some(location)) =
+                        (t.into_url().get_show_name(), t.into_url().get_location())
                     {
                         let s = self.gen_url(show_name, location);
                         text.push_str(&s);
                     }
                 }
                 TokenKind::Image => {
-                    if let (Some(alt), Some(location)) = (t.get_show_name(), t.get_location()) {
+                    if let (Some(alt), Some(location)) =
+                        (t.into_img().get_alt_name(), t.into_img().get_location())
+                    {
                         let s = self.gen_image(alt, location);
                         text.push_str(&s);
                     }

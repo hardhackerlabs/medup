@@ -44,16 +44,16 @@ impl Ast {
     // Parse markdown document from a file, the 'path' argument is the file path.
     pub fn parse_file(&mut self, path: &str) -> Result<(), io::Error> {
         let file = File::open(path)?;
-        self.parse_reader(&mut BufReader::new(file))
+        self.parse_from(&mut BufReader::new(file))
     }
 
     // Parse markdown document from a string.
     pub fn parse_string(&mut self, s: &str) -> Result<(), io::Error> {
-        self.parse_reader(&mut s.as_bytes())
+        self.parse_from(&mut s.as_bytes())
     }
 
     // Parse markdown document from a reader, the 'reader' may be a file reader, byte buff or network socket etc.
-    pub fn parse_reader(&mut self, reader: &mut dyn BufRead) -> Result<(), io::Error> {
+    pub fn parse_from(&mut self, reader: &mut dyn BufRead) -> Result<(), io::Error> {
         let mut num: usize = 0;
         loop {
             let mut buf = String::new();
@@ -514,14 +514,6 @@ impl Token {
             .insert(k.to_string(), v.to_string());
     }
 
-    fn insert_show_name(&mut self, v: &str) {
-        self.insert("show_name", v)
-    }
-
-    fn insert_location(&mut self, v: &str) {
-        self.insert("location", v)
-    }
-
     // Get value of the token
     pub fn value(&self) -> &str {
         &self.value
@@ -544,12 +536,30 @@ impl Token {
 
     // convert the token to url token
     pub fn into_url(&self) -> UrlToken {
+        if self.kind() != TokenKind::Url {
+            panic!("token is not url");
+        }
         UrlToken(self)
+    }
+    fn into_url_as_mut(&mut self) -> UrlTokenAsMut {
+        if self.kind() != TokenKind::Url {
+            panic!("token is not url");
+        }
+        UrlTokenAsMut(self)
     }
 
     // convert the token to img token
     pub fn into_img(&self) -> ImgToken {
+        if self.kind() != TokenKind::Image {
+            panic!("token is not image");
+        }
         ImgToken(self)
+    }
+    fn into_img_as_mut(&mut self) -> ImgTokenAsMut {
+        if self.kind() != TokenKind::Image {
+            panic!("token is not image");
+        }
+        ImgTokenAsMut(self)
     }
 }
 
@@ -575,6 +585,19 @@ impl<'url_token> UrlToken<'url_token> {
 }
 
 #[derive(PartialEq, Debug)]
+pub struct UrlTokenAsMut<'url_token>(&'url_token mut Token);
+
+impl<'url_token> UrlTokenAsMut<'url_token> {
+    fn insert_show_name(&mut self, v: &str) {
+        self.0.insert("show_name", v)
+    }
+
+    fn insert_location(&mut self, v: &str) {
+        self.0.insert("location", v)
+    }
+}
+
+#[derive(PartialEq, Debug)]
 pub struct ImgToken<'img_token>(&'img_token Token);
 
 impl<'img_token> ImgToken<'img_token> {
@@ -583,7 +606,7 @@ impl<'img_token> ImgToken<'img_token> {
         self.0
             .details
             .as_ref()
-            .and_then(|x| x.get("show_name").map(|x| &**x))
+            .and_then(|x| x.get("alt_name").map(|x| &**x))
     }
 
     // Get location of the Image
@@ -592,6 +615,19 @@ impl<'img_token> ImgToken<'img_token> {
             .details
             .as_ref()
             .and_then(|x| x.get("location").map(|x| &**x))
+    }
+}
+
+#[derive(PartialEq, Debug)]
+pub struct ImgTokenAsMut<'img_token>(&'img_token mut Token);
+
+impl<'img_token> ImgTokenAsMut<'img_token> {
+    fn insert_alt_name(&mut self, v: &str) {
+        self.0.insert("alt_name", v)
+    }
+
+    fn insert_location(&mut self, v: &str) {
+        self.0.insert("location", v)
     }
 }
 
@@ -855,14 +891,35 @@ impl<'lex> Lexer<'lex> {
                         }
                         // '![]()' or '[]()' mark
                         let s = utf8_slice::slice(content, begin, i + 1);
-                        let mut t = if p1.is_some() {
-                            Token::new(s.to_string(), TokenKind::Image)
+                        if p1.is_some() {
+                            let mut t = Token::new(s.to_string(), TokenKind::Image);
+                            let rf = &mut t;
+                            rf.into_img_as_mut().insert_alt_name(utf8_slice::slice(
+                                content,
+                                p2 + 1,
+                                p3,
+                            ));
+                            rf.into_img_as_mut().insert_location(utf8_slice::slice(
+                                content,
+                                p4 + 1,
+                                i,
+                            ));
+                            buff.push(t);
                         } else {
-                            Token::new(s.to_string(), TokenKind::Url)
+                            let mut t = Token::new(s.to_string(), TokenKind::Url);
+                            let rf = &mut t;
+                            rf.into_url_as_mut().insert_show_name(utf8_slice::slice(
+                                content,
+                                p2 + 1,
+                                p3,
+                            ));
+                            rf.into_url_as_mut().insert_location(utf8_slice::slice(
+                                content,
+                                p4 + 1,
+                                i,
+                            ));
+                            buff.push(t);
                         };
-                        t.insert_show_name(utf8_slice::slice(content, p2 + 1, p3));
-                        t.insert_location(utf8_slice::slice(content, p4 + 1, i));
-                        buff.push(t);
 
                         last = i + 1;
                         state = TextState::Normal;

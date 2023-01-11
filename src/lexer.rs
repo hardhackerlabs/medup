@@ -263,30 +263,21 @@ impl<'lex> Lexer<'lex> {
                         if p1.is_some() {
                             let mut t = Token::new(s.to_string(), TokenKind::Image);
                             let rf = &mut t;
-                            rf.into_img_as_mut().insert_alt_name(utf8_slice::slice(
-                                content,
-                                p2 + 1,
-                                p3,
-                            ));
-                            rf.into_img_as_mut().insert_location(utf8_slice::slice(
-                                content,
-                                p4 + 1,
-                                i,
-                            ));
+                            rf.as_img_mut()
+                                .insert_alt_name(utf8_slice::slice(content, p2 + 1, p3));
+                            rf.as_img_mut()
+                                .insert_location(utf8_slice::slice(content, p4 + 1, i));
                             buff.push(t);
                         } else {
                             let mut t = Token::new(s.to_string(), TokenKind::Url);
                             let rf = &mut t;
-                            rf.into_url_as_mut().insert_show_name(utf8_slice::slice(
+                            rf.as_url_mut().insert_show_name(utf8_slice::slice(
                                 content,
                                 p2 + 1,
                                 p3,
                             ));
-                            rf.into_url_as_mut().insert_location(utf8_slice::slice(
-                                content,
-                                p4 + 1,
-                                i,
-                            ));
+                            rf.as_url_mut()
+                                .insert_location(utf8_slice::slice(content, p4 + 1, i));
                             buff.push(t);
                         };
 
@@ -341,26 +332,23 @@ impl<'lex> Lexer<'lex> {
         while let Some(t) = buff_iter.next() {
             match t.value() {
                 "*" | "**" | "***" => {
-                    if let Some(next) = buff_iter.peek() {
-                        if next.value() == t.value() {
-                            // update current token to correct kind
-                            t.kind = match t.value() {
-                                "*" => TokenKind::ItalicMark,
-                                "**" => TokenKind::BoldMark,
-                                "***" => TokenKind::ItalicBoldMark,
-                                _ => TokenKind::StarMark,
-                            };
-                            // update next token to correct kind
-                            // Note: here consumed the next element(a token)
-                            match buff_iter.next() {
-                                None => break,
-                                Some(n) => n.kind = t.kind(),
-                            }
-                            continue;
+                    if buff_iter.peek().map(|n| n.value()).unwrap_or("") == t.value() {
+                        // update current token to correct kind
+                        t.kind = match t.value() {
+                            "*" => TokenKind::ItalicMark,
+                            "**" => TokenKind::BoldMark,
+                            "***" => TokenKind::ItalicBoldMark,
+                            _ => TokenKind::StarMark,
+                        };
+                        // update next token to correct kind
+                        // Note: here consumed the next element(a token)
+                        match buff_iter.next() {
+                            None => break,
+                            Some(n) => n.kind = t.kind(),
                         }
+                    } else {
+                        t.kind = TokenKind::Text;
                     }
-
-                    t.kind = TokenKind::Text;
                 }
                 _ => {
                     // TODO:
@@ -444,13 +432,13 @@ impl Token {
     }
 
     // convert the token to url token
-    pub(crate) fn into_url(&self) -> UrlToken {
+    pub(crate) fn as_url(&self) -> UrlToken {
         if self.kind() != TokenKind::Url {
             panic!("token is not url");
         }
         UrlToken(self)
     }
-    fn into_url_as_mut(&mut self) -> UrlTokenAsMut {
+    fn as_url_mut(&mut self) -> UrlTokenAsMut {
         if self.kind() != TokenKind::Url {
             panic!("token is not url");
         }
@@ -458,13 +446,13 @@ impl Token {
     }
 
     // convert the token to img token
-    pub(crate) fn into_img(&self) -> ImgToken {
+    pub(crate) fn as_img(&self) -> ImgToken {
         if self.kind() != TokenKind::Image {
             panic!("token is not image");
         }
         ImgToken(self)
     }
-    fn into_img_as_mut(&mut self) -> ImgTokenAsMut {
+    fn as_img_mut(&mut self) -> ImgTokenAsMut {
         if self.kind() != TokenKind::Image {
             panic!("token is not image");
         }

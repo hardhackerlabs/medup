@@ -75,7 +75,7 @@ impl Ast {
     }
 
     // Iterate through each block of the Ast and process the block into a 'html' string
-    pub(crate) fn to_html(&self, html: &impl HtmlGenerate) -> Result<String, Box<dyn Error>> {
+    pub(crate) fn render_html(&self, html: &impl HtmlGenerate) -> Result<String, Box<dyn Error>> {
         let ss: Vec<String> = vec![
             String::from(
                 "<!doctype html>
@@ -189,13 +189,13 @@ impl Ast {
                     // leader must not be None
                     debug_assert!(leader.is_some());
 
-                    if let Some(leader) = leader {
-                        let mut leader = leader.borrow_mut();
-                        leader.nesting_lines.push(Rc::clone(l));
+                    if let Some(ld) = leader {
+                        let mut ld = ld.borrow_mut();
+                        ld.nested_lines.push(Rc::clone(l));
 
                         if let Some(next) = iter.peek() {
                             let next = next.borrow();
-                            if next.indents() - leader.indents() >= 1 // at least indent 1
+                            if next.indents() - ld.indents() >= 1 // at least indent 1
                             && next.kind != Kind::Blank
                             && next.kind != Kind::Title
                             && next.kind != Kind::DividingLine
@@ -205,6 +205,7 @@ impl Ast {
                                 // keep the state
                             } else {
                                 state = None;
+                                leader = None;
                             }
                         }
                     }
@@ -252,17 +253,18 @@ impl Ast {
             }
         }
 
+        // build nested lists recursively
         for b in blocks
             .iter()
             .filter(|b| b.kind() == Kind::DisorderedList || b.kind() == Kind::SortedList)
         {
             b.lines()
                 .iter()
-                .filter(|l| !l.borrow().nesting_lines.is_empty())
+                .filter(|l| !l.borrow().nested_lines.is_empty())
                 .for_each(|l| {
                     let mut l = l.borrow_mut();
-                    let mut bs = Ast::establish_blocks(&l.nesting_lines);
-                    l.nesting_blocks.append(&mut bs);
+                    let mut bs = Ast::establish_blocks(&l.nested_lines);
+                    l.nested_blocks.append(&mut bs);
                 });
         }
 
@@ -302,6 +304,8 @@ struct Block {
     indices: Vec<SharedLine>,
     kind: Kind,
     seq: usize,
+    // pre: Weak<RefCell<Block>>,
+    // next: Rc<RefCell<Block>>,
 }
 
 impl Block {
@@ -312,6 +316,7 @@ impl Block {
             seq: 0,
         }
     }
+
     fn lines(&self) -> &Vec<SharedLine> {
         &self.indices
     }
@@ -361,11 +366,72 @@ pub(crate) struct Line {
     //   Kind::SortedList
     //   Kind::Quote
     //   Kind::Normal
-    nesting_lines: Vec<SharedLine>,
-    nesting_blocks: Vec<Block>,
+    nested_lines: Vec<SharedLine>,
+    nested_blocks: Vec<Block>,
 }
 
 impl Line {
+    fn new(ln: usize, line: String) -> Self {
+        let mut l = Line {
+            num: ln,
+            text: line,
+            kind: Kind::NormalText,
+            buff: vec![],
+            nested_lines: vec![],
+            nested_blocks: vec![],
+        };
+        l.parse();
+        l
+    }
+
+    fn new_without_parsing(ln: usize, line: String) -> Self {
+        Line {
+            num: ln,
+            text: line,
+            kind: Kind::Code,
+            buff: vec![],
+            nested_lines: vec![],
+            nested_blocks: vec![],
+        }
+    }
+
+    fn meta() -> Self {
+        Line {
+            buff: vec![],
+            kind: Kind::Meta,
+            num: 0,
+            text: "meta".to_string(),
+            nested_lines: vec![],
+            nested_blocks: vec![],
+        }
+    }
+
+    pub(crate) fn enter_nested_blocks(&self, html: &impl HtmlGenerate) -> String {
+        self.nested_blocks
+            .iter()
+            .filter(|b| {
+                b.kind() != Kind::Meta
+                    && b.kind() != Kind::ListNesting
+                    && b.kind() != Kind::Blank
+                    && b.kind() != Kind::Title
+                    && b.kind() != Kind::DividingLine
+                    && b.kind() != Kind::CodeMark
+                    && b.kind() != Kind::Code
+            })
+            .map(|b| match b.kind() {
+                Kind::Title => html.gen_title(b.first()),
+                Kind::NormalText => html.gen_normal(b.first()),
+                Kind::DividingLine => html.gen_dividling(b.first()),
+                Kind::Code => html.gen_code(b.lines()),
+                Kind::DisorderedList => html.gen_disordered_list(b.lines()),
+                Kind::Blank => html.gen_blank(b.lines()),
+                Kind::Quote => html.gen_quote(b.lines()),
+                Kind::SortedList => html.gen_sorted_list(b.lines()),
+                _ => "".to_string(),
+            })
+            .join("\n")
+    }
+
     // Get the mark token in the Line, the mark token may be the first or second
     pub(crate) fn get_mark(&self) -> &Token {
         let first = self.first_token();
@@ -392,41 +458,6 @@ impl Line {
         &self.text
     }
 
-    fn new(ln: usize, line: String) -> Self {
-        let mut l = Line {
-            num: ln,
-            text: line,
-            kind: Kind::NormalText,
-            buff: vec![],
-            nesting_lines: vec![],
-            nesting_blocks: vec![],
-        };
-        l.parse();
-        l
-    }
-
-    fn new_without_parsing(ln: usize, line: String) -> Self {
-        Line {
-            num: ln,
-            text: line,
-            kind: Kind::Code,
-            buff: vec![],
-            nesting_lines: vec![],
-            nesting_blocks: vec![],
-        }
-    }
-
-    fn meta() -> Self {
-        Line {
-            buff: vec![],
-            kind: Kind::Meta,
-            num: 0,
-            text: "meta".to_string(),
-            nesting_lines: vec![],
-            nesting_blocks: vec![],
-        }
-    }
-
     // Parses a line of text into 'Line' struct that contains multi tokens.
     // Line's kind is determinded by the first token's kind.
     fn parse(&mut self) {
@@ -446,20 +477,18 @@ impl Line {
         debug_assert!(!self.all().is_empty());
     }
 
+    // Get number of the indent, two white space(' ') or one '\t' is a indent
     fn indents(&self) -> usize {
         let first = self.first_token();
         if first.kind() != TokenKind::WhiteSpace {
             return 0;
         }
-        let l = first.value().len();
-        if first.value().chars().filter(|c| *c == '\t').count() == l {
-            return l;
-        }
-        if first.value().chars().filter(|c| *c == ' ').count() == l && l % 2 == 0 {
-            l / 2
-        } else {
-            0
-        }
+        let sum: usize = first
+            .value()
+            .chars()
+            .map(|c| if c == '\t' { 2 } else { 1 })
+            .sum();
+        sum / 2
     }
 
     fn first_token(&self) -> &Token {
@@ -548,7 +577,7 @@ _____________
                 .get(0)
                 .unwrap()
                 .borrow()
-                .nesting_lines
+                .nested_lines
                 .len(),
             1
         );
@@ -558,7 +587,7 @@ _____________
                 .get(0)
                 .unwrap()
                 .borrow()
-                .nesting_blocks
+                .nested_blocks
                 .len(),
             1
         );

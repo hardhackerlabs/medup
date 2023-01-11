@@ -150,7 +150,7 @@ impl<'generator> Generator<'generator> {
                 }
                 TokenKind::Url => {
                     if let (Some(show_name), Some(location)) =
-                        (t.into_url().get_show_name(), t.into_url().get_location())
+                        (t.as_url().get_show_name(), t.as_url().get_location())
                     {
                         let s = self.gen_url(show_name, location);
                         text.push_str(&s);
@@ -158,7 +158,7 @@ impl<'generator> Generator<'generator> {
                 }
                 TokenKind::Image => {
                     if let (Some(alt), Some(location)) =
-                        (t.into_img().get_alt_name(), t.into_img().get_location())
+                        (t.as_img().get_alt_name(), t.as_img().get_location())
                     {
                         let s = self.gen_image(alt, location);
                         text.push_str(&s);
@@ -225,14 +225,36 @@ impl<'generator> HtmlGenerate for Generator<'generator> {
     }
 
     fn gen_sorted_list(&self, ls: &[SharedLine]) -> String {
-        let list: Vec<String> = ls.iter().map(|l| self.gen_line(l.borrow().all())).collect();
+        let list: Vec<String> = ls
+            .iter()
+            .map(|l| {
+                let leader = self.gen_line(l.borrow().all());
+                let nesting = l.borrow().enter_nested_blocks(&Generator::new().unwrap());
+                if !nesting.is_empty() {
+                    leader + "\n" + nesting.as_str()
+                } else {
+                    leader
+                }
+            })
+            .collect();
         self.tt
             .render(SORTED_LIST_TEMPLATE_NAME, &SortedListContext { list })
             .unwrap()
     }
 
     fn gen_disordered_list(&self, ls: &[SharedLine]) -> String {
-        let list = ls.iter().map(|l| self.gen_line(l.borrow().all())).collect();
+        let list = ls
+            .iter()
+            .map(|l| {
+                let leader = self.gen_line(l.borrow().all());
+                let nesting = l.borrow().enter_nested_blocks(&Generator::new().unwrap());
+                if !nesting.is_empty() {
+                    leader + "\n" + nesting.as_str()
+                } else {
+                    leader
+                }
+            })
+            .collect();
         self.tt
             .render(
                 DISORDERED_LIST_TEMPLATE_NAME,

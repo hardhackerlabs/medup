@@ -1,5 +1,4 @@
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::Debug;
 use std::fs::File;
@@ -9,9 +8,11 @@ use std::{fmt, io};
 
 use itertools::Itertools;
 
-pub type SharedLine = Rc<RefCell<Line>>;
+use crate::lexer::{Lexer, Token, TokenKind};
 
-pub trait HtmlGenerate {
+pub(crate) type SharedLine = Rc<RefCell<Line>>;
+
+pub(crate) trait HtmlGenerate {
     fn gen_title(&self, l: &SharedLine) -> String;
     fn gen_dividling(&self, l: &SharedLine) -> String;
     fn gen_normal(&self, l: &SharedLine) -> String;
@@ -23,7 +24,7 @@ pub trait HtmlGenerate {
 }
 
 // Ast represents the abstract syntax tree of the markdown file, it structurally represents the entire file.
-pub struct Ast {
+pub(crate) struct Ast {
     document: Vec<SharedLine>,
     blocks: Vec<Block>,
     defer_queue: Vec<SharedLine>,
@@ -32,7 +33,7 @@ pub struct Ast {
 
 impl Ast {
     // Create a Ast instance.
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Ast {
             document: vec![Rc::new(RefCell::new(Line::meta()))],
             blocks: vec![],
@@ -42,18 +43,18 @@ impl Ast {
     }
 
     // Parse markdown document from a file, the 'path' argument is the file path.
-    pub fn parse_file(&mut self, path: &str) -> Result<(), io::Error> {
+    pub(crate) fn parse_file(&mut self, path: &str) -> Result<(), io::Error> {
         let file = File::open(path)?;
         self.parse_from(&mut BufReader::new(file))
     }
 
     // Parse markdown document from a string.
-    pub fn parse_string(&mut self, s: &str) -> Result<(), io::Error> {
+    pub(crate) fn parse_string(&mut self, s: &str) -> Result<(), io::Error> {
         self.parse_from(&mut s.as_bytes())
     }
 
     // Parse markdown document from a reader, the 'reader' may be a file reader, byte buff or network socket etc.
-    pub fn parse_from(&mut self, reader: &mut dyn BufRead) -> Result<(), io::Error> {
+    pub(crate) fn parse_from(&mut self, reader: &mut dyn BufRead) -> Result<(), io::Error> {
         let mut num: usize = 0;
         loop {
             let mut buf = String::new();
@@ -74,7 +75,7 @@ impl Ast {
     }
 
     // Iterate through each block of the Ast and process the block into a 'html' string
-    pub fn to_html(&self, html: &impl HtmlGenerate) -> Result<String, Box<dyn Error>> {
+    pub(crate) fn to_html(&self, html: &impl HtmlGenerate) -> Result<String, Box<dyn Error>> {
         let ss: Vec<String> = vec![
             String::from(
                 "<!doctype html>
@@ -109,12 +110,12 @@ impl Ast {
     }
 
     // Count the lines in ast
-    pub fn count_lines(&self) -> usize {
+    pub(crate) fn count_lines(&self) -> usize {
         self.document.len() - 1
     }
 
     // Get the Line object with line number
-    pub fn get_line(&self, num: usize) -> Option<&SharedLine> {
+    pub(crate) fn _get_line(&self, num: usize) -> Option<&SharedLine> {
         self.document.get(num)
     }
 
@@ -349,7 +350,7 @@ enum Kind {
 
 // Line is a line of the markdown file, it be parsed into some tokens.
 #[derive(Debug)]
-pub struct Line {
+pub(crate) struct Line {
     buff: Vec<Token>,
     kind: Kind,
     num: usize,
@@ -366,7 +367,7 @@ pub struct Line {
 
 impl Line {
     // Get the mark token in the Line, the mark token may be the first or second
-    pub fn get_mark(&self) -> &Token {
+    pub(crate) fn get_mark(&self) -> &Token {
         let first = self.first_token();
         if first.kind() == TokenKind::WhiteSpace {
             // if the first token is 'WhiteSpace', the second token must be exist
@@ -377,17 +378,17 @@ impl Line {
     }
 
     // Get the Nth Token in the Line
-    pub fn get(&self, at: usize) -> Option<&Token> {
+    pub(crate) fn get(&self, at: usize) -> Option<&Token> {
         self.buff.get(at)
     }
 
     // Get all tokens in the Line
-    pub fn all(&self) -> &Vec<Token> {
+    pub(crate) fn all(&self) -> &Vec<Token> {
         &self.buff
     }
 
     // Get the line text
-    pub fn text(&self) -> &str {
+    pub(crate) fn text(&self) -> &str {
         &self.text
     }
 
@@ -466,552 +467,10 @@ impl Line {
     }
 }
 
-#[derive(Debug, PartialEq, Copy, Clone)]
-pub enum TokenKind {
-    TitleMark,        // #, ##, ###, ####
-    DisorderListMark, // *
-    SortedListMark,   // 1.
-    DividingMark,     // ---, ***, ___
-    QuoteMark,        // >
-    BoldMark,         // ** **
-    ItalicMark,       // * *
-    ItalicBoldMark,   // *** ***
-    CodeMark,         // ```
-    BlankLine,        // \n
-    LineBreak,        // <br>, double whitespace
-    Image,            // ![]()
-    Url,              // []()
-    Text,
-    StarMark,
-    WhiteSpace,
-}
-
-// Token is a part of the line, the parser will parse the line into some tokens.
-#[derive(PartialEq, Debug)]
-pub struct Token {
-    value: String,
-    kind: TokenKind,
-    details: Option<HashMap<String, String>>,
-}
-
-impl Token {
-    fn new(value: String, kind: TokenKind) -> Self {
-        Token {
-            value,
-            kind,
-            details: None,
-        }
-    }
-
-    fn split_off(&mut self, at: usize) -> Token {
-        let off = self.value.split_off(at);
-        Token::new(off, self.kind())
-    }
-
-    fn insert(&mut self, k: &str, v: &str) {
-        self.details
-            .get_or_insert(HashMap::new())
-            .insert(k.to_string(), v.to_string());
-    }
-
-    // Get value of the token
-    pub fn value(&self) -> &str {
-        &self.value
-    }
-
-    // Get the value length of the token
-    pub fn len(&self) -> usize {
-        self.value.len()
-    }
-
-    // Check the value of the token is empty or not
-    pub fn is_empty(&self) -> bool {
-        self.value.len() == 0
-    }
-
-    // Get kind of the token
-    pub fn kind(&self) -> TokenKind {
-        self.kind
-    }
-
-    // convert the token to url token
-    pub fn into_url(&self) -> UrlToken {
-        if self.kind() != TokenKind::Url {
-            panic!("token is not url");
-        }
-        UrlToken(self)
-    }
-    fn into_url_as_mut(&mut self) -> UrlTokenAsMut {
-        if self.kind() != TokenKind::Url {
-            panic!("token is not url");
-        }
-        UrlTokenAsMut(self)
-    }
-
-    // convert the token to img token
-    pub fn into_img(&self) -> ImgToken {
-        if self.kind() != TokenKind::Image {
-            panic!("token is not image");
-        }
-        ImgToken(self)
-    }
-    fn into_img_as_mut(&mut self) -> ImgTokenAsMut {
-        if self.kind() != TokenKind::Image {
-            panic!("token is not image");
-        }
-        ImgTokenAsMut(self)
-    }
-}
-
-#[derive(PartialEq, Debug)]
-pub struct UrlToken<'url_token>(&'url_token Token);
-
-impl<'url_token> UrlToken<'url_token> {
-    // Get show name of the URL
-    pub fn get_show_name(&self) -> Option<&str> {
-        self.0
-            .details
-            .as_ref()
-            .and_then(|x| x.get("show_name").map(|x| &**x))
-    }
-
-    // Get location of the URL
-    pub fn get_location(&self) -> Option<&str> {
-        self.0
-            .details
-            .as_ref()
-            .and_then(|x| x.get("location").map(|x| &**x))
-    }
-}
-
-#[derive(PartialEq, Debug)]
-pub struct UrlTokenAsMut<'url_token>(&'url_token mut Token);
-
-impl<'url_token> UrlTokenAsMut<'url_token> {
-    fn insert_show_name(&mut self, v: &str) {
-        self.0.insert("show_name", v)
-    }
-
-    fn insert_location(&mut self, v: &str) {
-        self.0.insert("location", v)
-    }
-}
-
-#[derive(PartialEq, Debug)]
-pub struct ImgToken<'img_token>(&'img_token Token);
-
-impl<'img_token> ImgToken<'img_token> {
-    // Get alt name of the Image
-    pub fn get_alt_name(&self) -> Option<&str> {
-        self.0
-            .details
-            .as_ref()
-            .and_then(|x| x.get("alt_name").map(|x| &**x))
-    }
-
-    // Get location of the Image
-    pub fn get_location(&self) -> Option<&str> {
-        self.0
-            .details
-            .as_ref()
-            .and_then(|x| x.get("location").map(|x| &**x))
-    }
-}
-
-#[derive(PartialEq, Debug)]
-pub struct ImgTokenAsMut<'img_token>(&'img_token mut Token);
-
-impl<'img_token> ImgTokenAsMut<'img_token> {
-    fn insert_alt_name(&mut self, v: &str) {
-        self.0.insert("alt_name", v)
-    }
-
-    fn insert_location(&mut self, v: &str) {
-        self.0.insert("location", v)
-    }
-}
-
-#[derive(PartialEq, Debug)]
-enum State {
-    Begin,
-    Mark(usize),
-    VerifyDividing(usize),
-    Normal(usize),
-}
-
-#[derive(PartialEq, Clone, Copy)]
-enum TextState {
-    Normal,
-    // means *, usize is start position in line
-    Star(usize),
-    // means !, usize is the index of '!'
-    PicBegin(usize),
-    // means [, (usize, usize) is the index of ('!', '[')
-    PicTitleBegin(usize, usize),
-    // means [, usize is the index of '['
-    UrlTitleBegin(usize),
-    // means ], (usize, usize, usize) is the index of ('!', '[', ']')
-    TitleDone(Option<usize>, usize, usize),
-    // means (, (usize, usize, usize, usize) is the index of ('!', '[', ']', '(')
-    LocationBegin(Option<usize>, usize, usize, usize),
-}
-
-// Lexer is a lexical analyzer that parses lines of text into multiple tokens.
-struct Lexer<'lex> {
-    state: State,
-    line_text: &'lex str,
-}
-
-impl<'lex> Lexer<'lex> {
-    fn new(text: &'lex str) -> Self {
-        Lexer {
-            state: State::Begin,
-            line_text: text,
-        }
-    }
-
-    fn split(mut self) -> Vec<Token> {
-        let mut buff = vec![];
-        let iter = self.line_text.chars().enumerate().peekable();
-        for (ix, curr) in iter {
-            match self.state {
-                State::Begin => {
-                    if !curr.is_whitespace() {
-                        let s = self.slice(0, ix);
-                        if !s.is_empty() {
-                            buff.push(Token::new(s, TokenKind::WhiteSpace));
-                        }
-                        self.goto(State::Mark(ix));
-                    } else {
-                        // the end of iterator
-                        if curr == '\n' {
-                            buff.push(Token::new(self.slice(0, ix), TokenKind::BlankLine));
-                        } else {
-                            // keep this state
-                        }
-                    }
-                }
-
-                State::Mark(begin) => {
-                    // find the first word
-                    let first_word = if curr.is_whitespace() {
-                        // the current character is white space
-                        self.slice_str(begin, ix)
-                    } else {
-                        continue;
-                    };
-
-                    if let Some(m) = self.split_mark(first_word) {
-                        match m.kind() {
-                            TokenKind::DividingMark => self.goto(State::VerifyDividing(begin)),
-                            TokenKind::CodeMark => self.goto(State::Normal(begin + 3)),
-                            _ => self.goto(State::Normal(ix + 1)),
-                        }
-                        buff.push(m);
-                    } else {
-                        // normal text
-                        self.goto(State::Normal(begin));
-                    }
-                }
-                State::VerifyDividing(p) => {
-                    if !curr.is_whitespace() {
-                        // if contains other characters, it's a invalid dividing line
-                        // so remove the dividing mark token
-                        buff.pop();
-                        self.goto(State::Normal(p));
-                    }
-                }
-                State::Normal(_) => {
-                    break;
-                }
-            };
-        }
-
-        if let State::Normal(begin) = self.state {
-            let rest = self.slice_rest(begin);
-            let mut ts = Self::split_inside(rest);
-            if Lexer::has_br(rest) {
-                ts.push(Token::new("<br>".to_string(), TokenKind::LineBreak));
-            }
-            for t in ts.into_iter().filter(|t| !t.value().is_empty()) {
-                buff.push(t);
-            }
-        }
-        buff
-    }
-
-    fn goto(&mut self, state: State) {
-        self.state = state;
-    }
-
-    fn slice_rest(&self, begin: usize) -> &str {
-        utf8_slice::from(self.line_text, begin)
-    }
-
-    fn slice_str(&self, begin: usize, end: usize) -> &str {
-        utf8_slice::slice(self.line_text, begin, end)
-    }
-
-    fn slice(&self, begin: usize, end: usize) -> String {
-        self.slice_str(begin, end).to_string()
-    }
-
-    // parse the first word in the line as the mark token
-    fn split_mark(&self, first_word: &str) -> Option<Token> {
-        let first_word_chars: Vec<char> = first_word.chars().collect();
-
-        match first_word_chars[..] {
-            // title
-            ['#'] | ['#', '#'] | ['#', '#', '#'] | ['#', '#', '#', '#'] => {
-                Some(Token::new(first_word.to_string(), TokenKind::TitleMark))
-            }
-            // disordered list
-            ['*'] | ['-'] | ['+'] => Some(Token::new(
-                first_word.to_string(),
-                TokenKind::DisorderListMark,
-            )),
-            // sorted list
-            [n1, '.'] if ('1'..='9').contains(&n1) => Some(Token::new(
-                first_word.to_string(),
-                TokenKind::SortedListMark,
-            )),
-            [n1, n2, '.'] if ('1'..='9').contains(&n1) && ('0'..='9').contains(&n2) => Some(
-                Token::new(first_word.to_string(), TokenKind::SortedListMark),
-            ),
-            [n1, n2, n3, '.']
-                if ('1'..='9').contains(&n1)
-                    && ('0'..='9').contains(&n2)
-                    && ('0'..='9').contains(&n3) =>
-            {
-                Some(Token::new(
-                    first_word.to_string(),
-                    TokenKind::SortedListMark,
-                ))
-            }
-            // dividing line
-            ['*', '*', '*', ..] | ['-', '-', '-', ..] | ['_', '_', '_', ..]
-                if first_word
-                    .chars()
-                    .filter(|x| !x.is_whitespace() && *x != '*' && *x != '-' && *x != '_')
-                    .count()
-                    == 0 =>
-            {
-                Some(Token::new(first_word.to_string(), TokenKind::DividingMark))
-            }
-            // quote
-            ['>'] => Some(Token::new(first_word.to_string(), TokenKind::QuoteMark)),
-            // code block mark
-            // .e.g:
-            //      ```rust
-            //      ``` rust
-            ['`', '`', '`', ..] => Some(Token::new("```".to_string(), TokenKind::CodeMark)),
-            // normal (as no mark)
-            _ => {
-                // don't change the unparsed pointer, because the first word is not a mark.
-                None
-            }
-        }
-    }
-
-    // parse text content, include bold, picture and url etc.
-    fn split_inside(content: &str) -> Vec<Token> {
-        let mut last = 0;
-
-        let mut buff: Vec<Token> = Vec::new();
-        let mut state = TextState::Normal;
-
-        let mut content_iter = content.chars().enumerate().peekable();
-        while let Some((i, ch)) = content_iter.next() {
-            match (state, ch) {
-                (_, '\n') => {
-                    // end of the line
-                    let s = utf8_slice::slice(content, last, i)
-                        .trim_end()
-                        .trim_end_matches("<br>")
-                        .to_string();
-                    if !s.is_empty() {
-                        buff.push(Token::new(s, TokenKind::Text));
-                    }
-                    break;
-                }
-                (TextState::Normal, _) => match ch {
-                    '*' => {
-                        // the part of normal text before '*' mark.
-                        let s = utf8_slice::slice(content, last, i);
-                        if !s.is_empty() {
-                            buff.push(Token::new(s.to_string(), TokenKind::Text));
-                        }
-
-                        last = i;
-
-                        if let Some((_, n)) = content_iter.peek() {
-                            if *n == '*' {
-                                state = TextState::Star(i);
-                            } else {
-                                // '*' mark
-                                let s = utf8_slice::slice(content, i, i + 1);
-                                buff.push(Token::new(s.to_string(), TokenKind::StarMark));
-
-                                last = i + 1;
-                            }
-                        }
-                    }
-                    '!' => state = TextState::PicBegin(i), // begin of picture
-                    '[' => state = TextState::UrlTitleBegin(i), // begin of url
-                    _ => (),
-                },
-                (TextState::PicBegin(p), _) => match ch {
-                    '[' => state = TextState::PicTitleBegin(p, i),
-                    '!' => state = TextState::PicBegin(i),
-                    _ => state = TextState::Normal,
-                },
-                (TextState::PicTitleBegin(p1, p2), _) => {
-                    if ch == ']' {
-                        state = TextState::TitleDone(Some(p1), p2, i);
-                    }
-                }
-                (TextState::UrlTitleBegin(p), _) => match ch {
-                    ']' => state = TextState::TitleDone(None, p, i),
-                    '[' => state = TextState::UrlTitleBegin(i),
-                    _ => (),
-                },
-                (TextState::TitleDone(p1, p2, p3), _) => match ch {
-                    '(' => state = TextState::LocationBegin(p1, p2, p3, i),
-                    ']' => state = TextState::TitleDone(p1, p2, i),
-                    _ => state = TextState::Normal,
-                },
-                (TextState::LocationBegin(p1, p2, p3, p4), _) => {
-                    if ch == ')' {
-                        // when found ')', this means that we found a valid picture or url.
-                        let begin = p1.unwrap_or(p2);
-                        // the part of normal text before '![]()' or '[]()' mark.
-                        let s = utf8_slice::slice(content, last, begin);
-                        if !s.is_empty() {
-                            buff.push(Token::new(s.to_string(), TokenKind::Text));
-                        }
-                        // '![]()' or '[]()' mark
-                        let s = utf8_slice::slice(content, begin, i + 1);
-                        if p1.is_some() {
-                            let mut t = Token::new(s.to_string(), TokenKind::Image);
-                            let rf = &mut t;
-                            rf.into_img_as_mut().insert_alt_name(utf8_slice::slice(
-                                content,
-                                p2 + 1,
-                                p3,
-                            ));
-                            rf.into_img_as_mut().insert_location(utf8_slice::slice(
-                                content,
-                                p4 + 1,
-                                i,
-                            ));
-                            buff.push(t);
-                        } else {
-                            let mut t = Token::new(s.to_string(), TokenKind::Url);
-                            let rf = &mut t;
-                            rf.into_url_as_mut().insert_show_name(utf8_slice::slice(
-                                content,
-                                p2 + 1,
-                                p3,
-                            ));
-                            rf.into_url_as_mut().insert_location(utf8_slice::slice(
-                                content,
-                                p4 + 1,
-                                i,
-                            ));
-                            buff.push(t);
-                        };
-
-                        last = i + 1;
-                        state = TextState::Normal;
-                    }
-                }
-                (TextState::Star(p), _) => {
-                    if let Some((_, n)) = content_iter.peek() {
-                        if *n != '*' {
-                            let s = utf8_slice::slice(content, p, i + 1);
-                            buff.push(Token::new(s.to_string(), TokenKind::StarMark));
-
-                            last = i + 1;
-                            state = TextState::Normal;
-                        }
-                    }
-                }
-            }
-        }
-        Self::tidy_inside(&mut buff);
-        buff
-    }
-
-    // TODO: need to optimize
-    fn tidy_inside(buff: &mut Vec<Token>) {
-        let mut splits_at = vec![];
-        let mut pre = 0;
-        buff.iter().enumerate().for_each(|(ix, t)| {
-            if t.kind() != TokenKind::StarMark {
-                return;
-            }
-            let n = t.value().len() - pre;
-            if pre > 0 && n > 0 {
-                let l = splits_at.len();
-                splits_at.push((ix + l, pre));
-                pre = n;
-            } else {
-                pre = t.value().len();
-            }
-        });
-        splits_at.into_iter().for_each(|(ix, at)| {
-            let off = buff[ix].split_off(at);
-            buff.insert(ix + 1, off);
-        });
-
-        let mut buff_iter = buff
-            .iter_mut()
-            .filter(|t| t.kind() == TokenKind::StarMark)
-            .peekable();
-        while let Some(t) = buff_iter.next() {
-            match t.value() {
-                "*" | "**" | "***" => {
-                    if let Some(next) = buff_iter.peek() {
-                        if next.value() == t.value() {
-                            // update current token to correct kind
-                            t.kind = match t.value() {
-                                "*" => TokenKind::ItalicMark,
-                                "**" => TokenKind::BoldMark,
-                                "***" => TokenKind::ItalicBoldMark,
-                                _ => TokenKind::StarMark,
-                            };
-                            // update next token to correct kind
-                            // Note: here consumed the next element(a token)
-                            match buff_iter.next() {
-                                None => break,
-                                Some(n) => n.kind = t.kind(),
-                            }
-                            continue;
-                        }
-                    }
-
-                    t.kind = TokenKind::Text;
-                }
-                _ => {
-                    // TODO:
-                    t.kind = TokenKind::Text;
-                }
-            }
-        }
-    }
-
-    // find 'line break', double spaces or <br> at the end of the line
-    fn has_br(s: &str) -> bool {
-        if s.ends_with("  \n") {
-            true
-        } else {
-            s.trim_end().ends_with("<br>")
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use super::*;
 
     fn create_ast(s: &str) -> Ast {
@@ -1124,7 +583,7 @@ _____________
 
             assert_eq!(ast.count_lines(), n as usize);
             {
-                let l = ast.get_line(1).unwrap().borrow();
+                let l = ast._get_line(1).unwrap().borrow();
                 assert_eq!(l.kind, Kind::Title);
                 assert_eq!(
                     l.buff,
@@ -1135,7 +594,7 @@ _____________
                 );
             }
             {
-                let l = ast.get_line(2).unwrap().borrow();
+                let l = ast._get_line(2).unwrap().borrow();
                 assert_eq!(l.kind, Kind::Title);
                 assert_eq!(
                     l.buff,
@@ -1146,7 +605,7 @@ _____________
                 );
             }
             {
-                let l = ast.get_line(3).unwrap().borrow();
+                let l = ast._get_line(3).unwrap().borrow();
                 assert_eq!(l.kind, Kind::Title);
                 assert_eq!(
                     l.buff,
@@ -1157,7 +616,7 @@ _____________
                 );
             }
             {
-                let l = ast.get_line(4).unwrap().borrow();
+                let l = ast._get_line(4).unwrap().borrow();
                 assert_eq!(l.kind, Kind::Title);
                 assert_eq!(
                     l.buff,
@@ -1168,7 +627,7 @@ _____________
                 );
             }
             {
-                let l = ast.get_line(5).unwrap().borrow();
+                let l = ast._get_line(5).unwrap().borrow();
                 assert_eq!(l.kind, Kind::Title);
                 assert_eq!(
                     l.buff,
@@ -1187,7 +646,7 @@ _____________
         let ast = create_ast(title);
 
         assert_eq!(ast.count_lines(), 1);
-        assert_eq!(ast.get_line(1).unwrap().borrow().kind, Kind::Title);
+        assert_eq!(ast._get_line(1).unwrap().borrow().kind, Kind::Title);
 
         let mut kvs = HashMap::new();
         kvs.insert("show_name".to_string(), "这是一个链接".to_string());
@@ -1199,7 +658,7 @@ _____________
         );
         url.details = Some(kvs);
         assert_eq!(
-            ast.get_line(1).unwrap().borrow().buff,
+            ast._get_line(1).unwrap().borrow().buff,
             vec![
                 Token::new("#".to_string(), TokenKind::TitleMark),
                 Token::new("header1 ".to_string(), TokenKind::Text),
@@ -1224,9 +683,9 @@ _____________
             let ast = create_ast(mark);
 
             assert_eq!(ast.count_lines(), 1);
-            assert_eq!(ast.get_line(1).unwrap().borrow().kind, Kind::DividingLine);
+            assert_eq!(ast._get_line(1).unwrap().borrow().kind, Kind::DividingLine);
             assert_eq!(
-                ast.get_line(1).unwrap().borrow().buff,
+                ast._get_line(1).unwrap().borrow().buff,
                 vec![Token::new(
                     mark.trim_end().to_string(),
                     TokenKind::DividingMark,
@@ -1254,9 +713,9 @@ _____________
                 let ast = create_ast(cnt);
 
                 assert_eq!(ast.count_lines(), 1);
-                assert_eq!(ast.get_line(1).unwrap().borrow().kind, Kind::NormalText);
+                assert_eq!(ast._get_line(1).unwrap().borrow().kind, Kind::NormalText);
                 assert_eq!(
-                    ast.get_line(1).unwrap().borrow().buff,
+                    ast._get_line(1).unwrap().borrow().buff,
                     vec![Token::new(cnt.to_string(), TokenKind::Text)]
                 );
             }
@@ -1268,9 +727,9 @@ _____________
                 let ast = create_ast(cnt);
 
                 assert_eq!(ast.count_lines(), 1);
-                assert_eq!(ast.get_line(1).unwrap().borrow().kind, Kind::NormalText);
+                assert_eq!(ast._get_line(1).unwrap().borrow().kind, Kind::NormalText);
                 assert_eq!(
-                    ast.get_line(1).unwrap().borrow().buff,
+                    ast._get_line(1).unwrap().borrow().buff,
                     vec![
                         Token::new("***".to_string(), TokenKind::Text),
                         Token::new("xxxx".to_string(), TokenKind::Text)
@@ -1285,9 +744,9 @@ _____________
                 let ast = create_ast(cnt);
 
                 assert_eq!(ast.count_lines(), 1);
-                assert_eq!(ast.get_line(1).unwrap().borrow().kind, Kind::NormalText);
+                assert_eq!(ast._get_line(1).unwrap().borrow().kind, Kind::NormalText);
                 assert_eq!(
-                    ast.get_line(1).unwrap().borrow().buff,
+                    ast._get_line(1).unwrap().borrow().buff,
                     vec![
                         Token::new("**".to_string(), TokenKind::BoldMark),
                         Token::new("1".to_string(), TokenKind::Text,),
@@ -1301,9 +760,9 @@ _____________
             let ast = create_ast(cnt);
 
             assert_eq!(ast.count_lines(), 1);
-            assert_eq!(ast.get_line(1).unwrap().borrow().kind, Kind::NormalText);
+            assert_eq!(ast._get_line(1).unwrap().borrow().kind, Kind::NormalText);
             assert_eq!(
-                ast.get_line(1).unwrap().borrow().buff,
+                ast._get_line(1).unwrap().borrow().buff,
                 vec![
                     Token::new("*".to_string(), TokenKind::ItalicMark),
                     Token::new("1".to_string(), TokenKind::Text,),
@@ -1316,9 +775,9 @@ _____________
             let ast = create_ast(cnt);
 
             assert_eq!(ast.count_lines(), 1);
-            assert_eq!(ast.get_line(1).unwrap().borrow().kind, Kind::NormalText);
+            assert_eq!(ast._get_line(1).unwrap().borrow().kind, Kind::NormalText);
             assert_eq!(
-                ast.get_line(1).unwrap().borrow().buff,
+                ast._get_line(1).unwrap().borrow().buff,
                 vec![
                     Token::new("***".to_string(), TokenKind::ItalicBoldMark),
                     Token::new("1".to_string(), TokenKind::Text,),
@@ -1341,9 +800,9 @@ _____________
             let ast = create_ast(cnt);
 
             assert_eq!(ast.count_lines(), 1);
-            assert_eq!(ast.get_line(1).unwrap().borrow().kind, Kind::NormalText);
+            assert_eq!(ast._get_line(1).unwrap().borrow().kind, Kind::NormalText);
             assert_eq!(
-                ast.get_line(1).unwrap().borrow().buff,
+                ast._get_line(1).unwrap().borrow().buff,
                 vec![
                     Token::new(
                         cnt.trim().trim_end_matches("<br>").to_string(),
@@ -1368,9 +827,9 @@ _____________
         let ast = create_ast(&s);
 
         assert_eq!(ast.count_lines(), 1);
-        assert_eq!(ast.get_line(1).unwrap().borrow().kind, Kind::Quote);
+        assert_eq!(ast._get_line(1).unwrap().borrow().kind, Kind::Quote);
         assert_eq!(
-            ast.get_line(1).unwrap().borrow().buff,
+            ast._get_line(1).unwrap().borrow().buff,
             vec![
                 Token::new(mark.to_string(), TokenKind::QuoteMark),
                 Token::new(content.to_string(), TokenKind::Text)
@@ -1391,9 +850,12 @@ _____________
         let ast = create_ast(&s);
 
         assert_eq!(ast.count_lines(), 1);
-        assert_eq!(ast.get_line(1).unwrap().borrow().kind, Kind::DisorderedList);
         assert_eq!(
-            ast.get_line(1).unwrap().borrow().buff,
+            ast._get_line(1).unwrap().borrow().kind,
+            Kind::DisorderedList
+        );
+        assert_eq!(
+            ast._get_line(1).unwrap().borrow().buff,
             vec![
                 Token::new(mark.to_string(), TokenKind::DisorderListMark),
                 Token::new(content.to_string(), TokenKind::Text,)
@@ -1414,9 +876,9 @@ _____________
             let ast = create_ast(&s);
 
             assert_eq!(ast.count_lines(), 1);
-            assert_eq!(ast.get_line(1).unwrap().borrow().kind, Kind::SortedList);
+            assert_eq!(ast._get_line(1).unwrap().borrow().kind, Kind::SortedList);
             assert_eq!(
-                ast.get_line(1).unwrap().borrow().buff,
+                ast._get_line(1).unwrap().borrow().buff,
                 vec![
                     Token::new(mark.to_string(), TokenKind::SortedListMark),
                     Token::new(content.to_string(), TokenKind::Text,)
@@ -1440,9 +902,9 @@ _____________
             let ast = create_ast(cnt);
 
             assert_eq!(ast.count_lines(), 1);
-            assert_eq!(ast.get_line(1).unwrap().borrow().kind, Kind::Blank);
+            assert_eq!(ast._get_line(1).unwrap().borrow().kind, Kind::Blank);
             assert_eq!(
-                ast.get_line(1).unwrap().borrow().buff,
+                ast._get_line(1).unwrap().borrow().buff,
                 vec![Token::new(
                     cnt.trim_end_matches('\n').to_string(),
                     TokenKind::BlankLine
@@ -1471,35 +933,35 @@ _____________
                 let ast = create_ast(&s);
 
                 assert_eq!(ast.count_lines(), 1);
-                assert_eq!(ast.get_line(1).unwrap().borrow().kind, Kind::NormalText);
+                assert_eq!(ast._get_line(1).unwrap().borrow().kind, Kind::NormalText);
                 if cnt.is_empty() {
                     // token 0
                     assert_eq!(
-                        ast.get_line(1).unwrap().borrow().buff[0].kind,
+                        ast._get_line(1).unwrap().borrow().buff[0].kind(),
                         TokenKind::Image
                     );
                     assert_eq!(
-                        ast.get_line(1).unwrap().borrow().buff[0].value,
+                        ast._get_line(1).unwrap().borrow().buff[0].value(),
                         pic.to_string()
                     );
                 } else {
                     // token 0
                     assert_eq!(
-                        ast.get_line(1).unwrap().borrow().buff[0].kind,
+                        ast._get_line(1).unwrap().borrow().buff[0].kind(),
                         TokenKind::Text
                     );
                     assert_eq!(
-                        ast.get_line(1).unwrap().borrow().buff[0].value,
+                        ast._get_line(1).unwrap().borrow().buff[0].value(),
                         cnt.to_string()
                     );
 
                     // token 1
                     assert_eq!(
-                        ast.get_line(1).unwrap().borrow().buff[1].kind,
+                        ast._get_line(1).unwrap().borrow().buff[1].kind(),
                         TokenKind::Image
                     );
                     assert_eq!(
-                        ast.get_line(1).unwrap().borrow().buff[1].value,
+                        ast._get_line(1).unwrap().borrow().buff[1].value(),
                         pic.to_string()
                     );
                 }
@@ -1525,35 +987,35 @@ _____________
                 let ast = create_ast(&s);
 
                 assert_eq!(ast.count_lines(), 1);
-                assert_eq!(ast.get_line(1).unwrap().borrow().kind, Kind::NormalText);
+                assert_eq!(ast._get_line(1).unwrap().borrow().kind, Kind::NormalText);
                 if cnt.is_empty() {
                     // token 0
                     assert_eq!(
-                        ast.get_line(1).unwrap().borrow().buff[0].kind,
+                        ast._get_line(1).unwrap().borrow().buff[0].kind(),
                         TokenKind::Url
                     );
                     assert_eq!(
-                        ast.get_line(1).unwrap().borrow().buff[0].value,
+                        ast._get_line(1).unwrap().borrow().buff[0].value(),
                         url.to_string()
                     );
                 } else {
                     // token 0
                     assert_eq!(
-                        ast.get_line(1).unwrap().borrow().buff[0].kind,
+                        ast._get_line(1).unwrap().borrow().buff[0].kind(),
                         TokenKind::Text
                     );
                     assert_eq!(
-                        ast.get_line(1).unwrap().borrow().buff[0].value,
+                        ast._get_line(1).unwrap().borrow().buff[0].value(),
                         cnt.to_string()
                     );
 
                     // token 1
                     assert_eq!(
-                        ast.get_line(1).unwrap().borrow().buff[1].kind,
+                        ast._get_line(1).unwrap().borrow().buff[1].kind(),
                         TokenKind::Url
                     );
                     assert_eq!(
-                        ast.get_line(1).unwrap().borrow().buff[1].value,
+                        ast._get_line(1).unwrap().borrow().buff[1].value(),
                         url.to_string()
                     );
                 }
@@ -1567,9 +1029,9 @@ _____________
         ast.parse_string("``` ").unwrap();
 
         assert_eq!(ast.count_lines(), 1);
-        assert_eq!(ast.get_line(1).unwrap().borrow().kind, Kind::CodeMark);
+        assert_eq!(ast._get_line(1).unwrap().borrow().kind, Kind::CodeMark);
         assert_eq!(
-            ast.get_line(1).unwrap().borrow().buff,
+            ast._get_line(1).unwrap().borrow().buff,
             vec![Token::new("```".to_string(), TokenKind::CodeMark)]
         );
 
@@ -1577,9 +1039,9 @@ _____________
         ast.parse_string("```rust").unwrap();
 
         assert_eq!(ast.count_lines(), 1);
-        assert_eq!(ast.get_line(1).unwrap().borrow().kind, Kind::CodeMark);
+        assert_eq!(ast._get_line(1).unwrap().borrow().kind, Kind::CodeMark);
         assert_eq!(
-            ast.get_line(1).unwrap().borrow().buff,
+            ast._get_line(1).unwrap().borrow().buff,
             vec![
                 Token::new("```".to_string(), TokenKind::CodeMark),
                 Token::new("rust".to_string(), TokenKind::Text)

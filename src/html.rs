@@ -3,7 +3,9 @@ use serde::Serialize;
 use std::error::Error;
 use tinytemplate::TinyTemplate;
 
-use crate::parser::{HtmlGenerate, SharedLine, Token, TokenKind};
+use crate::parser::{HtmlGenerate, SharedLine};
+
+use crate::lexer::{Token, TokenKind};
 
 const TITLE_TEMPLATE_NAME: &str = "title";
 const TITLE_TEMPLATE: &str = "{{ if is_l1 }}<h1>{text}</h1>{{ endif }}
@@ -93,12 +95,12 @@ struct TextParagraphContext<'tpc> {
     text: &'tpc str,
 }
 
-pub struct Generator<'generator> {
+pub(crate) struct Generator<'generator> {
     tt: TinyTemplate<'generator>,
 }
 
 impl<'generator> Generator<'generator> {
-    pub fn new() -> Result<Self, Box<dyn Error>> {
+    pub(crate) fn new() -> Result<Self, Box<dyn Error>> {
         let mut g = Generator {
             tt: TinyTemplate::new(),
         };

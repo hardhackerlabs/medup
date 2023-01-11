@@ -1,3 +1,4 @@
-pub mod html;
+mod html;
+mod lexer;
 pub mod markdown;
-pub mod parser;
+mod parser;

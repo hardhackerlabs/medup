@@ -338,7 +338,7 @@ impl<'lex> Lexer<'lex> {
                             "*" => TokenKind::ItalicMark,
                             "**" => TokenKind::BoldMark,
                             "***" => TokenKind::ItalicBoldMark,
-                            _ => TokenKind::StarMark,
+                            _ => unreachable!(),
                         };
                         // update next token to correct kind
                         // Note: here consumed the next element(a token)

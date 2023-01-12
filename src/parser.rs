@@ -104,7 +104,8 @@ impl Ast {
                 Kind::Blank => html.gen_blank(b.lines()),
                 Kind::Quote => html.gen_quote(b.lines()),
                 Kind::SortedList => html.gen_sorted_list(b.lines()),
-                _ => "".to_string(),
+                Kind::CodeMark => html.gen_normal(b.lines()), // as normal text
+                _ => unreachable!(),
             })
             .filter(|s| !s.is_empty())
             .join("\n\n");
@@ -160,23 +161,28 @@ impl Ast {
         let mut leader: Option<&SharedLine> = None;
         let mut state: Option<Kind> = None;
 
-        let mut iter = all.iter().peekable();
-        while let Some(l) = iter.next() {
-            let current = l.borrow();
-            match state.unwrap_or(current.kind) {
-                Kind::Meta => {}
+        let mut pre_line_kind: Option<Kind> = None;
 
+        let mut iter = all
+            .iter()
+            .filter(|x| x.borrow().kind != Kind::Meta)
+            .peekable();
+        while let Some(l) = iter.next() {
+            let mut curr_line = l.borrow_mut();
+            // Note: Don't use 'continue' statement in the match expression, because
+            // we will save the kind of the previous block after the 'match'.
+            match state.unwrap_or(curr_line.kind) {
                 Kind::DisorderedList | Kind::SortedList => {
-                    if let Some(b) = blocks.last_mut().filter(|b| b.kind() == current.kind) {
+                    if let Some(b) = blocks.last_mut().filter(|b| b.kind() == curr_line.kind) {
                         b.push(Rc::clone(l));
                     } else {
-                        Ast::insert_block(&mut blocks, Block::new(Rc::clone(l), current.kind))
+                        Ast::insert_block(&mut blocks, Block::new(Rc::clone(l), curr_line.kind));
                     }
 
                     // Check the next line is a list nesting or not
                     if let Some(next) = iter.peek() {
                         let next = next.borrow();
-                        if next.indents() - current.indents() == 1 // indent 1
+                        if next.indents() - curr_line.indents() == 1 // indent 1
                             && next.kind != Kind::Blank
                             && next.kind != Kind::Title
                             && next.kind != Kind::DividingLine
@@ -236,24 +242,55 @@ impl Ast {
                         b.push(Rc::clone(l));
                     }
 
-                    if current.kind == Kind::CodeMark {
+                    if curr_line.kind == Kind::CodeMark {
                         // close this code block
                         state = None;
                     }
                 }
 
                 Kind::Blank | Kind::Quote | Kind::NormalText => {
-                    if let Some(b) = blocks.last_mut().filter(|b| b.kind() == current.kind) {
+                    if let Some(b) = blocks.last_mut().filter(|b| b.kind() == curr_line.kind) {
                         b.push(Rc::clone(l));
                     } else {
-                        Ast::insert_block(&mut blocks, Block::new(Rc::clone(l), current.kind))
+                        Ast::insert_block(&mut blocks, Block::new(Rc::clone(l), curr_line.kind));
                     }
                 }
 
-                Kind::DividingLine | Kind::Title => {
-                    Ast::insert_block(&mut blocks, Block::new(Rc::clone(l), current.kind))
+                Kind::DividingLine => {
+                    let next_line_kind =
+                        iter.peek().map(|l| l.borrow().kind).unwrap_or(Kind::Blank);
+
+                    if pre_line_kind.unwrap_or(Kind::Blank) == Kind::Blank
+                        && next_line_kind == Kind::Blank
+                    {
+                        Ast::insert_block(&mut blocks, Block::new(Rc::clone(l), curr_line.kind))
+                    } else {
+                        curr_line.kind = Kind::NormalText;
+                        curr_line
+                            .buff
+                            .iter_mut()
+                            .for_each(|t| t.update_kind(TokenKind::Text));
+
+                        if let Some(b) = blocks.last_mut().filter(|b| b.kind() == Kind::NormalText)
+                        {
+                            b.push(Rc::clone(l));
+                        } else {
+                            Ast::insert_block(
+                                &mut blocks,
+                                Block::new(Rc::clone(l), curr_line.kind),
+                            );
+                        }
+                    }
                 }
+
+                Kind::Title => {
+                    Ast::insert_block(&mut blocks, Block::new(Rc::clone(l), curr_line.kind));
+                }
+                Kind::Meta => unreachable!(),
             }
+
+            // save the kind of previous block
+            pre_line_kind = Some(curr_line.kind);
         }
 
         // build nested lists recursively
@@ -715,7 +752,14 @@ _____________
             let ast = create_ast(mark);
 
             assert_eq!(ast.count_lines(), 1);
-            assert_eq!(ast._get_line(1).unwrap().borrow().kind, Kind::DividingLine);
+            assert_eq!(
+                ast.document
+                    .iter()
+                    .skip(1)
+                    .map(|x| x.borrow().kind)
+                    .collect::<Vec<Kind>>(),
+                vec![Kind::DividingLine],
+            );
             assert_eq!(
                 ast._get_line(1).unwrap().borrow().buff,
                 vec![Token::new(
@@ -734,88 +778,82 @@ _____________
                 "--- x",
                 "___ 这不是一个分界线",
                 "--- ---",
-                "___ ___",
                 "#这不是标题",
                 "##这也不是标题",
                 ">这不是引用",
                 "1.这也不是列表",
+                "***xxxx",
+                "**1**",
+                "*1*",
+                "*** 1 ***",
+                "__1__",
+                "_1_",
+                "___ 1 ___",
             ];
 
-            for cnt in contents {
-                let ast = create_ast(cnt);
-
-                assert_eq!(ast.count_lines(), 1);
-                assert_eq!(ast._get_line(1).unwrap().borrow().kind, Kind::NormalText);
-                assert_eq!(
-                    ast._get_line(1).unwrap().borrow().buff,
-                    vec![Token::new(cnt.to_string(), TokenKind::Text)]
-                );
-            }
-        }
-        {
-            let contents = vec!["***xxxx"];
-
-            for cnt in contents {
-                let ast = create_ast(cnt);
-
-                assert_eq!(ast.count_lines(), 1);
-                assert_eq!(ast._get_line(1).unwrap().borrow().kind, Kind::NormalText);
-                assert_eq!(
-                    ast._get_line(1).unwrap().borrow().buff,
-                    vec![
-                        Token::new("***".to_string(), TokenKind::Text),
-                        Token::new("xxxx".to_string(), TokenKind::Text)
-                    ]
-                );
-            }
-        }
-        {
-            let contents = vec!["**1**"];
-
-            for cnt in contents {
-                let ast = create_ast(cnt);
-
-                assert_eq!(ast.count_lines(), 1);
-                assert_eq!(ast._get_line(1).unwrap().borrow().kind, Kind::NormalText);
-                assert_eq!(
-                    ast._get_line(1).unwrap().borrow().buff,
-                    vec![
-                        Token::new("**".to_string(), TokenKind::BoldMark),
-                        Token::new("1".to_string(), TokenKind::Text,),
-                        Token::new("**".to_string(), TokenKind::BoldMark),
-                    ]
-                );
-            }
-        }
-        {
-            let cnt = "*1*";
-            let ast = create_ast(cnt);
-
-            assert_eq!(ast.count_lines(), 1);
-            assert_eq!(ast._get_line(1).unwrap().borrow().kind, Kind::NormalText);
-            assert_eq!(
-                ast._get_line(1).unwrap().borrow().buff,
+            let expects: Vec<Vec<Token>> = vec![
+                vec![Token::new(contents[0].to_string(), TokenKind::Text)],
+                vec![Token::new(contents[1].to_string(), TokenKind::Text)],
                 vec![
-                    Token::new("*".to_string(), TokenKind::ItalicMark),
-                    Token::new("1".to_string(), TokenKind::Text,),
-                    Token::new("*".to_string(), TokenKind::ItalicMark),
-                ]
-            );
-        }
-        {
-            let cnt = "***1***";
-            let ast = create_ast(cnt);
-
-            assert_eq!(ast.count_lines(), 1);
-            assert_eq!(ast._get_line(1).unwrap().borrow().kind, Kind::NormalText);
-            assert_eq!(
-                ast._get_line(1).unwrap().borrow().buff,
+                    // 2
+                    Token::new("___".to_string(), TokenKind::Text),
+                    Token::new(" 这不是一个分界线".to_string(), TokenKind::Text),
+                ],
+                vec![Token::new(contents[3].to_string(), TokenKind::Text)],
+                vec![Token::new(contents[4].to_string(), TokenKind::Text)],
+                vec![Token::new(contents[5].to_string(), TokenKind::Text)],
+                vec![Token::new(contents[6].to_string(), TokenKind::Text)],
+                vec![Token::new(contents[7].to_string(), TokenKind::Text)],
                 vec![
+                    // 8
+                    Token::new("***".to_string(), TokenKind::Text),
+                    Token::new("xxxx".to_string(), TokenKind::Text),
+                ],
+                vec![
+                    // 9
+                    Token::new("**".to_string(), TokenKind::BoldMark),
+                    Token::new("1".to_string(), TokenKind::Text),
+                    Token::new("**".to_string(), TokenKind::BoldMark),
+                ],
+                vec![
+                    // 10
+                    Token::new("*".to_string(), TokenKind::ItalicMark),
+                    Token::new("1".to_string(), TokenKind::Text),
+                    Token::new("*".to_string(), TokenKind::ItalicMark),
+                ],
+                vec![
+                    // 11
                     Token::new("***".to_string(), TokenKind::ItalicBoldMark),
-                    Token::new("1".to_string(), TokenKind::Text,),
+                    Token::new(" 1 ".to_string(), TokenKind::Text),
                     Token::new("***".to_string(), TokenKind::ItalicBoldMark),
-                ]
-            );
+                ],
+                vec![
+                    // 12
+                    Token::new("__".to_string(), TokenKind::BoldMark),
+                    Token::new("1".to_string(), TokenKind::Text),
+                    Token::new("__".to_string(), TokenKind::BoldMark),
+                ],
+                vec![
+                    // 13
+                    Token::new("_".to_string(), TokenKind::ItalicMark),
+                    Token::new("1".to_string(), TokenKind::Text),
+                    Token::new("_".to_string(), TokenKind::ItalicMark),
+                ],
+                vec![
+                    // 14
+                    Token::new("___".to_string(), TokenKind::ItalicBoldMark),
+                    Token::new(" 1 ".to_string(), TokenKind::Text),
+                    Token::new("___".to_string(), TokenKind::ItalicBoldMark),
+                ],
+            ];
+
+            for (i, cnt) in contents.iter().enumerate() {
+                let ast = create_ast(cnt);
+
+                assert_eq!(ast.count_lines(), 1);
+                assert_eq!(ast._get_line(1).unwrap().borrow().kind, Kind::NormalText);
+                assert_eq!(ast._get_line(1).unwrap().borrow().buff, expects[i]);
+            }
         }
     }
 

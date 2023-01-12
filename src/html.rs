@@ -101,10 +101,11 @@ const TEXT_PARAGRAPH_TEMPLATE: &str = "\
 // quote block
 const QUOTE_TEMPLATE_NAME: &str = "quote";
 const QUOTE_TEMPLATE: &str = "\
-<blockquote>\
-{{ for text in lines }} 
+<blockquote>
+<p>{{ for text in lines }} 
     {text}<br>\
-{{ endfor }} 
+{{ endfor }}
+</p>
 </blockquote>";
 
 #[derive(Serialize)]

@@ -12,7 +12,7 @@ enum State {
 enum TextState {
     Normal,
     // means *, usize is start position in line
-    Star(usize),
+    Continuous(usize),
     // means !, usize is the index of '!'
     PicBegin(usize),
     // means [, (usize, usize) is the index of ('!', '[')
@@ -190,11 +190,11 @@ impl<'lex> Lexer<'lex> {
         let mut state = TextState::Normal;
 
         let mut content_iter = content.chars().enumerate().peekable();
-        while let Some((i, ch)) = content_iter.next() {
+        while let Some((ix, ch)) = content_iter.next() {
             match (state, ch) {
                 (_, '\n') => {
                     // end of the line
-                    let s = utf8_slice::slice(content, last, i)
+                    let s = utf8_slice::slice(content, last, ix)
                         .trim_end()
                         .trim_end_matches("<br>")
                         .to_string();
@@ -204,49 +204,51 @@ impl<'lex> Lexer<'lex> {
                     break;
                 }
                 (TextState::Normal, _) => match ch {
-                    '*' => {
+                    '*' | '_' => {
                         // the part of normal text before '*' mark.
-                        let s = utf8_slice::slice(content, last, i);
+                        let s = utf8_slice::slice(content, last, ix);
                         if !s.is_empty() {
                             buff.push(Token::new(s.to_string(), TokenKind::Text));
                         }
 
-                        last = i;
+                        last = ix;
 
-                        if let Some((_, n)) = content_iter.peek() {
-                            if *n == '*' {
-                                state = TextState::Star(i);
-                            } else {
-                                // '*' mark
-                                let s = utf8_slice::slice(content, i, i + 1);
-                                buff.push(Token::new(s.to_string(), TokenKind::StarMark));
-
-                                last = i + 1;
-                            }
+                        if *content_iter.peek().map(|(_, n)| n).unwrap_or(&' ') == ch {
+                            state = TextState::Continuous(ix);
+                        } else {
+                            // '*' mark
+                            let s = utf8_slice::slice(content, ix, ix + 1);
+                            last = ix + 1;
+                            let k = match ch {
+                                '*' => TokenKind::StarMark,
+                                '_' => TokenKind::UnderLineMark,
+                                _ => unreachable!(),
+                            };
+                            buff.push(Token::new(s.to_string(), k));
                         }
                     }
-                    '!' => state = TextState::PicBegin(i), // begin of picture
-                    '[' => state = TextState::UrlTitleBegin(i), // begin of url
+                    '!' => state = TextState::PicBegin(ix), // begin of picture
+                    '[' => state = TextState::UrlTitleBegin(ix), // begin of url
                     _ => (),
                 },
                 (TextState::PicBegin(p), _) => match ch {
-                    '[' => state = TextState::PicTitleBegin(p, i),
-                    '!' => state = TextState::PicBegin(i),
+                    '[' => state = TextState::PicTitleBegin(p, ix),
+                    '!' => state = TextState::PicBegin(ix),
                     _ => state = TextState::Normal,
                 },
                 (TextState::PicTitleBegin(p1, p2), _) => {
                     if ch == ']' {
-                        state = TextState::TitleDone(Some(p1), p2, i);
+                        state = TextState::TitleDone(Some(p1), p2, ix);
                     }
                 }
                 (TextState::UrlTitleBegin(p), _) => match ch {
-                    ']' => state = TextState::TitleDone(None, p, i),
-                    '[' => state = TextState::UrlTitleBegin(i),
+                    ']' => state = TextState::TitleDone(None, p, ix),
+                    '[' => state = TextState::UrlTitleBegin(ix),
                     _ => (),
                 },
                 (TextState::TitleDone(p1, p2, p3), _) => match ch {
-                    '(' => state = TextState::LocationBegin(p1, p2, p3, i),
-                    ']' => state = TextState::TitleDone(p1, p2, i),
+                    '(' => state = TextState::LocationBegin(p1, p2, p3, ix),
+                    ']' => state = TextState::TitleDone(p1, p2, ix),
                     _ => state = TextState::Normal,
                 },
                 (TextState::LocationBegin(p1, p2, p3, p4), _) => {
@@ -259,14 +261,14 @@ impl<'lex> Lexer<'lex> {
                             buff.push(Token::new(s.to_string(), TokenKind::Text));
                         }
                         // '![]()' or '[]()' mark
-                        let s = utf8_slice::slice(content, begin, i + 1);
+                        let s = utf8_slice::slice(content, begin, ix + 1);
                         if p1.is_some() {
                             let mut t = Token::new(s.to_string(), TokenKind::Image);
                             let rf = &mut t;
                             rf.as_img_mut()
                                 .insert_alt_name(utf8_slice::slice(content, p2 + 1, p3));
                             rf.as_img_mut()
-                                .insert_location(utf8_slice::slice(content, p4 + 1, i));
+                                .insert_location(utf8_slice::slice(content, p4 + 1, ix));
                             buff.push(t);
                         } else {
                             let mut t = Token::new(s.to_string(), TokenKind::Url);
@@ -277,23 +279,26 @@ impl<'lex> Lexer<'lex> {
                                 p3,
                             ));
                             rf.as_url_mut()
-                                .insert_location(utf8_slice::slice(content, p4 + 1, i));
+                                .insert_location(utf8_slice::slice(content, p4 + 1, ix));
                             buff.push(t);
                         };
 
-                        last = i + 1;
+                        last = ix + 1;
                         state = TextState::Normal;
                     }
                 }
-                (TextState::Star(p), _) => {
-                    if let Some((_, n)) = content_iter.peek() {
-                        if *n != '*' {
-                            let s = utf8_slice::slice(content, p, i + 1);
-                            buff.push(Token::new(s.to_string(), TokenKind::StarMark));
+                (TextState::Continuous(begin), _) => {
+                    if *content_iter.peek().map(|(_, n)| n).unwrap_or(&' ') != ch {
+                        let s = utf8_slice::slice(content, begin, ix + 1);
+                        let k = match ch {
+                            '*' => TokenKind::StarMark,
+                            '_' => TokenKind::UnderLineMark,
+                            _ => unreachable!(),
+                        };
+                        buff.push(Token::new(s.to_string(), k));
 
-                            last = i + 1;
-                            state = TextState::Normal;
-                        }
+                        last = ix + 1;
+                        state = TextState::Normal;
                     }
                 }
             }
@@ -305,19 +310,26 @@ impl<'lex> Lexer<'lex> {
     // TODO: need to optimize
     fn tidy(buff: &mut Vec<Token>) {
         let mut splits_at: VecDeque<(usize, usize)> = VecDeque::new();
-        let mut pre = 0;
-        for (ix, t) in buff
-            .iter()
-            .enumerate()
-            .filter(|(_, t)| t.kind() == TokenKind::StarMark)
-        {
-            let n = t.value().len() - pre;
-            if pre > 0 && n > 0 {
+
+        let mut pre_len: usize = 0;
+        let mut pre_kind: Option<TokenKind> = None;
+
+        for (ix, t) in buff.iter().enumerate().filter(|(_, t)| {
+            t.kind() == TokenKind::StarMark || t.kind() == TokenKind::UnderLineMark
+        }) {
+            if t.kind() != pre_kind.unwrap_or(TokenKind::None) {
+                pre_kind = Some(t.kind());
+                pre_len = t.value().len();
+                continue;
+            }
+            let n = t.value().len() - pre_len;
+            if pre_len > 0 && n > 0 {
                 let l = splits_at.len();
-                splits_at.push_back((ix + l, pre));
-                pre = n;
+                splits_at.push_back((ix + l, pre_len));
+
+                pre_len = n;
             } else {
-                pre = t.value().len();
+                pre_len = t.value().len();
             }
         }
         splits_at.into_iter().for_each(|(ix, l)| {
@@ -327,17 +339,19 @@ impl<'lex> Lexer<'lex> {
 
         let mut buff_iter = buff
             .iter_mut()
-            .filter(|t| t.kind() == TokenKind::StarMark)
+            .filter(|t| t.kind() == TokenKind::StarMark || t.kind() == TokenKind::UnderLineMark)
             .peekable();
         while let Some(t) = buff_iter.next() {
             match t.value() {
-                "*" | "**" | "***" => {
-                    if buff_iter.peek().map(|n| n.value()).unwrap_or("") == t.value() {
+                "*" | "**" | "***" | "_" | "__" | "___" => {
+                    if buff_iter.peek().map(|n| n.value()).unwrap_or("") != t.value() {
+                        t.kind = TokenKind::Text;
+                    } else {
                         // update current token to correct kind
                         t.kind = match t.value() {
-                            "*" => TokenKind::ItalicMark,
-                            "**" => TokenKind::BoldMark,
-                            "***" => TokenKind::ItalicBoldMark,
+                            "*" | "_" => TokenKind::ItalicMark,
+                            "**" | "__" => TokenKind::BoldMark,
+                            "***" | "___" => TokenKind::ItalicBoldMark,
                             _ => unreachable!(),
                         };
                         // update next token to correct kind
@@ -346,8 +360,6 @@ impl<'lex> Lexer<'lex> {
                             None => break,
                             Some(n) => n.kind = t.kind(),
                         }
-                    } else {
-                        t.kind = TokenKind::Text;
                     }
                 }
                 _ => {
@@ -385,7 +397,9 @@ pub(crate) enum TokenKind {
     Url,              // []()
     Text,
     StarMark,
+    UnderLineMark,
     WhiteSpace,
+    None,
 }
 
 // Token is a part of the line, the parser will parse the line into some tokens.
@@ -405,17 +419,6 @@ impl Token {
         }
     }
 
-    fn split_off(&mut self, at: usize) -> Token {
-        let off = self.value.split_off(at);
-        Token::new(off, self.kind())
-    }
-
-    fn insert(&mut self, k: &str, v: &str) {
-        self.details
-            .get_or_insert(HashMap::new())
-            .insert(k.to_string(), v.to_string());
-    }
-
     // Get value of the token
     pub(crate) fn value(&self) -> &str {
         &self.value
@@ -429,6 +432,11 @@ impl Token {
     // Get kind of the token
     pub(crate) fn kind(&self) -> TokenKind {
         self.kind
+    }
+
+    // Set a new kind of the token
+    pub(crate) fn update_kind(&mut self, kind: TokenKind) {
+        self.kind = kind
     }
 
     // convert the token to url token
@@ -457,6 +465,17 @@ impl Token {
             panic!("token is not image");
         }
         ImgTokenAsMut(self)
+    }
+
+    fn split_off(&mut self, at: usize) -> Token {
+        let off = self.value.split_off(at);
+        Token::new(off, self.kind())
+    }
+
+    fn insert(&mut self, k: &str, v: &str) {
+        self.details
+            .get_or_insert(HashMap::new())
+            .insert(k.to_string(), v.to_string());
     }
 }
 

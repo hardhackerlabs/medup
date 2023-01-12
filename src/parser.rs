@@ -78,13 +78,15 @@ impl Ast {
     pub(crate) fn render_html(&self, html: &impl HtmlGenerate) -> Result<String, Box<dyn Error>> {
         let ss: Vec<String> = vec![
             String::from(
-                "<!doctype html>
+                r#"<!doctype html>
 <html>
 <head>
 <meta charset='UTF-8'><meta name='viewport' content='width=device-width initial-scale=1'>
 <title></title>
 </head>
-<body>",
+
+
+<body>"#,
             ),
             String::from("</body></html>"),
         ];
@@ -104,7 +106,7 @@ impl Ast {
                 Kind::SortedList => html.gen_sorted_list(b.lines()),
                 _ => "".to_string(),
             })
-            .join("\n");
+            .join("\n\n");
 
         Ok(Itertools::intersperse(ss.iter(), &gens).join("\n"))
     }

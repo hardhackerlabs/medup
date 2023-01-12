@@ -8,45 +8,49 @@ use crate::parser::{HtmlGenerate, SharedLine};
 use crate::lexer::{Token, TokenKind};
 
 const TITLE_TEMPLATE_NAME: &str = "title";
-const TITLE_TEMPLATE: &str = "{{ if is_l1 }}<h1>{text}</h1>{{ endif }}
-{{ if is_l2 }}<h2>{text}</h2>{{ endif }}
-{{ if is_l3 }}<h3>{text}</h3>{{ endif }}
+const TITLE_TEMPLATE: &str = "\
+{{ if is_l1 }}<h1>{text}</h1>{{ endif }}\
+{{ if is_l2 }}<h2>{text}</h2>{{ endif }}\
+{{ if is_l3 }}<h3>{text}</h3>{{ endif }}\
 {{ if is_l4 }}<h4>{text}</h4>{{ endif }}";
 
 const URL_TEMPLATE_NAME: &str = "url";
-const URL_TEMPLATE: &str = "<a href=\"{location}\">{show_name}</a>";
+const URL_TEMPLATE: &str = r#"<a href="{location}">{show_name}</a>"#;
 
 const IMG_TEMPLATE_NAME: &str = "img";
-const IMG_TEMPLATE: &str = "<img src=\"{location}\" alt=\"{alt}\">";
+const IMG_TEMPLATE: &str = r#"<img src="{location}" alt="{alt}">"#;
 
 const SORTED_LIST_TEMPLATE_NAME: &str = "sorted_list";
-const SORTED_LIST_TEMPLATE: &str = "<ol> 
-    {{ for item in list }} 
-    <li>{item}</li> 
-    {{ endfor }} 
+const SORTED_LIST_TEMPLATE: &str = "\
+<ol>\
+{{ for item in list }}
+    <li>{item}</li>\
+{{ endfor }} 
 </ol>";
 
 const DISORDERED_LIST_TEMPLATE_NAME: &str = "disordered_list";
-const DISORDERED_LIST_TEMPLATE: &str = "<ul> 
-    {{ for item in list }} 
-    <li>{item}</li> 
-    {{ endfor }} 
+const DISORDERED_LIST_TEMPLATE: &str = "\
+<ul>\
+{{ for item in list }} 
+    <li>{item}</li>\
+{{ endfor }} 
 </ul>";
 
 const QUOTE_TEMPLATE_NAME: &str = "quote";
-const QUOTE_TEMPLATE: &str = "<blockquote> 
-    {{ for text in lines }} 
-    <p>{text}</p>
-    {{ endfor }} 
+const QUOTE_TEMPLATE: &str = "\
+<blockquote>\
+{{ for text in lines }} 
+    <p>{text}</p>\
+{{ endfor }} 
 </blockquote>";
 
 const CODE_TEMPLATE_NAME: &str = "code_block";
-const CODE_TEMPLATE: &str = "<pre><code class=\"language-{name}\">
+const CODE_TEMPLATE: &str = r#"<pre><code class="language-{name}">
 {text}
-</code></pre>";
+</code></pre>"#;
 
 const TEXT_PARAGRAPH_TEMPLATE_NAME: &str = "paragraph";
-const TEXT_PARAGRAPH_TEMPLATE: &str = "<p>{text}</p>";
+const TEXT_PARAGRAPH_TEMPLATE: &str = r#"<p>{text}</p>"#;
 
 #[derive(Serialize)]
 struct TitleContext {

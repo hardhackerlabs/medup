@@ -15,7 +15,7 @@ pub(crate) type SharedLine = Rc<RefCell<Line>>;
 pub(crate) trait HtmlGenerate {
     fn gen_title(&self, l: &SharedLine) -> String;
     fn gen_dividling(&self, l: &SharedLine) -> String;
-    fn gen_normal(&self, l: &SharedLine) -> String;
+    fn gen_normal(&self, ls: &[SharedLine]) -> String;
     fn gen_blank(&self, ls: &[SharedLine]) -> String;
     fn gen_sorted_list(&self, ls: &[SharedLine]) -> String;
     fn gen_disordered_list(&self, ls: &[SharedLine]) -> String;
@@ -97,7 +97,7 @@ impl Ast {
             .filter(|b| b.kind() != Kind::Meta && b.kind() != Kind::ListNesting)
             .map(|b| match b.kind() {
                 Kind::Title => html.gen_title(b.first()),
-                Kind::NormalText => html.gen_normal(b.first()),
+                Kind::NormalText => html.gen_normal(b.lines()),
                 Kind::DividingLine => html.gen_dividling(b.first()),
                 Kind::Code => html.gen_code(b.lines()),
                 Kind::DisorderedList => html.gen_disordered_list(b.lines()),
@@ -106,6 +106,7 @@ impl Ast {
                 Kind::SortedList => html.gen_sorted_list(b.lines()),
                 _ => "".to_string(),
             })
+            .filter(|s| !s.is_empty())
             .join("\n\n");
 
         Ok(Itertools::intersperse(ss.iter(), &gens).join("\n"))
@@ -241,7 +242,7 @@ impl Ast {
                     }
                 }
 
-                Kind::Blank | Kind::Quote => {
+                Kind::Blank | Kind::Quote | Kind::NormalText => {
                     if let Some(b) = blocks.last_mut().filter(|b| b.kind() == current.kind) {
                         b.push(Rc::clone(l));
                     } else {
@@ -249,7 +250,7 @@ impl Ast {
                     }
                 }
 
-                Kind::NormalText | Kind::DividingLine | Kind::Title => {
+                Kind::DividingLine | Kind::Title => {
                     Ast::insert_block(&mut blocks, Block::new(Rc::clone(l), current.kind))
                 }
             }
@@ -422,7 +423,7 @@ impl Line {
             })
             .map(|b| match b.kind() {
                 Kind::Title => html.gen_title(b.first()),
-                Kind::NormalText => html.gen_normal(b.first()),
+                Kind::NormalText => html.gen_normal(b.lines()),
                 Kind::DividingLine => html.gen_dividling(b.first()),
                 Kind::Code => html.gen_code(b.lines()),
                 Kind::DisorderedList => html.gen_disordered_list(b.lines()),
@@ -1059,18 +1060,26 @@ _____________
         let mut ast = Ast::new();
         ast.parse_string("``` ").unwrap();
 
-        assert_eq!(ast.count_lines(), 1);
-        assert_eq!(ast._get_line(1).unwrap().borrow().kind, Kind::CodeMark);
         assert_eq!(
-            ast._get_line(1).unwrap().borrow().buff,
-            vec![Token::new("```".to_string(), TokenKind::CodeMark)]
+            ast.document
+                .iter()
+                .skip(1)
+                .map(|l| l.borrow().kind)
+                .collect::<Vec<Kind>>(),
+            vec![Kind::CodeMark]
         );
 
         let mut ast = Ast::new();
         ast.parse_string("```rust").unwrap();
 
-        assert_eq!(ast.count_lines(), 1);
-        assert_eq!(ast._get_line(1).unwrap().borrow().kind, Kind::CodeMark);
+        assert_eq!(
+            ast.document
+                .iter()
+                .skip(1)
+                .map(|l| l.borrow().kind)
+                .collect::<Vec<Kind>>(),
+            vec![Kind::CodeMark]
+        );
         assert_eq!(
             ast._get_line(1).unwrap().borrow().buff,
             vec![
@@ -1096,15 +1105,26 @@ _____________
         ast.parse_string(md).unwrap();
 
         assert_eq!(ast.count_lines(), md.lines().count());
-        assert_eq!(ast.blocks.len(), 6);
+        assert_eq!(ast.blocks.len(), 4);
 
-        assert_eq!(ast.blocks[1].kind(), Kind::Code);
-        assert_eq!(ast.blocks[1]._count(), 4);
+        let kinds = vec![
+            Kind::NormalText,
+            Kind::Code,
+            Kind::CodeMark,
+            Kind::NormalText,
+        ];
+        assert_eq!(
+            ast.blocks().iter().map(|b| b.kind()).collect::<Vec<Kind>>(),
+            kinds
+        );
 
-        assert_eq!(ast.blocks[2].kind(), Kind::CodeMark);
-        assert_eq!(ast.blocks[2]._count(), 1);
-
-        assert_eq!(ast.blocks[5].kind(), Kind::NormalText);
-        assert_eq!(ast.blocks[5]._count(), 1);
+        let counts: Vec<usize> = vec![1, 4, 1, 3];
+        assert_eq!(
+            ast.blocks()
+                .iter()
+                .map(|b| b._count())
+                .collect::<Vec<usize>>(),
+            counts
+        );
     }
 }

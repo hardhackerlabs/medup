@@ -7,50 +7,13 @@ use crate::parser::{HtmlGenerate, SharedLine};
 
 use crate::lexer::{Token, TokenKind};
 
+// title
 const TITLE_TEMPLATE_NAME: &str = "title";
 const TITLE_TEMPLATE: &str = "\
 {{ if is_l1 }}<h1>{text}</h1>{{ endif }}\
 {{ if is_l2 }}<h2>{text}</h2>{{ endif }}\
 {{ if is_l3 }}<h3>{text}</h3>{{ endif }}\
 {{ if is_l4 }}<h4>{text}</h4>{{ endif }}";
-
-const URL_TEMPLATE_NAME: &str = "url";
-const URL_TEMPLATE: &str = r#"<a href="{location}">{show_name}</a>"#;
-
-const IMG_TEMPLATE_NAME: &str = "img";
-const IMG_TEMPLATE: &str = r#"<img src="{location}" alt="{alt}">"#;
-
-const SORTED_LIST_TEMPLATE_NAME: &str = "sorted_list";
-const SORTED_LIST_TEMPLATE: &str = "\
-<ol>\
-{{ for item in list }}
-    <li>{item}</li>\
-{{ endfor }} 
-</ol>";
-
-const DISORDERED_LIST_TEMPLATE_NAME: &str = "disordered_list";
-const DISORDERED_LIST_TEMPLATE: &str = "\
-<ul>\
-{{ for item in list }} 
-    <li>{item}</li>\
-{{ endfor }} 
-</ul>";
-
-const QUOTE_TEMPLATE_NAME: &str = "quote";
-const QUOTE_TEMPLATE: &str = "\
-<blockquote>\
-{{ for text in lines }} 
-    <p>{text}</p>\
-{{ endfor }} 
-</blockquote>";
-
-const CODE_TEMPLATE_NAME: &str = "code_block";
-const CODE_TEMPLATE: &str = r#"<pre><code class="language-{name}">
-{text}
-</code></pre>"#;
-
-const TEXT_PARAGRAPH_TEMPLATE_NAME: &str = "paragraph";
-const TEXT_PARAGRAPH_TEMPLATE: &str = r#"<p>{text}</p>"#;
 
 #[derive(Serialize)]
 struct TitleContext {
@@ -61,10 +24,28 @@ struct TitleContext {
     text: String,
 }
 
+// sorted list
+const SORTED_LIST_TEMPLATE_NAME: &str = "sorted_list";
+const SORTED_LIST_TEMPLATE: &str = "\
+<ol>\
+{{ for item in list }}
+    <li>{item}</li>\
+{{ endfor }} 
+</ol>";
+
 #[derive(Serialize)]
 struct SortedListContext {
     list: Vec<String>,
 }
+
+// disordered list
+const DISORDERED_LIST_TEMPLATE_NAME: &str = "disordered_list";
+const DISORDERED_LIST_TEMPLATE: &str = "\
+<ul>\
+{{ for item in list }} 
+    <li>{item}</li>\
+{{ endfor }} 
+</ul>";
 
 #[derive(Serialize)]
 struct DisorderedListContext {
@@ -76,11 +57,19 @@ struct QuoteContext {
     lines: Vec<String>,
 }
 
+// url
+const URL_TEMPLATE_NAME: &str = "url";
+const URL_TEMPLATE: &str = r#"<a href="{location}">{show_name}</a>"#;
+
 #[derive(Serialize)]
 struct UrlContext<'uc> {
     show_name: &'uc str,
     location: &'uc str,
 }
+
+// image
+const IMG_TEMPLATE_NAME: &str = "img";
+const IMG_TEMPLATE: &str = r#"<img src="{location}" alt="{alt}">"#;
 
 #[derive(Serialize)]
 struct ImageContext<'ic> {
@@ -88,15 +77,39 @@ struct ImageContext<'ic> {
     location: &'ic str,
 }
 
+// code block
+const CODE_TEMPLATE_NAME: &str = "code_block";
+const CODE_TEMPLATE: &str = r#"<pre><code class="language-{name}">
+{text}
+</code></pre>"#;
+
 #[derive(Serialize)]
 struct CodeBlockContext<'cbc> {
     name: &'cbc str,
     text: &'cbc str,
 }
 
+// normal text
+const TEXT_PARAGRAPH_TEMPLATE_NAME: &str = "normal_text";
+const TEXT_PARAGRAPH_TEMPLATE: &str = "\
+<p>\
+{{ for text in lines}}\
+{text}<br>\
+{{ endfor }}\
+</p>";
+
+// quote block
+const QUOTE_TEMPLATE_NAME: &str = "quote";
+const QUOTE_TEMPLATE: &str = "\
+<blockquote>\
+{{ for text in lines }} 
+    {text}<br>\
+{{ endfor }} 
+</blockquote>";
+
 #[derive(Serialize)]
-struct TextParagraphContext<'tpc> {
-    text: &'tpc str,
+struct TextParagraphContext {
+    lines: Vec<String>,
 }
 
 pub(crate) struct Generator<'generator> {
@@ -214,18 +227,19 @@ impl<'generator> HtmlGenerate for Generator<'generator> {
         "<hr>".to_string()
     }
 
-    fn gen_normal(&self, l: &SharedLine) -> String {
-        let text = self.gen_line(l.borrow().all());
+    fn gen_normal(&self, ls: &[SharedLine]) -> String {
+        let lines: Vec<String> = ls.iter().map(|l| self.gen_line(l.borrow().all())).collect();
         self.tt
             .render(
                 TEXT_PARAGRAPH_TEMPLATE_NAME,
-                &TextParagraphContext { text: &text },
+                &TextParagraphContext { lines },
             )
             .unwrap()
     }
 
-    fn gen_blank(&self, ls: &[SharedLine]) -> String {
-        ls.iter().map(|_| "<p></p>").collect()
+    fn gen_blank(&self, _ls: &[SharedLine]) -> String {
+        // ls.iter().map(|_| "<p></p>").collect()
+        "".to_string()
     }
 
     fn gen_sorted_list(&self, ls: &[SharedLine]) -> String {

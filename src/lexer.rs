@@ -103,11 +103,10 @@ impl<'lex> Lexer<'lex> {
 
         if let State::Normal(begin) = self.state {
             let rest = self.slice_rest(begin);
-            let mut ts = Self::split_inside(rest);
-            if Lexer::has_br(rest) {
-                ts.push(Token::new("<br>".to_string(), TokenKind::LineBreak));
-            }
-            for t in ts.into_iter().filter(|t| !t.value().is_empty()) {
+            for t in Lexer::split_inside(rest)
+                .into_iter()
+                .filter(|t| !t.value().is_empty())
+            {
                 buff.push(t);
             }
         }
@@ -307,6 +306,9 @@ impl<'lex> Lexer<'lex> {
                     }
                 }
             }
+        }
+        if Lexer::has_br(content) {
+            buff.push(Token::new("<br>".to_string(), TokenKind::LineBreak));
         }
         Lexer::tidy(&mut buff);
         buff
@@ -585,51 +587,209 @@ impl<'img_token> ImgTokenAsMut<'img_token> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_split_inside() {
-        let ss = vec![
-            "**粗体**_斜体_***斜体+粗体***",
-            "**1** ****2***",
-            "**__2__**",
-        ];
-        let expects = vec![
-            vec![
-                ("**", TokenKind::BoldMark),
-                ("粗体", TokenKind::Text),
-                ("**", TokenKind::BoldMark),
-                ("_", TokenKind::ItalicMark),
-                ("斜体", TokenKind::Text),
-                ("_", TokenKind::ItalicMark),
-                ("***", TokenKind::ItalicBoldMark),
-                ("斜体+粗体", TokenKind::Text),
-                ("***", TokenKind::ItalicBoldMark),
-            ],
-            vec![
-                ("**", TokenKind::BoldMark),
-                ("1", TokenKind::Text),
-                ("**", TokenKind::BoldMark),
-                (" ", TokenKind::Text),
-                ("****", TokenKind::Text),
-                ("2", TokenKind::Text),
-                ("***", TokenKind::Text),
-            ],
-            vec![
-                ("**", TokenKind::BoldMark),
-                ("__", TokenKind::BoldMark),
-                ("2", TokenKind::Text),
-                ("__", TokenKind::BoldMark),
-                ("**", TokenKind::BoldMark),
-            ],
-        ];
+    fn exec_cases(cases: Vec<(&str, Vec<(&str, TokenKind)>)>) {
+        for c in cases.iter() {
+            let s = if c.0.ends_with("\n") {
+                c.0.to_string()
+            } else {
+                let mut s1 = c.0.to_string();
+                s1.push('\n');
+                s1
+            };
 
-        for (i, s) in ss.iter().enumerate() {
             assert_eq!(
-                Lexer::split_inside(s),
-                expects[i]
-                    .iter()
+                Lexer::new(s.as_str()).split(),
+                c.1.iter()
                     .map(|(v, k)| { Token::new(v.to_string(), *k) })
                     .collect::<Vec<Token>>()
             );
         }
+    }
+
+    #[test]
+    fn test_normal_text() {
+        let cases = vec![
+            ("这是我的一个学习 rust 编程语言的项目，我将尝试去开发一个强大的 markdown 编辑器。",
+                vec![("这是我的一个学习 rust 编程语言的项目，我将尝试去开发一个强大的 markdown 编辑器。", TokenKind::Text)],
+            ),
+            ("--- x", vec![("--- x", TokenKind::Text)]),
+            (
+                "___ 这不是一个分界线",
+                vec![
+                    ("___", TokenKind::Text),
+                    (" 这不是一个分界线", TokenKind::Text),
+                ],
+            ),
+            ("#这不是标题", vec![("#这不是标题", TokenKind::Text)]),
+            ("##这也不是标题", vec![("##这也不是标题", TokenKind::Text)]),
+            (">这不是引用", vec![(">这不是引用", TokenKind::Text)]),
+            ("1.这也不是列表", vec![("1.这也不是列表", TokenKind::Text)]),
+            (
+                "***xxxx",
+                vec![("***", TokenKind::Text), ("xxxx", TokenKind::Text)],
+            ),
+        ];
+
+        exec_cases(cases);
+    }
+
+    #[test]
+    fn test_bold_italic() {
+        let cases = vec![
+            (
+                "**粗体**_斜体_***斜体+粗体***",
+                vec![
+                    ("**", TokenKind::BoldMark),
+                    ("粗体", TokenKind::Text),
+                    ("**", TokenKind::BoldMark),
+                    ("_", TokenKind::ItalicMark),
+                    ("斜体", TokenKind::Text),
+                    ("_", TokenKind::ItalicMark),
+                    ("***", TokenKind::ItalicBoldMark),
+                    ("斜体+粗体", TokenKind::Text),
+                    ("***", TokenKind::ItalicBoldMark),
+                ],
+            ),
+            (
+                "**1** ****2***",
+                vec![
+                    ("**", TokenKind::BoldMark),
+                    ("1", TokenKind::Text),
+                    ("**", TokenKind::BoldMark),
+                    (" ", TokenKind::Text),
+                    ("****", TokenKind::Text),
+                    ("2", TokenKind::Text),
+                    ("***", TokenKind::Text),
+                ],
+            ),
+            (
+                "**__2__**",
+                vec![
+                    ("**", TokenKind::BoldMark),
+                    ("__", TokenKind::BoldMark),
+                    ("2", TokenKind::Text),
+                    ("__", TokenKind::BoldMark),
+                    ("**", TokenKind::BoldMark),
+                ],
+            ),
+            (
+                "**1**",
+                vec![
+                    ("**", TokenKind::BoldMark),
+                    ("1", TokenKind::Text),
+                    ("**", TokenKind::BoldMark),
+                ],
+            ),
+            (
+                "*1*",
+                vec![
+                    ("*", TokenKind::ItalicMark),
+                    ("1", TokenKind::Text),
+                    ("*", TokenKind::ItalicMark),
+                ],
+            ),
+            (
+                "*** 1 ***",
+                vec![
+                    ("***", TokenKind::ItalicBoldMark),
+                    (" 1 ", TokenKind::Text),
+                    ("***", TokenKind::ItalicBoldMark),
+                ],
+            ),
+            (
+                "__1__",
+                vec![
+                    ("__", TokenKind::BoldMark),
+                    ("1", TokenKind::Text),
+                    ("__", TokenKind::BoldMark),
+                ],
+            ),
+            (
+                "_1_",
+                vec![
+                    ("_", TokenKind::ItalicMark),
+                    ("1", TokenKind::Text),
+                    ("_", TokenKind::ItalicMark),
+                ],
+            ),
+            (
+                "___ 1 ___",
+                vec![
+                    ("___", TokenKind::ItalicBoldMark),
+                    (" 1 ", TokenKind::Text),
+                    ("___", TokenKind::ItalicBoldMark),
+                ],
+            ),
+        ];
+
+        exec_cases(cases);
+    }
+
+    #[test]
+    fn test_line_break() {
+        let cases = vec![
+            ("这是我的一个学习 rust 编程语言的项目，我将尝试去开发一个强大的 markdown 编辑器。  ",  // have two spaces at the end of the line.
+                vec![("这是我的一个学习 rust 编程语言的项目，我将尝试去开发一个强大的 markdown 编辑器。", TokenKind::Text),
+                    ("<br>", TokenKind::LineBreak)],
+            ),
+            ("这是我的一个学习 rust 编程语言的项目，我将尝试去开发一个强大的 markdown 编辑器。       ", // have two tab spaces at the end of the line.
+                vec![("这是我的一个学习 rust 编程语言的项目，我将尝试去开发一个强大的 markdown 编辑器。", TokenKind::Text),
+                    ("<br>", TokenKind::LineBreak)],
+            ),
+            ("这是我的一个学习 rust 编程语言的项目，我将尝试去开发一个强大的 markdown 编辑器。    <br>  ", // have two spaces at the end of the line.
+                vec![("这是我的一个学习 rust 编程语言的项目，我将尝试去开发一个强大的 markdown 编辑器。    ", TokenKind::Text),
+                    ("<br>", TokenKind::LineBreak)],
+            ),
+            ("这是我的一个学习 rust 编程语言的项目，我将尝试去开发一个强大的 markdown 编辑器。<br>",
+                vec![("这是我的一个学习 rust 编程语言的项目，我将尝试去开发一个强大的 markdown 编辑器。", TokenKind::Text),
+                    ("<br>", TokenKind::LineBreak)],
+            ),
+        ];
+
+        exec_cases(cases);
+    }
+
+    #[test]
+    fn test_blank_line() {
+        let cases = vec![
+            ("\n", vec![("", TokenKind::BlankLine)]),
+            (" \n", vec![(" ", TokenKind::BlankLine)]),
+            ("     \n", vec![("     ", TokenKind::BlankLine)]),
+            ("         ", vec![("         ", TokenKind::BlankLine)]),
+            (
+                "                                            ",
+                vec![(
+                    "                                            ",
+                    TokenKind::BlankLine,
+                )],
+            ),
+            ("  ", vec![("  ", TokenKind::BlankLine)]),
+        ];
+
+        exec_cases(cases);
+    }
+
+    #[test]
+    fn test_dividing() {
+        let cases = vec![
+            ("---", vec![("---", TokenKind::DividingMark)]),
+            ("***", vec![("***", TokenKind::DividingMark)]),
+            ("___", vec![("___", TokenKind::DividingMark)]),
+            ("------", vec![("------", TokenKind::DividingMark)]),
+            ("****", vec![("****", TokenKind::DividingMark)]),
+            (
+                "__________         ",
+                vec![("__________", TokenKind::DividingMark)],
+            ),
+            (
+                "----------------------------------------   ",
+                vec![(
+                    "----------------------------------------",
+                    TokenKind::DividingMark,
+                )],
+            ),
+        ];
+
+        exec_cases(cases);
     }
 }

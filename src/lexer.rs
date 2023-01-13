@@ -5,6 +5,8 @@ use std::{
 
 use itertools::Itertools;
 
+use crate::stack;
+
 #[derive(PartialEq, Debug)]
 enum State {
     Begin,
@@ -323,7 +325,7 @@ impl<'lex> Lexer<'lex> {
         Lexer::tidy_continuous_mark(TokenKind::Star, buff);
         Lexer::tidy_continuous_mark(TokenKind::UnderLine, buff);
 
-        let mut stack: Vec<&mut Token> = vec![];
+        let mut stack: stack::Stack<&mut Token> = stack::Stack::new();
 
         let buff_iter = buff.iter_mut().filter(|t| {
             t.kind() == TokenKind::Star
@@ -332,44 +334,32 @@ impl<'lex> Lexer<'lex> {
         });
 
         for t in buff_iter {
-            if let Some(revp) = stack
-                .iter()
-                .rev()
-                .find_position(|e| e.kind() == t.kind() && e.value() == t.value())
-                .map(|(x, _)| x)
-            {
-                // Notice: the 'revp' is a reversed positional index on the stack
-                let p = stack.len() - 1 - revp;
-
-                // found in stack
-                loop {
-                    if let Some(pop) = stack.pop() {
-                        if stack.len() == p {
-                            match t.value() {
-                                "*" | "_" => {
-                                    pop.update_kind(TokenKind::ItalicMark);
-                                    t.update_kind(TokenKind::ItalicMark);
-                                }
-                                "**" | "__" => {
-                                    pop.update_kind(TokenKind::BoldMark);
-                                    t.update_kind(TokenKind::BoldMark);
-                                }
-                                "***" | "___" => {
-                                    pop.update_kind(TokenKind::ItalicBoldMark);
-                                    t.update_kind(TokenKind::ItalicBoldMark);
-                                }
-                                "`" | "``" | "```" => {
-                                    pop.update_kind(TokenKind::CodeMark);
-                                    t.update_kind(TokenKind::CodeMark);
-                                }
-                                _ => unreachable!(),
-                            }
-                            break;
-                        } else {
-                            pop.update_kind(TokenKind::Text);
-                        }
+            let mut pops = stack.pop_range(|e| e.kind() == t.kind() && e.value() == t.value());
+            if !pops.is_empty() {
+                // found
+                let matched = pops.get_mut(0).unwrap(); // Notice: don't panic
+                match t.value() {
+                    "*" | "_" => {
+                        matched.update_kind(TokenKind::ItalicMark);
+                        t.update_kind(TokenKind::ItalicMark);
                     }
+                    "**" | "__" => {
+                        matched.update_kind(TokenKind::BoldMark);
+                        t.update_kind(TokenKind::BoldMark);
+                    }
+                    "***" | "___" => {
+                        matched.update_kind(TokenKind::ItalicBoldMark);
+                        t.update_kind(TokenKind::ItalicBoldMark);
+                    }
+                    "`" | "``" | "```" => {
+                        matched.update_kind(TokenKind::CodeMark);
+                        t.update_kind(TokenKind::CodeMark);
+                    }
+                    _ => unreachable!(),
                 }
+                pops.iter_mut()
+                    .skip(1)
+                    .for_each(|e| e.update_kind(TokenKind::Text));
             } else {
                 // not found in stack
                 if t.len() < 4 {
@@ -382,6 +372,7 @@ impl<'lex> Lexer<'lex> {
 
         // At last, we need to update the elment left on the stack
         stack
+            .all_mut()
             .iter_mut()
             .for_each(|e| e.update_kind(TokenKind::Text));
     }

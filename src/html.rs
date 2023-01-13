@@ -6,6 +6,7 @@ use tinytemplate::TinyTemplate;
 use crate::parser::{HtmlGenerate, SharedLine};
 
 use crate::lexer::{Token, TokenKind};
+use crate::stack;
 
 // title
 const TITLE_TEMPLATE_NAME: &str = "title";
@@ -145,7 +146,7 @@ impl<'generator> Generator<'generator> {
     }
 
     fn gen_line(&self, tokens: &Vec<Token>) -> String {
-        let mut stack: Vec<(TokenKind, &str)> = vec![];
+        let mut stack: stack::Stack<(TokenKind, &str)> = stack::Stack::new();
 
         let mut text = String::new();
 
@@ -153,63 +154,43 @@ impl<'generator> Generator<'generator> {
             match t.kind() {
                 TokenKind::Text => text.push_str(t.value()),
                 TokenKind::CodeMark => {
-                    let found = stack
-                        .iter()
-                        .last()
-                        .map(|e| e.0 == t.kind() && e.1 == t.value())
-                        .unwrap_or(false);
-
-                    if found {
+                    let matched = stack.pop_or_push((t.kind(), t.value()), |e| {
+                        e.0 == t.kind() && e.1 == t.value()
+                    });
+                    if matched.is_some() {
                         text.push_str("</code>");
-                        stack.pop();
                     } else {
                         text.push_str("<code>");
-                        stack.push((t.kind(), t.value()));
                     }
                 }
                 TokenKind::BoldMark => {
-                    let found = stack
-                        .iter()
-                        .last()
-                        .map(|e| e.0 == t.kind() && e.1 == t.value())
-                        .unwrap_or(false);
-
-                    if found {
+                    let matched = stack.pop_or_push((t.kind(), t.value()), |e| {
+                        e.0 == t.kind() && e.1 == t.value()
+                    });
+                    if matched.is_some() {
                         text.push_str("</strong>");
-                        stack.pop();
                     } else {
                         text.push_str("<strong>");
-                        stack.push((t.kind(), t.value()));
                     }
                 }
                 TokenKind::ItalicMark => {
-                    let found = stack
-                        .iter()
-                        .last()
-                        .map(|e| e.0 == t.kind() && e.1 == t.value())
-                        .unwrap_or(false);
-
-                    if found {
+                    let matched = stack.pop_or_push((t.kind(), t.value()), |e| {
+                        e.0 == t.kind() && e.1 == t.value()
+                    });
+                    if matched.is_some() {
                         text.push_str("</em>");
-                        stack.pop();
                     } else {
                         text.push_str("<em>");
-                        stack.push((t.kind(), t.value()));
                     }
                 }
                 TokenKind::ItalicBoldMark => {
-                    let found = stack
-                        .iter()
-                        .last()
-                        .map(|e| e.0 == t.kind() && e.1 == t.value())
-                        .unwrap_or(false);
-
-                    if found {
+                    let matched = stack.pop_or_push((t.kind(), t.value()), |e| {
+                        e.0 == t.kind() && e.1 == t.value()
+                    });
+                    if matched.is_some() {
                         text.push_str("</em></strong>");
-                        stack.pop();
                     } else {
                         text.push_str("<strong><em>");
-                        stack.push((t.kind(), t.value()));
                     }
                 }
                 TokenKind::Url => {

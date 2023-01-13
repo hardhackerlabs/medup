@@ -174,7 +174,7 @@ impl<'lex> Lexer<'lex> {
                 if Lexer::is_dividing(self.line_text) {
                     // Here is a dividing line, not list
                     return Some(Token::new(
-                        self.line_text.trim_end_matches("\n").to_string(),
+                        self.line_text.trim_end_matches('\n').to_string(),
                         TokenKind::DividingMark,
                     ));
                 }
@@ -189,7 +189,7 @@ impl<'lex> Lexer<'lex> {
             ['*', ..] | ['-', ..] | ['_', ..] => {
                 if Lexer::is_dividing(self.line_text) {
                     Some(Token::new(
-                        self.line_text.trim_end_matches("\n").to_string(),
+                        self.line_text.trim_end_matches('\n').to_string(),
                         TokenKind::DividingMark,
                     ))
                 } else {
@@ -442,9 +442,9 @@ impl<'lex> Lexer<'lex> {
         counts.len() == 1
             && counts
                 .get(&'*')
-                .or(counts.get(&'-'))
-                .or(counts.get(&'_'))
-                .map(|x| *x)
+                .or_else(|| counts.get(&'-'))
+                .or_else(|| counts.get(&'_'))
+                .copied()
                 .unwrap_or(0)
                 >= 3
     }
@@ -621,7 +621,7 @@ mod tests {
 
     fn exec_cases(cases: Vec<(&str, Vec<(&str, TokenKind)>)>) {
         for c in cases.iter() {
-            let s = if c.0.ends_with("\n") {
+            let s = if c.0.ends_with('\n') {
                 c.0.to_string()
             } else {
                 let mut s1 = c.0.to_string();

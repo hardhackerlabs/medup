@@ -145,26 +145,57 @@ impl<'generator> Generator<'generator> {
     }
 
     fn gen_line(&self, tokens: &Vec<Token>) -> String {
+        let mut stack: Vec<(TokenKind, &str)> = vec![];
+
         let mut text = String::new();
-        let mut opened = false;
+
         for t in tokens {
             match t.kind() {
                 TokenKind::Text => text.push_str(t.value()),
                 TokenKind::BoldMark => {
-                    text.push_str(if opened { "</strong>" } else { "<strong>" });
-                    opened = !opened;
+                    let found = stack
+                        .iter()
+                        .last()
+                        .map(|e| e.0 == t.kind() && e.1 == t.value())
+                        .unwrap_or(false);
+
+                    if found {
+                        text.push_str("</strong>");
+                        stack.pop();
+                    } else {
+                        text.push_str("<strong>");
+                        stack.push((t.kind(), t.value()));
+                    }
                 }
                 TokenKind::ItalicMark => {
-                    text.push_str(if opened { "</em>" } else { "<em>" });
-                    opened = !opened;
+                    let found = stack
+                        .iter()
+                        .last()
+                        .map(|e| e.0 == t.kind() && e.1 == t.value())
+                        .unwrap_or(false);
+
+                    if found {
+                        text.push_str("</em>");
+                        stack.pop();
+                    } else {
+                        text.push_str("<em>");
+                        stack.push((t.kind(), t.value()));
+                    }
                 }
                 TokenKind::ItalicBoldMark => {
-                    text.push_str(if opened {
-                        "</em></strong>"
+                    let found = stack
+                        .iter()
+                        .last()
+                        .map(|e| e.0 == t.kind() && e.1 == t.value())
+                        .unwrap_or(false);
+
+                    if found {
+                        text.push_str("</em></strong>");
+                        stack.pop();
                     } else {
-                        "<strong><em>"
-                    });
-                    opened = !opened;
+                        text.push_str("<strong><em>");
+                        stack.push((t.kind(), t.value()));
+                    }
                 }
                 TokenKind::Url => {
                     if let (Some(show_name), Some(location)) =

@@ -10,7 +10,7 @@ fn main() {
             let path = sub_matches
                 .get_one::<String>("MARKDOWN_FILE_PATH")
                 .expect("required");
-            let html = markdown::file_to_html(&path).unwrap();
+            let html = markdown::file_to_html(path).unwrap();
             println!("{}", html);
         }
         _ => unreachable!(),

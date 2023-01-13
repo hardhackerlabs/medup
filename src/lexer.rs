@@ -1,4 +1,9 @@
-use std::collections::{HashMap, VecDeque};
+use std::{
+    cmp::Ordering,
+    collections::{HashMap, VecDeque},
+};
+
+use itertools::Itertools;
 
 #[derive(PartialEq, Debug)]
 enum State {
@@ -303,71 +308,102 @@ impl<'lex> Lexer<'lex> {
                 }
             }
         }
-        Self::tidy(&mut buff);
+        Lexer::tidy(&mut buff);
         buff
     }
 
-    // TODO: need to optimize
     fn tidy(buff: &mut Vec<Token>) {
+        Lexer::tidy_continuous_mark(TokenKind::StarMark, buff);
+        Lexer::tidy_continuous_mark(TokenKind::UnderLineMark, buff);
+
+        let mut stack: Vec<&mut Token> = vec![];
+
+        let buff_iter = buff
+            .iter_mut()
+            .filter(|t| t.kind() == TokenKind::StarMark || t.kind() == TokenKind::UnderLineMark);
+
+        for t in buff_iter {
+            if let Some(revp) = stack
+                .iter()
+                .rev()
+                .find_position(|e| e.kind() == t.kind() && e.value() == t.value())
+                .map(|(x, _)| x)
+            {
+                // Notice: the 'revp' is a reversed positional index on the stack
+                let p = stack.len() - 1 - revp;
+
+                // found in stack
+                loop {
+                    if let Some(pop) = stack.pop() {
+                        if stack.len() == p {
+                            match t.value() {
+                                "*" | "_" => {
+                                    pop.update_kind(TokenKind::ItalicMark);
+                                    t.update_kind(TokenKind::ItalicMark);
+                                }
+                                "**" | "__" => {
+                                    pop.update_kind(TokenKind::BoldMark);
+                                    t.update_kind(TokenKind::BoldMark);
+                                }
+                                "***" | "___" => {
+                                    pop.update_kind(TokenKind::ItalicBoldMark);
+                                    t.update_kind(TokenKind::ItalicBoldMark);
+                                }
+                                _ => unreachable!(),
+                            }
+                            break;
+                        } else {
+                            pop.update_kind(TokenKind::Text);
+                        }
+                    }
+                }
+            } else {
+                // not found in stack
+                if t.len() < 4 {
+                    stack.push(t);
+                } else {
+                    t.update_kind(TokenKind::Text)
+                }
+            }
+        }
+
+        // At last, we need to update the elment left on the stack
+        stack
+            .iter_mut()
+            .for_each(|e| e.update_kind(TokenKind::Text));
+    }
+
+    fn tidy_continuous_mark(kind: TokenKind, buff: &mut Vec<Token>) {
         let mut splits_at: VecDeque<(usize, usize)> = VecDeque::new();
 
-        let mut pre_len: usize = 0;
-        let mut pre_kind: Option<TokenKind> = None;
+        let mut pre: usize = 0;
 
-        for (ix, t) in buff.iter().enumerate().filter(|(_, t)| {
-            t.kind() == TokenKind::StarMark || t.kind() == TokenKind::UnderLineMark
-        }) {
-            if t.kind() != pre_kind.unwrap_or(TokenKind::None) {
-                pre_kind = Some(t.kind());
-                pre_len = t.value().len();
-                continue;
-            }
-            let n = t.value().len() - pre_len;
-            if pre_len > 0 && n > 0 {
-                let l = splits_at.len();
-                splits_at.push_back((ix + l, pre_len));
-
-                pre_len = n;
+        for (ix, t) in buff.iter().enumerate().filter(|(_, t)| t.kind() == kind) {
+            let n = if t.len() >= pre && pre > 0 {
+                t.len() - pre
             } else {
-                pre_len = t.value().len();
+                pre = t.len();
+                continue;
+            };
+            match n.cmp(&0) {
+                // need to split current token
+                Ordering::Greater => {
+                    let l = splits_at.len();
+                    splits_at.push_back((ix + l, pre));
+
+                    pre = n;
+                }
+                // matched with previous token
+                Ordering::Equal => {
+                    pre = 0;
+                }
+                Ordering::Less => unreachable!(),
             }
         }
         splits_at.into_iter().for_each(|(ix, l)| {
             let off = buff[ix].split_off(l);
             buff.insert(ix + 1, off);
         });
-
-        let mut buff_iter = buff
-            .iter_mut()
-            .filter(|t| t.kind() == TokenKind::StarMark || t.kind() == TokenKind::UnderLineMark)
-            .peekable();
-        while let Some(t) = buff_iter.next() {
-            match t.value() {
-                "*" | "**" | "***" | "_" | "__" | "___" => {
-                    if buff_iter.peek().map(|n| n.value()).unwrap_or("") != t.value() {
-                        t.kind = TokenKind::Text;
-                    } else {
-                        // update current token to correct kind
-                        t.kind = match t.value() {
-                            "*" | "_" => TokenKind::ItalicMark,
-                            "**" | "__" => TokenKind::BoldMark,
-                            "***" | "___" => TokenKind::ItalicBoldMark,
-                            _ => unreachable!(),
-                        };
-                        // update next token to correct kind
-                        // Note: here consumed the next element(a token)
-                        match buff_iter.next() {
-                            None => break,
-                            Some(n) => n.kind = t.kind(),
-                        }
-                    }
-                }
-                _ => {
-                    // TODO:
-                    t.kind = TokenKind::Text;
-                }
-            }
-        }
     }
 
     // find 'line break', double spaces or <br> at the end of the line
@@ -399,7 +435,6 @@ pub(crate) enum TokenKind {
     StarMark,
     UnderLineMark,
     WhiteSpace,
-    None,
 }
 
 // Token is a part of the line, the parser will parse the line into some tokens.
@@ -544,5 +579,57 @@ impl<'img_token> ImgTokenAsMut<'img_token> {
 
     fn insert_location(&mut self, v: &str) {
         self.0.insert("location", v)
+    }
+}
+
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_split_inside() {
+        let ss = vec![
+            //"**粗体**_斜体_***斜体+粗体***",
+            //"**1** ****2***",
+            "**__2__**",
+        ];
+        let expects = vec![
+            //vec![
+            //    ("**", TokenKind::BoldMark),
+            //    ("粗体", TokenKind::Text),
+            //    ("**", TokenKind::BoldMark),
+            //    ("_", TokenKind::ItalicMark),
+            //    ("斜体", TokenKind::Text),
+            //    ("_", TokenKind::ItalicMark),
+            //    ("***", TokenKind::ItalicBoldMark),
+            //    ("斜体+粗体", TokenKind::Text),
+            //    ("***", TokenKind::ItalicBoldMark),
+            //],
+            //vec![
+            //    ("**", TokenKind::BoldMark),
+            //    ("1", TokenKind::Text),
+            //    ("**", TokenKind::BoldMark),
+            //    (" ", TokenKind::Text),
+            //    ("****", TokenKind::Text),
+            //    ("2", TokenKind::Text),
+            //    ("***", TokenKind::Text),
+            //],
+            vec![
+                ("**", TokenKind::BoldMark),
+                ("__", TokenKind::BoldMark),
+                ("2", TokenKind::Text),
+                ("__", TokenKind::BoldMark),
+                ("**", TokenKind::BoldMark),
+            ],
+        ];
+
+        for (i, s) in ss.iter().enumerate() {
+            assert_eq!(
+                Lexer::split_inside(s),
+                expects[i]
+                    .iter()
+                    .map(|(v, k)| { Token::new(v.to_string(), *k) })
+                    .collect::<Vec<Token>>()
+            );
+        }
     }
 }

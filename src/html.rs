@@ -152,6 +152,21 @@ impl<'generator> Generator<'generator> {
         for t in tokens {
             match t.kind() {
                 TokenKind::Text => text.push_str(t.value()),
+                TokenKind::CodeMark => {
+                    let found = stack
+                        .iter()
+                        .last()
+                        .map(|e| e.0 == t.kind() && e.1 == t.value())
+                        .unwrap_or(false);
+
+                    if found {
+                        text.push_str("</code>");
+                        stack.pop();
+                    } else {
+                        text.push_str("<code>");
+                        stack.push((t.kind(), t.value()));
+                    }
+                }
                 TokenKind::BoldMark => {
                     let found = stack
                         .iter()

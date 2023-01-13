@@ -9,7 +9,7 @@ use itertools::Itertools;
 enum State {
     Begin,
     Mark(usize),
-    Normal(usize),
+    Content(usize),
     Finished,
 }
 
@@ -76,19 +76,19 @@ impl<'lex> Lexer<'lex> {
                         continue;
                     };
 
-                    if let Some(m) = self.split_mark(first_word) {
+                    if let Some(m) = self.extract_mark(first_word) {
                         match m.kind() {
-                            TokenKind::CodeMark => self.goto(State::Normal(begin + 3)),
+                            TokenKind::CodeBlockMark => self.goto(State::Content(begin + 3)),
                             TokenKind::DividingMark => self.goto(State::Finished),
-                            _ => self.goto(State::Normal(ix + 1)),
+                            _ => self.goto(State::Content(ix + 1)),
                         }
                         buff.push(m);
                     } else {
                         // normal text
-                        self.goto(State::Normal(begin));
+                        self.goto(State::Content(begin));
                     }
                 }
-                State::Normal(_) => {
+                State::Content(_) => {
                     break;
                 }
                 State::Finished => {
@@ -97,8 +97,9 @@ impl<'lex> Lexer<'lex> {
             };
         }
 
-        if let State::Normal(begin) = self.state {
+        if let State::Content(begin) = self.state {
             let rest = self.slice_rest(begin);
+
             for t in Lexer::split_inside(rest)
                 .into_iter()
                 .filter(|t| !t.value().is_empty())
@@ -109,24 +110,8 @@ impl<'lex> Lexer<'lex> {
         buff
     }
 
-    fn goto(&mut self, state: State) {
-        self.state = state;
-    }
-
-    fn slice_rest(&self, begin: usize) -> &str {
-        utf8_slice::from(self.line_text, begin)
-    }
-
-    fn slice_str(&self, begin: usize, end: usize) -> &str {
-        utf8_slice::slice(self.line_text, begin, end)
-    }
-
-    fn slice(&self, begin: usize, end: usize) -> String {
-        self.slice_str(begin, end).to_string()
-    }
-
-    // parse the first word in the line as the mark token
-    fn split_mark(&self, first_word: &str) -> Option<Token> {
+    // Parse the first word in the line as the mark token
+    fn extract_mark(&self, first_word: &str) -> Option<Token> {
         let first_word_chars: Vec<char> = first_word.chars().collect();
 
         match first_word_chars[..] {
@@ -161,7 +146,7 @@ impl<'lex> Lexer<'lex> {
             // .e.g:
             //      ```rust
             //      ``` rust
-            ['`', '`', '`', ..] => Some(Token::new("```".to_string(), TokenKind::CodeMark)),
+            ['`', '`', '`', ..] => Some(Token::new("```".to_string(), TokenKind::CodeBlockMark)),
 
             // Disordered List
             ['+'] => Some(Token::new(
@@ -205,7 +190,7 @@ impl<'lex> Lexer<'lex> {
         }
     }
 
-    // parse text content, include bold, picture and url etc.
+    // Parse text content, include bold, picture and url etc.
     fn split_inside(content: &str) -> Vec<Token> {
         let mut last = 0;
 
@@ -227,8 +212,8 @@ impl<'lex> Lexer<'lex> {
                     break;
                 }
                 (TextState::Normal, _) => match ch {
-                    '*' | '_' => {
-                        // the part of normal text before '*' mark.
+                    '*' | '_' | '`' => {
+                        // the part of normal text before mark.
                         let s = utf8_slice::slice(content, last, ix);
                         if !s.is_empty() {
                             buff.push(Token::new(s.to_string(), TokenKind::Text));
@@ -239,12 +224,12 @@ impl<'lex> Lexer<'lex> {
                         if *content_iter.peek().map(|(_, n)| n).unwrap_or(&' ') == ch {
                             state = TextState::Continuous(ix);
                         } else {
-                            // '*' mark
                             let s = utf8_slice::slice(content, ix, ix + 1);
                             last = ix + 1;
                             let k = match ch {
-                                '*' => TokenKind::StarMark,
-                                '_' => TokenKind::UnderLineMark,
+                                '*' => TokenKind::Star,
+                                '_' => TokenKind::UnderLine,
+                                '`' => TokenKind::BackTicks,
                                 _ => unreachable!(),
                             };
                             buff.push(Token::new(s.to_string(), k));
@@ -314,8 +299,9 @@ impl<'lex> Lexer<'lex> {
                     if *content_iter.peek().map(|(_, n)| n).unwrap_or(&' ') != ch {
                         let s = utf8_slice::slice(content, begin, ix + 1);
                         let k = match ch {
-                            '*' => TokenKind::StarMark,
-                            '_' => TokenKind::UnderLineMark,
+                            '*' => TokenKind::Star,
+                            '_' => TokenKind::UnderLine,
+                            '`' => TokenKind::BackTicks,
                             _ => unreachable!(),
                         };
                         buff.push(Token::new(s.to_string(), k));
@@ -334,14 +320,16 @@ impl<'lex> Lexer<'lex> {
     }
 
     fn tidy(buff: &mut Vec<Token>) {
-        Lexer::tidy_continuous_mark(TokenKind::StarMark, buff);
-        Lexer::tidy_continuous_mark(TokenKind::UnderLineMark, buff);
+        Lexer::tidy_continuous_mark(TokenKind::Star, buff);
+        Lexer::tidy_continuous_mark(TokenKind::UnderLine, buff);
 
         let mut stack: Vec<&mut Token> = vec![];
 
-        let buff_iter = buff
-            .iter_mut()
-            .filter(|t| t.kind() == TokenKind::StarMark || t.kind() == TokenKind::UnderLineMark);
+        let buff_iter = buff.iter_mut().filter(|t| {
+            t.kind() == TokenKind::Star
+                || t.kind() == TokenKind::UnderLine
+                || t.kind() == TokenKind::BackTicks
+        });
 
         for t in buff_iter {
             if let Some(revp) = stack
@@ -369,6 +357,10 @@ impl<'lex> Lexer<'lex> {
                                 "***" | "___" => {
                                     pop.update_kind(TokenKind::ItalicBoldMark);
                                     t.update_kind(TokenKind::ItalicBoldMark);
+                                }
+                                "`" | "``" | "```" => {
+                                    pop.update_kind(TokenKind::CodeMark);
+                                    t.update_kind(TokenKind::CodeMark);
                                 }
                                 _ => unreachable!(),
                             }
@@ -427,6 +419,22 @@ impl<'lex> Lexer<'lex> {
         });
     }
 
+    fn goto(&mut self, state: State) {
+        self.state = state;
+    }
+
+    fn slice_rest(&self, begin: usize) -> &str {
+        utf8_slice::from(self.line_text, begin)
+    }
+
+    fn slice_str(&self, begin: usize, end: usize) -> &str {
+        utf8_slice::slice(self.line_text, begin, end)
+    }
+
+    fn slice(&self, begin: usize, end: usize) -> String {
+        self.slice_str(begin, end).to_string()
+    }
+
     // find 'line break', double spaces or <br> at the end of the line
     fn has_br(s: &str) -> bool {
         if s.ends_with("  \n") {
@@ -460,15 +468,17 @@ pub(crate) enum TokenKind {
     BoldMark,         // ** **
     ItalicMark,       // * *
     ItalicBoldMark,   // *** ***
-    CodeMark,         // ```
+    CodeBlockMark,    // ```
+    CodeMark,         // `
     BlankLine,        // \n
     LineBreak,        // <br>, double whitespace
     Image,            // ![]()
     Url,              // []()
     Text,
-    StarMark,
-    UnderLineMark,
-    WhiteSpace,
+    Star,       // *
+    UnderLine,  // _
+    BackTicks,  // `
+    WhiteSpace, //
 }
 
 // Token is a part of the line, the parser will parse the line into some tokens.
@@ -819,6 +829,39 @@ mod tests {
                     "----------------------------------------   ",
                     TokenKind::DividingMark,
                 )],
+            ),
+        ];
+
+        exec_cases(cases);
+    }
+
+    #[test]
+    fn test_code_in_line() {
+        let cases = vec![
+            (
+                "`rust`",
+                vec![
+                    ("`", TokenKind::CodeMark),
+                    ("rust", TokenKind::Text),
+                    ("`", TokenKind::CodeMark),
+                ],
+            ),
+            (
+                "``rust``",
+                vec![
+                    ("``", TokenKind::CodeMark),
+                    ("rust", TokenKind::Text),
+                    ("``", TokenKind::CodeMark),
+                ],
+            ),
+            (
+                "rust```rust```",
+                vec![
+                    ("rust", TokenKind::Text),
+                    ("```", TokenKind::CodeMark),
+                    ("rust", TokenKind::Text),
+                    ("```", TokenKind::CodeMark),
+                ],
             ),
         ];
 

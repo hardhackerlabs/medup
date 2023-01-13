@@ -510,7 +510,7 @@ impl Line {
             TokenKind::SortedListMark => Kind::SortedList,
             TokenKind::DividingMark => Kind::DividingLine,
             TokenKind::QuoteMark => Kind::Quote,
-            TokenKind::CodeMark => Kind::CodeMark,
+            TokenKind::CodeBlockMark => Kind::CodeMark,
             _ => Kind::NormalText,
         };
 
@@ -947,7 +947,7 @@ _____________
         assert_eq!(
             ast._get_line(1).unwrap().borrow().buff,
             vec![
-                Token::new("```".to_string(), TokenKind::CodeMark),
+                Token::new("```".to_string(), TokenKind::CodeBlockMark),
                 Token::new("rust".to_string(), TokenKind::Text)
             ]
         );

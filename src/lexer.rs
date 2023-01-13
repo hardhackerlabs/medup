@@ -588,31 +588,31 @@ mod tests {
     #[test]
     fn test_split_inside() {
         let ss = vec![
-            //"**粗体**_斜体_***斜体+粗体***",
-            //"**1** ****2***",
+            "**粗体**_斜体_***斜体+粗体***",
+            "**1** ****2***",
             "**__2__**",
         ];
         let expects = vec![
-            //vec![
-            //    ("**", TokenKind::BoldMark),
-            //    ("粗体", TokenKind::Text),
-            //    ("**", TokenKind::BoldMark),
-            //    ("_", TokenKind::ItalicMark),
-            //    ("斜体", TokenKind::Text),
-            //    ("_", TokenKind::ItalicMark),
-            //    ("***", TokenKind::ItalicBoldMark),
-            //    ("斜体+粗体", TokenKind::Text),
-            //    ("***", TokenKind::ItalicBoldMark),
-            //],
-            //vec![
-            //    ("**", TokenKind::BoldMark),
-            //    ("1", TokenKind::Text),
-            //    ("**", TokenKind::BoldMark),
-            //    (" ", TokenKind::Text),
-            //    ("****", TokenKind::Text),
-            //    ("2", TokenKind::Text),
-            //    ("***", TokenKind::Text),
-            //],
+            vec![
+                ("**", TokenKind::BoldMark),
+                ("粗体", TokenKind::Text),
+                ("**", TokenKind::BoldMark),
+                ("_", TokenKind::ItalicMark),
+                ("斜体", TokenKind::Text),
+                ("_", TokenKind::ItalicMark),
+                ("***", TokenKind::ItalicBoldMark),
+                ("斜体+粗体", TokenKind::Text),
+                ("***", TokenKind::ItalicBoldMark),
+            ],
+            vec![
+                ("**", TokenKind::BoldMark),
+                ("1", TokenKind::Text),
+                ("**", TokenKind::BoldMark),
+                (" ", TokenKind::Text),
+                ("****", TokenKind::Text),
+                ("2", TokenKind::Text),
+                ("***", TokenKind::Text),
+            ],
             vec![
                 ("**", TokenKind::BoldMark),
                 ("__", TokenKind::BoldMark),

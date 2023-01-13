@@ -9,8 +9,8 @@ use itertools::Itertools;
 enum State {
     Begin,
     Mark(usize),
-    VerifyDividing(usize),
     Normal(usize),
+    Finished,
 }
 
 #[derive(PartialEq, Clone, Copy)]
@@ -46,6 +46,7 @@ impl<'lex> Lexer<'lex> {
 
     pub(crate) fn split(mut self) -> Vec<Token> {
         let mut buff = vec![];
+
         let iter = self.line_text.chars().enumerate().peekable();
         for (ix, curr) in iter {
             match self.state {
@@ -77,8 +78,8 @@ impl<'lex> Lexer<'lex> {
 
                     if let Some(m) = self.split_mark(first_word) {
                         match m.kind() {
-                            TokenKind::DividingMark => self.goto(State::VerifyDividing(begin)),
                             TokenKind::CodeMark => self.goto(State::Normal(begin + 3)),
+                            TokenKind::DividingMark => self.goto(State::Finished),
                             _ => self.goto(State::Normal(ix + 1)),
                         }
                         buff.push(m);
@@ -87,15 +88,10 @@ impl<'lex> Lexer<'lex> {
                         self.goto(State::Normal(begin));
                     }
                 }
-                State::VerifyDividing(p) => {
-                    if !curr.is_whitespace() {
-                        // if contains other characters, it's a invalid dividing line
-                        // so remove the dividing mark token
-                        buff.pop();
-                        self.goto(State::Normal(p));
-                    }
-                }
                 State::Normal(_) => {
+                    break;
+                }
+                State::Finished => {
                     break;
                 }
             };
@@ -134,16 +130,12 @@ impl<'lex> Lexer<'lex> {
         let first_word_chars: Vec<char> = first_word.chars().collect();
 
         match first_word_chars[..] {
-            // title
+            // Title
             ['#'] | ['#', '#'] | ['#', '#', '#'] | ['#', '#', '#', '#'] => {
                 Some(Token::new(first_word.to_string(), TokenKind::TitleMark))
             }
-            // disordered list
-            ['*'] | ['-'] | ['+'] => Some(Token::new(
-                first_word.to_string(),
-                TokenKind::DisorderListMark,
-            )),
-            // sorted list
+
+            // Sorted List
             [n1, '.'] if ('1'..='9').contains(&n1) => Some(Token::new(
                 first_word.to_string(),
                 TokenKind::SortedListMark,
@@ -161,23 +153,50 @@ impl<'lex> Lexer<'lex> {
                     TokenKind::SortedListMark,
                 ))
             }
-            // dividing line
-            ['*', '*', '*', ..] | ['-', '-', '-', ..] | ['_', '_', '_', ..]
-                if first_word
-                    .chars()
-                    .filter(|x| !x.is_whitespace() && *x != '*' && *x != '-' && *x != '_')
-                    .count()
-                    == 0 =>
-            {
-                Some(Token::new(first_word.to_string(), TokenKind::DividingMark))
-            }
-            // quote
+
+            // Quote
             ['>'] => Some(Token::new(first_word.to_string(), TokenKind::QuoteMark)),
-            // code block mark
+
+            // Code Block
             // .e.g:
             //      ```rust
             //      ``` rust
             ['`', '`', '`', ..] => Some(Token::new("```".to_string(), TokenKind::CodeMark)),
+
+            // Disordered List
+            ['+'] => Some(Token::new(
+                first_word.to_string(),
+                TokenKind::DisorderListMark,
+            )),
+
+            // Disordered List or Dividing Line
+            ['*'] | ['-'] => {
+                if Lexer::is_dividing(self.line_text) {
+                    // Here is a dividing line, not list
+                    return Some(Token::new(
+                        self.line_text.trim_end_matches("\n").to_string(),
+                        TokenKind::DividingMark,
+                    ));
+                }
+                // Here is a disordered list
+                Some(Token::new(
+                    first_word.to_string(),
+                    TokenKind::DisorderListMark,
+                ))
+            }
+
+            // Dividing Line
+            ['*', ..] | ['-', ..] | ['_', ..] => {
+                if Lexer::is_dividing(self.line_text) {
+                    Some(Token::new(
+                        self.line_text.trim_end_matches("\n").to_string(),
+                        TokenKind::DividingMark,
+                    ))
+                } else {
+                    None
+                }
+            }
+
             // normal (as no mark)
             _ => {
                 // don't change the unparsed pointer, because the first word is not a mark.
@@ -415,6 +434,19 @@ impl<'lex> Lexer<'lex> {
         } else {
             s.trim_end().ends_with("<br>")
         }
+    }
+
+    fn is_dividing(s: &str) -> bool {
+        let counts = s.chars().filter(|c| !c.is_whitespace()).counts();
+
+        counts.len() == 1
+            && counts
+                .get(&'*')
+                .or(counts.get(&'-'))
+                .or(counts.get(&'_'))
+                .map(|x| *x)
+                .unwrap_or(0)
+                >= 3
     }
 }
 
@@ -775,16 +807,16 @@ mod tests {
             ("---", vec![("---", TokenKind::DividingMark)]),
             ("***", vec![("***", TokenKind::DividingMark)]),
             ("___", vec![("___", TokenKind::DividingMark)]),
-            ("------", vec![("------", TokenKind::DividingMark)]),
-            ("****", vec![("****", TokenKind::DividingMark)]),
+            ("- -----", vec![("- -----", TokenKind::DividingMark)]),
+            ("* * *", vec![("* * *", TokenKind::DividingMark)]),
             (
-                "__________         ",
-                vec![("__________", TokenKind::DividingMark)],
+                "__ ________         ",
+                vec![("__ ________         ", TokenKind::DividingMark)],
             ),
             (
                 "----------------------------------------   ",
                 vec![(
-                    "----------------------------------------",
+                    "----------------------------------------   ",
                     TokenKind::DividingMark,
                 )],
             ),

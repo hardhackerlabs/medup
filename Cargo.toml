@@ -13,3 +13,5 @@ serde = { version = "1.0", features = ["derive"] }
 clap = "4.0.32"
 regex = "1.7.1"
 lazy_static = "1.4.0"
+url = "2.3.1"
+email_address = "0.2.4"

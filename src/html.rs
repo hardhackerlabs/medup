@@ -201,6 +201,10 @@ impl<'generator> Generator<'generator> {
                         text.push_str(&s);
                     }
                 }
+                TokenKind::AutoLink => {
+                    let s = self.gen_url(t.value(), t.value());
+                    text.push_str(&s);
+                }
                 TokenKind::Image => {
                     if let (Some(alt), Some(location)) =
                         (t.as_img().get_alt_name(), t.as_img().get_location())

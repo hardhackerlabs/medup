@@ -5,10 +5,11 @@ use std::{
 
 use crate::stack;
 
+use email_address::EmailAddress;
 use itertools::Itertools;
-
 use lazy_static::lazy_static;
 use regex::Regex;
+use url::Url;
 
 // This regex is used to match a string with double quotes("") or single quotes('')
 lazy_static! {
@@ -16,7 +17,7 @@ lazy_static! {
         Regex::new(r#"['"](?:\\.|[^\\](?:\\\\)*\\?)*['"]"#).unwrap();
 }
 
-const ESCAPE_CHARS: &str = ">*_`#+-.![]()\\";
+const ESCAPE_CHARS: &str = ":*_`#+-.![]()<>\\";
 
 #[derive(PartialEq, Debug)]
 enum State {
@@ -33,7 +34,7 @@ enum TextState {
     // means *, usize is start position in line
     Continuous(usize),
     // means !, usize is the index of '!'
-    PicBegin(usize),
+    ImgBegin(usize),
     // means [, (usize, usize) is the index of ('!', '[')
     PicTitleBegin(usize, usize),
     // means [, usize is the index of '['
@@ -42,6 +43,8 @@ enum TextState {
     TitleDone(Option<usize>, usize, usize),
     // means (, (usize, usize, usize, usize) is the index of ('!', '[', ']', '(')
     LocationBegin(Option<usize>, usize, usize, usize),
+    // means <, usize is the index of '<'
+    AutoLinkBegin(usize),
 }
 
 // Lexer is a lexical analyzer that parses lines of text into multiple tokens.
@@ -204,7 +207,7 @@ impl<'lex> Lexer<'lex> {
         }
     }
 
-    // Parse text content, include bold, picture and url etc.
+    // Parse text content, include bold, image and url etc.
     fn split_content(content: &str) -> Vec<Token> {
         let mut last = 0;
 
@@ -265,13 +268,39 @@ impl<'lex> Lexer<'lex> {
                             buff.push(Token::new(s.to_string(), k));
                         }
                     }
-                    '!' => state = TextState::PicBegin(ix), // begin of picture
-                    '[' => state = TextState::UrlTitleBegin(ix), // begin of url
+                    '!' => state = TextState::ImgBegin(ix),
+                    '[' => state = TextState::UrlTitleBegin(ix),
+                    '<' => state = TextState::AutoLinkBegin(ix),
                     _ => (),
                 },
-                (TextState::PicBegin(begin), _) => match ch {
+                (TextState::AutoLinkBegin(begin), _) => {
+                    if ch.is_whitespace() {
+                        let s = utf8_slice::slice(content, begin + 1, ix).trim();
+                        if !s.is_empty() && !Self::is_url(s) && !Self::is_email(s) {
+                            state = TextState::Normal;
+                        }
+                    }
+                    if ch == '>' {
+                        let link = utf8_slice::slice(content, begin + 1, ix).trim();
+                        if Self::is_url(link) || Self::is_email(link) {
+                            let before = utf8_slice::slice(content, last, begin);
+                            if !before.is_empty() {
+                                buff.push(Token::new(before.to_string(), TokenKind::Text));
+                            }
+
+                            let t = Token::new(link.to_string(), TokenKind::AutoLink);
+                            buff.push(t);
+
+                            last = ix + 1;
+                            state = TextState::Normal;
+                        } else {
+                            state = TextState::Normal;
+                        }
+                    }
+                }
+                (TextState::ImgBegin(begin), _) => match ch {
                     '[' => state = TextState::PicTitleBegin(begin, ix),
-                    '!' => state = TextState::PicBegin(ix),
+                    '!' => state = TextState::ImgBegin(ix),
                     _ => state = TextState::Normal,
                 },
                 (TextState::PicTitleBegin(b1, b2), _) => {
@@ -291,7 +320,7 @@ impl<'lex> Lexer<'lex> {
                 },
                 (TextState::LocationBegin(b1, b2, b3, b4), _) => {
                     if ch == ')' {
-                        // when found ')', this means that we found a valid picture or url.
+                        // when found ')', this means that we found a valid image or url.
                         let begin = b1.unwrap_or(b2);
                         // the part of normal text before '![]()' or '[]()' mark.
                         let s = utf8_slice::slice(content, last, begin);
@@ -502,6 +531,14 @@ impl<'lex> Lexer<'lex> {
     fn is_quoted_string(s: &str) -> bool {
         QUOTED_STRING_RE.is_match(s)
     }
+
+    fn is_url(s: &str) -> bool {
+        Url::try_from(s).is_ok()
+    }
+
+    fn is_email(s: &str) -> bool {
+        EmailAddress::is_valid(s)
+    }
 }
 
 #[derive(Debug, PartialEq, Copy, Clone)]
@@ -520,6 +557,7 @@ pub(crate) enum TokenKind {
     LineBreak,        // <br>, double whitespace
     Image,            // ![]()
     Url,              // []()
+    AutoLink,         // <>
     Text,
     Star,       // *
     UnderLine,  // _
@@ -1226,6 +1264,38 @@ mod tests {
             (
                 "```rust",
                 vec![("```", TokenKind::CodeBlockMark), ("rust", TokenKind::Text)],
+            ),
+        ];
+        exec_cases(cases);
+    }
+
+    #[test]
+    fn test_auto_link() {
+        let cases = vec![
+            ("<>", vec![("<>", TokenKind::Text)]),
+            (
+                "<https://example.com",
+                vec![("<https://example.com", TokenKind::Text)],
+            ),
+            (
+                "<https://example.com>",
+                vec![("https://example.com", TokenKind::AutoLink)],
+            ),
+            (
+                "<  https://example.com >",
+                vec![("https://example.com", TokenKind::AutoLink)],
+            ),
+            (
+                "auto link <  https://example.com >!",
+                vec![
+                    ("auto link ", TokenKind::Text),
+                    ("https://example.com", TokenKind::AutoLink),
+                    ("!", TokenKind::Text),
+                ],
+            ),
+            (
+                "<user@example.com>",
+                vec![("user@example.com", TokenKind::AutoLink)],
             ),
         ];
         exec_cases(cases);

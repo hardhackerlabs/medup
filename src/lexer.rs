@@ -1116,4 +1116,118 @@ mod tests {
 
         exec_url_image_cases(cases);
     }
+
+    #[test]
+    fn test_title() {
+        let cases = vec![
+            (
+                "# header1",
+                vec![("#", TokenKind::TitleMark), ("header1", TokenKind::Text)],
+            ),
+            (
+                "## header2",
+                vec![("##", TokenKind::TitleMark), ("header2", TokenKind::Text)],
+            ),
+            (
+                "### header3 header3",
+                vec![
+                    ("###", TokenKind::TitleMark),
+                    ("header3 header3", TokenKind::Text),
+                ],
+            ),
+            (
+                "####  header4",
+                vec![
+                    ("####", TokenKind::TitleMark),
+                    (" header4", TokenKind::Text),
+                ],
+            ),
+            ("# ", vec![("#", TokenKind::TitleMark)]),
+            ("#  ", vec![("#", TokenKind::TitleMark)]),
+        ];
+        exec_cases(cases);
+    }
+
+    #[test]
+    fn test_quote() {
+        let cases = vec![(
+            "> Rust, A language empowering everyone to build reliable and efficient software.",
+            vec![(">", TokenKind::QuoteMark), (
+                "Rust, A language empowering everyone to build reliable and efficient software.",
+                TokenKind::Text,
+            )],
+        )];
+        exec_cases(cases);
+    }
+
+    #[test]
+    fn test_disordered_list() {
+        let cases = vec![(
+            "* rust",
+            vec![
+                ("*", TokenKind::DisorderListMark),
+                ("rust", TokenKind::Text),
+            ],
+        )];
+        exec_cases(cases);
+    }
+
+    #[test]
+    fn test_sorted_list() {
+        let cases = vec![
+            (
+                "1. rust",
+                vec![("1.", TokenKind::SortedListMark), ("rust", TokenKind::Text)],
+            ),
+            (
+                "2. rust",
+                vec![("2.", TokenKind::SortedListMark), ("rust", TokenKind::Text)],
+            ),
+            (
+                "3. rust",
+                vec![("3.", TokenKind::SortedListMark), ("rust", TokenKind::Text)],
+            ),
+            (
+                "10. rust",
+                vec![
+                    ("10.", TokenKind::SortedListMark),
+                    ("rust", TokenKind::Text),
+                ],
+            ),
+            (
+                "20. rust",
+                vec![
+                    ("20.", TokenKind::SortedListMark),
+                    ("rust", TokenKind::Text),
+                ],
+            ),
+            (
+                "100. rust",
+                vec![
+                    ("100.", TokenKind::SortedListMark),
+                    ("rust", TokenKind::Text),
+                ],
+            ),
+            (
+                "999. rust",
+                vec![
+                    ("999.", TokenKind::SortedListMark),
+                    ("rust", TokenKind::Text),
+                ],
+            ),
+        ];
+        exec_cases(cases);
+    }
+
+    #[test]
+    fn test_code_block_mark() {
+        let cases = vec![
+            ("```", vec![("```", TokenKind::CodeBlockMark)]),
+            (
+                "```rust",
+                vec![("```", TokenKind::CodeBlockMark), ("rust", TokenKind::Text)],
+            ),
+        ];
+        exec_cases(cases);
+    }
 }

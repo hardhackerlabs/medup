@@ -7,6 +7,8 @@ use itertools::Itertools;
 
 use crate::stack;
 
+const ESCAPE_CHARS: &str = "*_`#+-.![]()\\";
+
 #[derive(PartialEq, Debug)]
 enum State {
     Begin,
@@ -17,6 +19,7 @@ enum State {
 
 #[derive(PartialEq, Clone, Copy)]
 enum TextState {
+    Skip,
     Normal,
     // means *, usize is start position in line
     Continuous(usize),
@@ -102,7 +105,7 @@ impl<'lex> Lexer<'lex> {
         if let State::Content(begin) = self.state {
             let rest = self.slice_rest(begin);
 
-            for t in Lexer::split_inside(rest)
+            for t in Lexer::split_content(rest)
                 .into_iter()
                 .filter(|t| !t.value().is_empty())
             {
@@ -193,7 +196,7 @@ impl<'lex> Lexer<'lex> {
     }
 
     // Parse text content, include bold, picture and url etc.
-    fn split_inside(content: &str) -> Vec<Token> {
+    fn split_content(content: &str) -> Vec<Token> {
         let mut last = 0;
 
         let mut buff: Vec<Token> = Vec::new();
@@ -213,6 +216,22 @@ impl<'lex> Lexer<'lex> {
                     }
                     break;
                 }
+                (_, '\\') => {
+                    let next = content_iter.peek().map(|(_, n)| *n).unwrap_or('x');
+                    if ESCAPE_CHARS.contains(next) {
+                        // need to skip the next character
+                        state = TextState::Skip;
+
+                        let s = utf8_slice::slice(content, last, ix);
+                        if !s.is_empty() {
+                            buff.push(Token::new(s.to_string(), TokenKind::Text));
+                        }
+                        last = ix + 1; // drop the character: '\'
+                    }
+                }
+                (TextState::Skip, _) => {
+                    state = TextState::Normal;
+                }
                 (TextState::Normal, _) => match ch {
                     '*' | '_' | '`' => {
                         // the part of normal text before mark.
@@ -223,7 +242,7 @@ impl<'lex> Lexer<'lex> {
 
                         last = ix;
 
-                        if *content_iter.peek().map(|(_, n)| n).unwrap_or(&' ') == ch {
+                        if content_iter.peek().map(|(_, n)| *n).unwrap_or(' ') == ch {
                             state = TextState::Continuous(ix);
                         } else {
                             let s = utf8_slice::slice(content, ix, ix + 1);
@@ -617,6 +636,7 @@ impl<'img_token> ImgTokenAsMut<'img_token> {
     }
 }
 
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -852,6 +872,42 @@ mod tests {
                     ("```", TokenKind::CodeMark),
                     ("rust", TokenKind::Text),
                     ("```", TokenKind::CodeMark),
+                ],
+            ),
+        ];
+
+        exec_cases(cases);
+    }
+
+    #[test]
+    fn test_escape() {
+        let cases = vec![
+            (
+                "\\`rust`",
+                vec![("`rust", TokenKind::Text), ("`", TokenKind::Text)],
+            ),
+            (
+                "\\`rust\\`",
+                vec![("`rust", TokenKind::Text), ("`", TokenKind::Text)],
+            ),
+            (
+                "\\***rust***",
+                vec![
+                    ("*", TokenKind::Text),
+                    ("**", TokenKind::BoldMark),
+                    ("rust", TokenKind::Text),
+                    ("**", TokenKind::BoldMark),
+                    ("*", TokenKind::Text),
+                ],
+            ),
+            (
+                "\\***rust**\\*",
+                vec![
+                    ("*", TokenKind::Text),
+                    ("**", TokenKind::BoldMark),
+                    ("rust", TokenKind::Text),
+                    ("**", TokenKind::BoldMark),
+                    ("*", TokenKind::Text),
                 ],
             ),
         ];

@@ -52,3 +52,10 @@ This is an inline code block: `print("Hello, World!")`
 ## 分隔线
 
 ---
+
+## 转义字符
+
+\* 列表1
+\* 列表2
+
+This is an inline code block: \`print("Hello, World!")`

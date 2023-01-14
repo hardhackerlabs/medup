@@ -7,7 +7,7 @@ use itertools::Itertools;
 
 use crate::stack;
 
-const ESCAPE_CHARS: &str = "*_`#+-.![]()\\";
+const ESCAPE_CHARS: &str = ">*_`#+-.![]()\\";
 
 #[derive(PartialEq, Debug)]
 enum State {
@@ -260,30 +260,30 @@ impl<'lex> Lexer<'lex> {
                     '[' => state = TextState::UrlTitleBegin(ix), // begin of url
                     _ => (),
                 },
-                (TextState::PicBegin(p), _) => match ch {
-                    '[' => state = TextState::PicTitleBegin(p, ix),
+                (TextState::PicBegin(begin), _) => match ch {
+                    '[' => state = TextState::PicTitleBegin(begin, ix),
                     '!' => state = TextState::PicBegin(ix),
                     _ => state = TextState::Normal,
                 },
-                (TextState::PicTitleBegin(p1, p2), _) => {
+                (TextState::PicTitleBegin(b1, b2), _) => {
                     if ch == ']' {
-                        state = TextState::TitleDone(Some(p1), p2, ix);
+                        state = TextState::TitleDone(Some(b1), b2, ix);
                     }
                 }
-                (TextState::UrlTitleBegin(p), _) => match ch {
-                    ']' => state = TextState::TitleDone(None, p, ix),
+                (TextState::UrlTitleBegin(begin), _) => match ch {
+                    ']' => state = TextState::TitleDone(None, begin, ix),
                     '[' => state = TextState::UrlTitleBegin(ix),
                     _ => (),
                 },
-                (TextState::TitleDone(p1, p2, p3), _) => match ch {
-                    '(' => state = TextState::LocationBegin(p1, p2, p3, ix),
-                    ']' => state = TextState::TitleDone(p1, p2, ix),
+                (TextState::TitleDone(b1, b2, b3), _) => match ch {
+                    '(' => state = TextState::LocationBegin(b1, b2, b3, ix),
+                    ']' => state = TextState::TitleDone(b1, b2, ix),
                     _ => state = TextState::Normal,
                 },
-                (TextState::LocationBegin(p1, p2, p3, p4), _) => {
+                (TextState::LocationBegin(b1, b2, b3, b4), _) => {
                     if ch == ')' {
                         // when found ')', this means that we found a valid picture or url.
-                        let begin = p1.unwrap_or(p2);
+                        let begin = b1.unwrap_or(b2);
                         // the part of normal text before '![]()' or '[]()' mark.
                         let s = utf8_slice::slice(content, last, begin);
                         if !s.is_empty() {
@@ -291,24 +291,43 @@ impl<'lex> Lexer<'lex> {
                         }
                         // '![]()' or '[]()' mark
                         let s = utf8_slice::slice(content, begin, ix + 1);
-                        if p1.is_some() {
-                            let mut t = Token::new(s.to_string(), TokenKind::Image);
+                        if b1.is_some() {
+                            // image
+                            let s1 = utf8_slice::slice(content, b2 + 1, b3); // s1 in []
+                            let s2 = utf8_slice::slice(content, b4 + 1, ix); // s2 in ()
+
+                            let fields: Vec<&str> = s2.trim().splitn(2, [' ', '\t']).collect();
+                            let (kind, location, title) = match fields.len().cmp(&2) {
+                                Ordering::Less => (TokenKind::Image, s2, ""),
+                                Ordering::Equal => (TokenKind::Image, fields[0], fields[1]),
+                                Ordering::Greater => unreachable!(),
+                            };
+
+                            let mut t = Token::new(s.to_string(), kind);
                             let rf = &mut t;
-                            rf.as_img_mut()
-                                .insert_alt_name(utf8_slice::slice(content, p2 + 1, p3));
-                            rf.as_img_mut()
-                                .insert_location(utf8_slice::slice(content, p4 + 1, ix));
+                            rf.as_img_mut().insert_alt(s1);
+                            rf.as_img_mut().insert_location(location);
+                            rf.as_img_mut().insert_title(title);
+
                             buff.push(t);
                         } else {
-                            let mut t = Token::new(s.to_string(), TokenKind::Url);
+                            // url
+                            let s1 = utf8_slice::slice(content, b2 + 1, b3); // s1 in []
+                            let s2 = utf8_slice::slice(content, b4 + 1, ix); // s2 in ()
+
+                            let fields: Vec<&str> = s2.trim().splitn(2, [' ', '\t']).collect();
+                            let (kind, location, title) = match fields.len().cmp(&2) {
+                                Ordering::Less => (TokenKind::Url, s2, ""),
+                                Ordering::Equal => (TokenKind::Url, fields[0], fields[1]),
+                                Ordering::Greater => unreachable!(),
+                            };
+
+                            let mut t = Token::new(s.to_string(), kind);
                             let rf = &mut t;
-                            rf.as_url_mut().insert_show_name(utf8_slice::slice(
-                                content,
-                                p2 + 1,
-                                p3,
-                            ));
-                            rf.as_url_mut()
-                                .insert_location(utf8_slice::slice(content, p4 + 1, ix));
+                            rf.as_url_mut().insert_show_name(s1);
+                            rf.as_url_mut().insert_location(location);
+                            rf.as_url_mut().insert_title(title);
+
                             buff.push(t);
                         };
 
@@ -594,11 +613,25 @@ pub(crate) struct UrlTokenAsMut<'url_token>(&'url_token mut Token);
 
 impl<'url_token> UrlTokenAsMut<'url_token> {
     fn insert_show_name(&mut self, v: &str) {
-        self.0.insert("show_name", v)
+        if !v.is_empty() {
+            self.0.insert("show_name", v)
+        }
     }
 
     fn insert_location(&mut self, v: &str) {
-        self.0.insert("location", v)
+        if !v.is_empty() {
+            self.0.insert("location", v)
+        }
+    }
+
+    fn insert_title(&mut self, v: &str) {
+        if !v.is_empty() {
+            self.0.insert(
+                "title",
+                v.trim_end_matches(['"', '\''])
+                    .trim_start_matches(['"', '\'']),
+            )
+        }
     }
 }
 
@@ -611,7 +644,7 @@ impl<'img_token> ImgToken<'img_token> {
         self.0
             .details
             .as_ref()
-            .and_then(|x| x.get("alt_name").map(|x| &**x))
+            .and_then(|x| x.get("alt").map(|x| &**x))
     }
 
     // Get location of the Image
@@ -627,12 +660,26 @@ impl<'img_token> ImgToken<'img_token> {
 pub(crate) struct ImgTokenAsMut<'img_token>(&'img_token mut Token);
 
 impl<'img_token> ImgTokenAsMut<'img_token> {
-    fn insert_alt_name(&mut self, v: &str) {
-        self.0.insert("alt_name", v)
+    fn insert_alt(&mut self, v: &str) {
+        if !v.is_empty() {
+            self.0.insert("alt", v)
+        }
     }
 
     fn insert_location(&mut self, v: &str) {
-        self.0.insert("location", v)
+        if !v.is_empty() {
+            self.0.insert("location", v)
+        }
+    }
+
+    fn insert_title(&mut self, v: &str) {
+        if !v.is_empty() {
+            self.0.insert(
+                "title",
+                v.trim_end_matches(['\'', '"'])
+                    .trim_start_matches(['\'', '"']),
+            );
+        }
     }
 }
 
@@ -654,6 +701,43 @@ mod tests {
                 Lexer::new(s.as_str()).split(),
                 c.1.iter()
                     .map(|(v, k)| { Token::new(v.to_string(), *k) })
+                    .collect::<Vec<Token>>()
+            );
+        }
+    }
+
+    fn exec_url_image_cases(cases: Vec<(&str, Vec<(&str, TokenKind, &str, &str, &str)>)>) {
+        for c in cases.iter() {
+            let s = if c.0.ends_with('\n') {
+                c.0.to_string()
+            } else {
+                let mut s1 = c.0.to_string();
+                s1.push('\n');
+                s1
+            };
+
+            assert_eq!(
+                Lexer::new(s.as_str()).split(),
+                c.1.iter()
+                    .map(|(v, k, s1, s2, s3)| {
+                        let mut t = Token::new(v.to_string(), *k);
+                        match k {
+                            TokenKind::Url => {
+                                let mut tm = t.as_url_mut();
+                                tm.insert_show_name(s1);
+                                tm.insert_location(s2);
+                                tm.insert_title(s3);
+                            }
+                            TokenKind::Image => {
+                                let mut tm = t.as_img_mut();
+                                tm.insert_alt(s1);
+                                tm.insert_location(s2);
+                                tm.insert_title(s3);
+                            }
+                            _ => unreachable!(),
+                        }
+                        t
+                    })
                     .collect::<Vec<Token>>()
             );
         }
@@ -913,5 +997,76 @@ mod tests {
         ];
 
         exec_cases(cases);
+    }
+
+    #[test]
+    fn test_image() {
+        let cases = vec![
+            (
+                "![这是图片](/assets/img/philly-magic-garden.jpg \"Magic Gardens\")",
+                vec![(
+                    "![这是图片](/assets/img/philly-magic-garden.jpg \"Magic Gardens\")",
+                    TokenKind::Image,
+                    "这是图片",
+                    "/assets/img/philly-magic-garden.jpg",
+                    "Magic Gardens",
+                )],
+            ),
+            (
+                "![](/assets/img/philly-magic-garden.jpg \"Magic Gardens\")",
+                vec![(
+                    "![](/assets/img/philly-magic-garden.jpg \"Magic Gardens\")",
+                    TokenKind::Image,
+                    "",
+                    "/assets/img/philly-magic-garden.jpg",
+                    "Magic Gardens",
+                )],
+            ),
+            ("![]()", vec![("![]()", TokenKind::Image, "", "", "")]),
+            (
+                "![[[[[[]()",
+                vec![("![[[[[[]()", TokenKind::Image, "[[[[[", "", "")],
+            ),
+            ("![[]]()", vec![("![[]]()", TokenKind::Image, "[]", "", "")]),
+            ("![!]()", vec![("![!]()", TokenKind::Image, "!", "", "")]),
+            (
+                "![![]]()",
+                vec![("![![]]()", TokenKind::Image, "![]", "", "")],
+            ),
+        ];
+
+        exec_url_image_cases(cases);
+    }
+
+    #[test]
+    fn test_url() {
+        let cases = vec![
+            (
+                "[这是链接](/assets/img/philly-magic-garden.jpg \"Magic Gardens\")",
+                vec![(
+                    "[这是链接](/assets/img/philly-magic-garden.jpg \"Magic Gardens\")",
+                    TokenKind::Url,
+                    "这是链接",
+                    "/assets/img/philly-magic-garden.jpg",
+                    "Magic Gardens",
+                )],
+            ),
+            (
+                "[](/assets/img/philly-magic-garden.jpg \"Magic Gardens\")",
+                vec![(
+                    "[](/assets/img/philly-magic-garden.jpg \"Magic Gardens\")",
+                    TokenKind::Url,
+                    "",
+                    "/assets/img/philly-magic-garden.jpg",
+                    "Magic Gardens",
+                )],
+            ),
+            ("[]()", vec![("[]()", TokenKind::Url, "", "", "")]),
+            ("[]]()", vec![("[]]()", TokenKind::Url, "]", "", "")]),
+            ("[]]]]()", vec![("[]]]]()", TokenKind::Url, "]]]", "", "")]),
+            ("[!]]()", vec![("[!]]()", TokenKind::Url, "!]", "", "")]),
+        ];
+
+        exec_url_image_cases(cases);
     }
 }

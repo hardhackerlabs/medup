@@ -3,9 +3,18 @@ use std::{
     collections::{HashMap, VecDeque},
 };
 
+use crate::stack;
+
 use itertools::Itertools;
 
-use crate::stack;
+use lazy_static::lazy_static;
+use regex::Regex;
+
+// This regex is used to match a string with double quotes("") or single quotes('')
+lazy_static! {
+    static ref QUOTED_STRING_RE: Regex =
+        Regex::new(r#"['"](?:\\.|[^\\](?:\\\\)*\\?)*['"]"#).unwrap();
+}
 
 const ESCAPE_CHARS: &str = ">*_`#+-.![]()\\";
 
@@ -291,45 +300,16 @@ impl<'lex> Lexer<'lex> {
                         }
                         // '![]()' or '[]()' mark
                         let s = utf8_slice::slice(content, begin, ix + 1);
-                        if b1.is_some() {
+                        let s1 = utf8_slice::slice(content, b2 + 1, b3); // s1 in []
+                        let s2 = utf8_slice::slice(content, b4 + 1, ix); // s2 in ()
+                        let t = if b1.is_some() {
                             // image
-                            let s1 = utf8_slice::slice(content, b2 + 1, b3); // s1 in []
-                            let s2 = utf8_slice::slice(content, b4 + 1, ix); // s2 in ()
-
-                            let fields: Vec<&str> = s2.trim().splitn(2, [' ', '\t']).collect();
-                            let (kind, location, title) = match fields.len().cmp(&2) {
-                                Ordering::Less => (TokenKind::Image, s2, ""),
-                                Ordering::Equal => (TokenKind::Image, fields[0], fields[1]),
-                                Ordering::Greater => unreachable!(),
-                            };
-
-                            let mut t = Token::new(s.to_string(), kind);
-                            let rf = &mut t;
-                            rf.as_img_mut().insert_alt(s1);
-                            rf.as_img_mut().insert_location(location);
-                            rf.as_img_mut().insert_title(title);
-
-                            buff.push(t);
+                            Self::split_url_image_details(s, s1, s2, TokenKind::Image)
                         } else {
                             // url
-                            let s1 = utf8_slice::slice(content, b2 + 1, b3); // s1 in []
-                            let s2 = utf8_slice::slice(content, b4 + 1, ix); // s2 in ()
-
-                            let fields: Vec<&str> = s2.trim().splitn(2, [' ', '\t']).collect();
-                            let (kind, location, title) = match fields.len().cmp(&2) {
-                                Ordering::Less => (TokenKind::Url, s2, ""),
-                                Ordering::Equal => (TokenKind::Url, fields[0], fields[1]),
-                                Ordering::Greater => unreachable!(),
-                            };
-
-                            let mut t = Token::new(s.to_string(), kind);
-                            let rf = &mut t;
-                            rf.as_url_mut().insert_show_name(s1);
-                            rf.as_url_mut().insert_location(location);
-                            rf.as_url_mut().insert_title(title);
-
-                            buff.push(t);
+                            Self::split_url_image_details(s, s1, s2, TokenKind::Url)
                         };
+                        buff.push(t);
 
                         last = ix + 1;
                         state = TextState::Normal;
@@ -357,6 +337,39 @@ impl<'lex> Lexer<'lex> {
         }
         Lexer::tidy(&mut buff);
         buff
+    }
+
+    fn split_url_image_details(s: &str, s1: &str, s2: &str, kind: TokenKind) -> Token {
+        let fields: Vec<&str> = s2.trim().splitn(2, [' ', '\t']).collect();
+        let (kind, location, title) = match fields.len().cmp(&2) {
+            Ordering::Less => (kind, s2, ""),
+            Ordering::Equal => {
+                if Self::is_quoted_string(fields[1]) {
+                    (kind, fields[0], fields[1])
+                } else {
+                    (TokenKind::Text, "", "")
+                }
+            }
+            Ordering::Greater => unreachable!(),
+        };
+
+        let mut t = Token::new(s.to_string(), kind);
+        let rf = &mut t;
+        match kind {
+            TokenKind::Image => {
+                rf.as_img_mut().insert_alt(s1);
+                rf.as_img_mut().insert_location(location);
+                rf.as_img_mut().insert_title(title);
+            }
+            TokenKind::Url => {
+                rf.as_url_mut().insert_show_name(s1);
+                rf.as_url_mut().insert_location(location);
+                rf.as_url_mut().insert_title(title);
+            }
+            TokenKind::Text => {}
+            _ => unreachable!(),
+        }
+        t
     }
 
     fn tidy(buff: &mut Vec<Token>) {
@@ -484,6 +497,10 @@ impl<'lex> Lexer<'lex> {
                 .copied()
                 .unwrap_or(0)
                 >= 3
+    }
+
+    fn is_quoted_string(s: &str) -> bool {
+        QUOTED_STRING_RE.is_match(s)
     }
 }
 
@@ -734,7 +751,7 @@ mod tests {
                                 tm.insert_location(s2);
                                 tm.insert_title(s3);
                             }
-                            _ => unreachable!(),
+                            _ => (),
                         }
                         t
                     })
@@ -1020,6 +1037,36 @@ mod tests {
                     "",
                     "/assets/img/philly-magic-garden.jpg",
                     "Magic Gardens",
+                )],
+            ),
+            (
+                "![](/assets/img/philly-magic-garden.jpg \'Magic Gardens\')",
+                vec![(
+                    "![](/assets/img/philly-magic-garden.jpg \'Magic Gardens\')",
+                    TokenKind::Image,
+                    "",
+                    "/assets/img/philly-magic-garden.jpg",
+                    "Magic Gardens",
+                )],
+            ),
+            (
+                "![](/assets/img/philly-magic-garden.jpg Magic Gardens)",
+                vec![(
+                    "![](/assets/img/philly-magic-garden.jpg Magic Gardens)",
+                    TokenKind::Text,
+                    "",
+                    "",
+                    "",
+                )],
+            ),
+            (
+                "![](/assets/img/philly-magic-garden.jpg \"Magic Gardens)",
+                vec![(
+                    "![](/assets/img/philly-magic-garden.jpg \"Magic Gardens)",
+                    TokenKind::Text,
+                    "",
+                    "",
+                    "",
                 )],
             ),
             ("![]()", vec![("![]()", TokenKind::Image, "", "", "")]),

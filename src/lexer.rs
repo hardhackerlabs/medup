@@ -13,8 +13,8 @@ use url::Url;
 
 // This regex is used to match a string with double quotes("") or single quotes('')
 lazy_static! {
-    static ref QUOTED_STRING_RE: Regex =
-        Regex::new(r#"['"](?:\\.|[^\\](?:\\\\)*\\?)*['"]"#).unwrap();
+    static ref D_QUOTED_STRING_RE: Regex = Regex::new("^\"([^\"\\\\]|\\\\.)*\"$").unwrap();
+    static ref S_QUOTED_STRING_RE: Regex = Regex::new("^\'([^\'\\\\]|\\\\.)*\'$").unwrap();
 }
 
 const ESCAPE_CHARS: &str = ":*_`#+-.![]()<>\\";
@@ -529,7 +529,7 @@ impl<'lex> Lexer<'lex> {
     }
 
     fn is_quoted_string(s: &str) -> bool {
-        QUOTED_STRING_RE.is_match(s)
+        D_QUOTED_STRING_RE.is_match(s) || S_QUOTED_STRING_RE.is_match(s)
     }
 
     fn is_url(s: &str) -> bool {
@@ -1058,9 +1058,9 @@ mod tests {
     fn test_image() {
         let cases = vec![
             (
-                "![这是图片](/assets/img/philly-magic-garden.jpg \"Magic Gardens\")",
+                r#"![这是图片](/assets/img/philly-magic-garden.jpg "Magic Gardens")"#,
                 vec![(
-                    "![这是图片](/assets/img/philly-magic-garden.jpg \"Magic Gardens\")",
+                    r#"![这是图片](/assets/img/philly-magic-garden.jpg "Magic Gardens")"#,
                     TokenKind::Image,
                     "这是图片",
                     "/assets/img/philly-magic-garden.jpg",
@@ -1068,9 +1068,9 @@ mod tests {
                 )],
             ),
             (
-                "![](/assets/img/philly-magic-garden.jpg \"Magic Gardens\")",
+                r#"![](/assets/img/philly-magic-garden.jpg "Magic Gardens")"#,
                 vec![(
-                    "![](/assets/img/philly-magic-garden.jpg \"Magic Gardens\")",
+                    r#"![](/assets/img/philly-magic-garden.jpg "Magic Gardens")"#,
                     TokenKind::Image,
                     "",
                     "/assets/img/philly-magic-garden.jpg",
@@ -1078,9 +1078,9 @@ mod tests {
                 )],
             ),
             (
-                "![](/assets/img/philly-magic-garden.jpg \'Magic Gardens\')",
+                r#"![](/assets/img/philly-magic-garden.jpg 'Magic Gardens')"#,
                 vec![(
-                    "![](/assets/img/philly-magic-garden.jpg \'Magic Gardens\')",
+                    r#"![](/assets/img/philly-magic-garden.jpg 'Magic Gardens')"#,
                     TokenKind::Image,
                     "",
                     "/assets/img/philly-magic-garden.jpg",
@@ -1098,9 +1098,19 @@ mod tests {
                 )],
             ),
             (
-                "![](/assets/img/philly-magic-garden.jpg \"Magic Gardens)",
+                r#"![](/assets/img/philly-magic-garden.jpg "Magic" Gardens)"#,
                 vec![(
-                    "![](/assets/img/philly-magic-garden.jpg \"Magic Gardens)",
+                    r#"![](/assets/img/philly-magic-garden.jpg "Magic" Gardens)"#,
+                    TokenKind::Text,
+                    "",
+                    "",
+                    "",
+                )],
+            ),
+            (
+                r#"![](/assets/img/philly-magic-garden.jpg "Magic Gardens)"#,
+                vec![(
+                    r#"![](/assets/img/philly-magic-garden.jpg "Magic Gardens)"#,
                     TokenKind::Text,
                     "",
                     "",

@@ -86,9 +86,9 @@ impl Ast {
 </head>
 
 
-<body>"#,
+<body><article>"#,
             ),
-            String::from("</body></html>"),
+            String::from("</article></body></html>"),
         ];
 
         let gens = self

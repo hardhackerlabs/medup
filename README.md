@@ -1,16 +1,18 @@
-# med is a markdown editor
-This is my project to learn rust programming language, I will try to build a pretty markdown editor.
+# Medup
+Medup is a markdown parsing toolkit! Currently, still under development.
 
-## Highlights:
-* Support slide mode
-* Support Vim mode
-* Support to record commands (unix-like) and run them directly
-* Support automation commands to edit document
-* Support horizontal layout
-* Fast
-* ...
+## Features
+* Supports the richest markdown syntax, including extended syntax.
+* Parse markdown and generate html.
+* Provide css style templates.
+* Support for extended tag syntax.
+* Generate a static documentation site.
+* Provide markdown editor.
 
-## Progress
-1. Now, I'm working on the markdown parser, it's almost complete.
-2. The next step, My job is to generate HTML based on Ast.
-3. Finally, I will develop the real editor App.
+## Usage
+### Generate HTML
+```
+medup gen exmaple.md
+```
+
+## Demo

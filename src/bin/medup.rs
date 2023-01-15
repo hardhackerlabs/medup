@@ -1,4 +1,4 @@
-use med::markdown;
+use medup::markdown;
 
 use clap::{arg, Command};
 

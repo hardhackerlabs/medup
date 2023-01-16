@@ -22,6 +22,7 @@ fn main() {
                 None => None,
                 Some(path) => File::options()
                     .write(true)
+                    .truncate(true)
                     .create(true)
                     .open(path)
                     .map(|f| Some(f))

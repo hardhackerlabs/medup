@@ -117,7 +117,7 @@ impl<'lex> Lexer<'lex> {
         if let State::Content(begin) = self.state {
             let rest = self.slice_rest(begin);
 
-            for t in Lexer::split_content(rest)
+            for t in Lexer::split_inline(rest)
                 .into_iter()
                 .filter(|t| !t.value().is_empty())
             {
@@ -208,7 +208,7 @@ impl<'lex> Lexer<'lex> {
     }
 
     // Parse text content, include bold, image and url etc.
-    fn split_content(content: &str) -> Vec<Token> {
+    fn split_inline(content: &str) -> Vec<Token> {
         let mut last = 0;
 
         let mut buff: Vec<Token> = Vec::new();

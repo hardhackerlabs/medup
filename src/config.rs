@@ -5,8 +5,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize)]
 pub struct Config {
     pub css_href: String,
-    pub custom_html_header: String,
-    pub add_class_on_body: String,
+    pub custom_html_head: String,
     pub add_class_on_article: String,
 }
 
@@ -14,9 +13,8 @@ impl Config {
     pub fn default() -> Self {
         Config {
             css_href: String::from(""),
-            custom_html_header: String::from(""),
+            custom_html_head: String::from(""),
             add_class_on_article: String::from(""),
-            add_class_on_body: String::from(""),
         }
     }
 }

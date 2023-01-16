@@ -1,19 +1,18 @@
 use std::cell::RefCell;
-use std::error::Error;
 use std::fmt::Debug;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::rc::Rc;
 use std::{fmt, io};
 
-use itertools::Itertools;
-
 use crate::lexer::{Lexer, Token, TokenKind};
+
+use itertools::Itertools;
 
 pub(crate) type SharedLine = Rc<RefCell<Line>>;
 
 pub(crate) trait HtmlGenerate {
-    fn header(&self) -> String;
+    fn head(&self) -> String;
     fn body_begin(&self) -> String;
     fn body_end(&self) -> String;
     fn body_title(&self, l: &SharedLine) -> String;
@@ -78,7 +77,7 @@ impl Ast {
     }
 
     // Iterate through each block of the Ast and process the block into a 'html' string
-    pub(crate) fn render_html(&self, html: &impl HtmlGenerate) -> Result<String, Box<dyn Error>> {
+    pub(crate) fn render_html(&self, html: &impl HtmlGenerate) -> String {
         let mut buff: Vec<String> = vec![];
 
         let body = self
@@ -101,13 +100,13 @@ impl Ast {
             .join("\n\n");
 
         buff.push(String::from("<!doctype html><html>"));
-        buff.push(html.header());
+        buff.push(html.head());
         buff.push(html.body_begin());
         buff.push(body);
         buff.push(html.body_end());
         buff.push(String::from("</html>"));
 
-        Ok(buff.join("\n"))
+        buff.join("\n")
     }
 
     // Count the lines in ast

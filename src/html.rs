@@ -35,8 +35,7 @@ impl<'generator> Generator<'generator> {
         self.tt.add_template(CODE_TEMPLATE_NAME, CODE_TEMPLATE)?;
         self.tt
             .add_template(TEXT_PARAGRAPH_TEMPLATE_NAME, TEXT_PARAGRAPH_TEMPLATE)?;
-        self.tt
-            .add_template(HEADER_TEMPLATE_NAME, HEADER_TEMPLATE)?;
+        self.tt.add_template(HEAD_TEMPLATE_NAME, HEAD_TEMPLATE)?;
         self.tt
             .add_template(BODY_BEGIN_TEMPLATE_NAME, BODY_BEGIN_TEMPLATE)?;
 
@@ -45,7 +44,7 @@ impl<'generator> Generator<'generator> {
         Ok(())
     }
 
-    fn gen_line(&self, tokens: &Vec<Token>) -> String {
+    fn gen_inline(&self, tokens: &Vec<Token>) -> String {
         let mut stack: stack::Stack<(TokenKind, &str)> = stack::Stack::new();
 
         let mut text = String::new();
@@ -139,19 +138,18 @@ impl<'generator> Generator<'generator> {
 }
 
 impl<'generator> HtmlGenerate for Generator<'generator> {
-    fn header(&self) -> String {
-        if !self.cfg.custom_html_header.is_empty() {
-            return self.cfg.custom_html_header.clone();
+    fn head(&self) -> String {
+        if !self.cfg.custom_html_head.is_empty() {
+            return self.cfg.custom_html_head.clone();
         }
-        let ctx = HeaderContext {
+        let ctx = HeadContext {
             css_href: &self.cfg.css_href,
         };
-        self.tt.render(HEADER_TEMPLATE_NAME, &ctx).unwrap()
+        self.tt.render(HEAD_TEMPLATE_NAME, &ctx).unwrap()
     }
 
     fn body_begin(&self) -> String {
         let ctx = BodyBeginContext {
-            body_class: &self.cfg.add_class_on_body,
             article_class: &self.cfg.add_class_on_article,
         };
         self.tt.render(BODY_BEGIN_TEMPLATE_NAME, &ctx).unwrap()
@@ -164,7 +162,7 @@ impl<'generator> HtmlGenerate for Generator<'generator> {
     fn body_title(&self, l: &SharedLine) -> String {
         let l = l.borrow();
         let level = l.get_mark().len();
-        let value = self.gen_line(l.all());
+        let value = self.gen_inline(l.all());
 
         let ctx = TitleContext {
             is_l1: level == 1,
@@ -182,7 +180,10 @@ impl<'generator> HtmlGenerate for Generator<'generator> {
     }
 
     fn body_normal(&self, ls: &[SharedLine]) -> String {
-        let lines: Vec<String> = ls.iter().map(|l| self.gen_line(l.borrow().all())).collect();
+        let lines: Vec<String> = ls
+            .iter()
+            .map(|l| self.gen_inline(l.borrow().all()))
+            .collect();
         self.tt
             .render(
                 TEXT_PARAGRAPH_TEMPLATE_NAME,
@@ -200,7 +201,7 @@ impl<'generator> HtmlGenerate for Generator<'generator> {
         let list: Vec<String> = ls
             .iter()
             .map(|l| {
-                let leader = self.gen_line(l.borrow().all());
+                let leader = self.gen_inline(l.borrow().all());
                 let nesting = l
                     .borrow()
                     .enter_nested_blocks(&Generator::new(self.cfg).unwrap());
@@ -220,7 +221,7 @@ impl<'generator> HtmlGenerate for Generator<'generator> {
         let list = ls
             .iter()
             .map(|l| {
-                let leader = self.gen_line(l.borrow().all());
+                let leader = self.gen_inline(l.borrow().all());
                 let nesting = l
                     .borrow()
                     .enter_nested_blocks(&Generator::new(self.cfg).unwrap());
@@ -240,7 +241,10 @@ impl<'generator> HtmlGenerate for Generator<'generator> {
     }
 
     fn body_quote(&self, ls: &[SharedLine]) -> String {
-        let lines: Vec<String> = ls.iter().map(|l| self.gen_line(l.borrow().all())).collect();
+        let lines: Vec<String> = ls
+            .iter()
+            .map(|l| self.gen_inline(l.borrow().all()))
+            .collect();
         self.tt
             .render(QUOTE_TEMPLATE_NAME, &QuoteContext { lines })
             .unwrap()
@@ -268,29 +272,43 @@ impl<'generator> HtmlGenerate for Generator<'generator> {
 }
 
 // header
-const HEADER_TEMPLATE_NAME: &str = "header";
-const HEADER_TEMPLATE: &str = r#"
+const HEAD_TEMPLATE_NAME: &str = "header";
+const HEAD_TEMPLATE: &str = r#"
 <head>
 <meta charset='UTF-8'><meta name='viewport' content='width=device-width initial-scale=1'>
 {{ if css_href }} <link rel="stylesheet" type="text/css" href="{ css_href }"> {{ endif }}
+<style>
+        body\{
+                box-sizing: border-box;
+                min-width: 200px;
+                max-width: 980px;
+                margin: 0 auto;
+                padding: 45px;
+        }
+
+        @media (max-width: 767px) \{
+                body\{
+                        padding: 15px;
+                }
+        }
+</style>
 <title></title>
 </head>
 "#;
 
 #[derive(Serialize)]
-struct HeaderContext<'header_context> {
-    css_href: &'header_context str,
+struct HeadContext<'head_context> {
+    css_href: &'head_context str,
 }
 
 const BODY_BEGIN_TEMPLATE_NAME: &str = "body_begin";
 const BODY_BEGIN_TEMPLATE: &str = r#"
-<body{{ if body_class }} class={body_class}{{ endif }}>
+<body>
 <article{{ if article_class }} class={article_class}{{ endif }}>
 "#;
 
 #[derive(Serialize)]
 struct BodyBeginContext<'body_begin_context> {
-    body_class: &'body_begin_context str,
     article_class: &'body_begin_context str,
 }
 
@@ -366,9 +384,9 @@ struct ImageContext<'ic> {
 
 // code block
 const CODE_TEMPLATE_NAME: &str = "code_block";
-const CODE_TEMPLATE: &str = r#"<pre><code class="language-{name}">
-{text}
-</code></pre>"#;
+const CODE_TEMPLATE: &str = "<pre><code class=\"language-{name}\">\
+{text}\
+</code></pre>";
 
 #[derive(Serialize)]
 struct CodeBlockContext<'cbc> {

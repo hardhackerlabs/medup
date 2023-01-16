@@ -44,6 +44,12 @@ impl Ast {
         }
     }
 
+    pub(crate) fn insert_line(&mut self, ln: usize, s: &str) {}
+
+    pub(crate) fn update_line(&mut self, ln: usize, s: &str) {}
+
+    pub(crate) fn delete_line(&mut self, ln: usize) {}
+
     // Parse markdown document from a file, the 'path' argument is the file path.
     pub(crate) fn parse_file(&mut self, path: &str) -> Result<(), io::Error> {
         let file = File::open(path)?;

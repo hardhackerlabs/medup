@@ -23,38 +23,43 @@ const ESCAPE_CHARS: &str = ":*_`#+-.![]()<>\\";
 enum State {
     Begin,
     Mark(usize),
-    Content(usize),
+    Inline(usize),
     Finished,
 }
 
 #[derive(PartialEq, Clone, Copy)]
-enum TextState {
+enum InlineState {
     Skip,
+    Finished,
     Normal,
     // means *, usize is start position in line
     Continuous(usize),
     // means !, usize is the index of '!'
     ImgBegin(usize),
     // means [, (usize, usize) is the index of ('!', '[')
-    ImgTitleBegin(usize, usize),
+    ImgNameBegin(usize, usize),
     // means [, usize is the index of '['
-    LinkTitleBegin(usize),
+    LinkNameBegin(usize),
     // means ], (usize, usize, usize) is the index of ('!', '[', ']')
-    TitleDone(Option<usize>, usize, usize),
+    NameEnd(Option<usize>, usize, usize),
+    // means [, (usize, usize, usize) is the index of ('[', ']', '[')
+    RefLink(usize, usize, usize),
+    // means :, (usize, usize, usize) is the index of ('[', ']', ':')
+    RefLinkDef(usize, usize, usize),
     // means (, (usize, usize, usize, usize) is the index of ('!', '[', ']', '(')
-    LocationBegin(Option<usize>, usize, usize, usize),
+    Location(Option<usize>, usize, usize, usize),
     // means <, usize is the index of '<'
-    AutoLinkBegin(usize),
+    QuickLink(usize),
 }
 
 // Lexer is a lexical analyzer that parses lines of text into multiple tokens.
-pub(crate) struct Lexer<'lex> {
+pub(crate) struct Lexer<'lexer> {
     state: State,
-    line_text: &'lex str,
+    line_text: &'lexer str,
 }
 
-impl<'lex> Lexer<'lex> {
-    pub(crate) fn new(text: &'lex str) -> Self {
+impl<'lexer> Lexer<'lexer> {
+    pub(crate) fn new(text: &'lexer str) -> Self {
         Lexer {
             state: State::Begin,
             line_text: text,
@@ -95,17 +100,17 @@ impl<'lex> Lexer<'lex> {
 
                     if let Some(m) = self.extract_mark(first_word) {
                         match m.kind() {
-                            TokenKind::CodeBlockMark => self.goto(State::Content(begin + 3)),
+                            TokenKind::CodeBlockMark => self.goto(State::Inline(begin + 3)),
                             TokenKind::DividingMark => self.goto(State::Finished),
-                            _ => self.goto(State::Content(ix + 1)),
+                            _ => self.goto(State::Inline(ix + 1)),
                         }
                         buff.push(m);
                     } else {
                         // normal text
-                        self.goto(State::Content(begin));
+                        self.goto(State::Inline(begin));
                     }
                 }
-                State::Content(_) => {
+                State::Inline(_) => {
                     break;
                 }
                 State::Finished => {
@@ -114,7 +119,7 @@ impl<'lex> Lexer<'lex> {
             };
         }
 
-        if let State::Content(begin) = self.state {
+        if let State::Inline(begin) = self.state {
             let rest = self.slice_rest(begin);
 
             for t in Lexer::split_inline(rest)
@@ -197,12 +202,12 @@ impl<'lex> Lexer<'lex> {
         }
     }
 
-    // Parse text content, include bold, image and link etc.
+    // Parse inline syntax, include bold, image and link etc.
     fn split_inline(content: &str) -> Vec<Token> {
         let mut last = 0;
 
         let mut buff: Vec<Token> = Vec::new();
-        let mut state = TextState::Normal;
+        let mut state = InlineState::Normal;
 
         let mut content_iter = content.chars().enumerate().peekable();
         while let Some((ix, ch)) = content_iter.next() {
@@ -222,7 +227,7 @@ impl<'lex> Lexer<'lex> {
                     let next = content_iter.peek().map(|(_, n)| *n).unwrap_or('x');
                     if ESCAPE_CHARS.contains(next) {
                         // need to skip the next character
-                        state = TextState::Skip;
+                        state = InlineState::Skip;
 
                         let s = utf8_slice::slice(content, last, ix);
                         if !s.is_empty() {
@@ -231,10 +236,10 @@ impl<'lex> Lexer<'lex> {
                         last = ix + 1; // drop the character: '\'
                     }
                 }
-                (TextState::Skip, _) => {
-                    state = TextState::Normal;
+                (InlineState::Skip, _) => {
+                    state = InlineState::Normal;
                 }
-                (TextState::Normal, _) => match ch {
+                (InlineState::Normal, _) => match ch {
                     '*' | '_' | '`' => {
                         // the part of normal text before mark.
                         let s = utf8_slice::slice(content, last, ix);
@@ -245,7 +250,7 @@ impl<'lex> Lexer<'lex> {
                         last = ix;
 
                         if content_iter.peek().map(|(_, n)| *n).unwrap_or(' ') == ch {
-                            state = TextState::Continuous(ix);
+                            state = InlineState::Continuous(ix);
                         } else {
                             let s = utf8_slice::slice(content, ix, ix + 1);
                             last = ix + 1;
@@ -258,57 +263,60 @@ impl<'lex> Lexer<'lex> {
                             buff.push(Token::new(s.to_string(), k));
                         }
                     }
-                    '!' => state = TextState::ImgBegin(ix),
-                    '[' => state = TextState::LinkTitleBegin(ix),
-                    '<' => state = TextState::AutoLinkBegin(ix),
+                    '!' => state = InlineState::ImgBegin(ix),
+                    '[' => state = InlineState::LinkNameBegin(ix),
+                    '<' => state = InlineState::QuickLink(ix),
                     _ => (),
                 },
-                (TextState::AutoLinkBegin(begin), _) => {
-                    if ch.is_whitespace() {
-                        let s = utf8_slice::slice(content, begin + 1, ix).trim();
-                        if !s.is_empty() && !Self::is_url(s) && !Self::is_email(s) {
-                            state = TextState::Normal;
-                        }
-                    }
-                    if ch == '>' {
-                        let link = utf8_slice::slice(content, begin + 1, ix).trim();
-                        if Self::is_url(link) || Self::is_email(link) {
-                            let before = utf8_slice::slice(content, last, begin);
-                            if !before.is_empty() {
-                                buff.push(Token::new(before.to_string(), TokenKind::Text));
-                            }
-
-                            let t = Token::new(link.to_string(), TokenKind::AutoLink);
-                            buff.push(t);
-
-                            last = ix + 1;
-                            state = TextState::Normal;
-                        } else {
-                            state = TextState::Normal;
-                        }
-                    }
-                }
-                (TextState::ImgBegin(begin), _) => match ch {
-                    '[' => state = TextState::ImgTitleBegin(begin, ix),
-                    '!' => state = TextState::ImgBegin(ix),
-                    _ => state = TextState::Normal,
+                (InlineState::ImgBegin(begin), _) => match ch {
+                    '[' => state = InlineState::ImgNameBegin(begin, ix),
+                    '!' => state = InlineState::ImgBegin(ix),
+                    _ => state = InlineState::Normal,
                 },
-                (TextState::ImgTitleBegin(b1, b2), _) => {
+                (InlineState::ImgNameBegin(b1, b2), _) => {
                     if ch == ']' {
-                        state = TextState::TitleDone(Some(b1), b2, ix);
+                        state = InlineState::NameEnd(Some(b1), b2, ix);
                     }
                 }
-                (TextState::LinkTitleBegin(begin), _) => match ch {
-                    ']' => state = TextState::TitleDone(None, begin, ix),
-                    '[' => state = TextState::LinkTitleBegin(ix),
+                (InlineState::LinkNameBegin(begin), _) => match ch {
+                    ']' => state = InlineState::NameEnd(None, begin, ix),
+                    '[' => state = InlineState::LinkNameBegin(ix),
                     _ => (),
                 },
-                (TextState::TitleDone(b1, b2, b3), _) => match ch {
-                    '(' => state = TextState::LocationBegin(b1, b2, b3, ix),
-                    ']' => state = TextState::TitleDone(b1, b2, ix),
-                    _ => state = TextState::Normal,
+                (InlineState::NameEnd(b1, b2, b3), _) => match ch {
+                    '(' => state = InlineState::Location(b1, b2, b3, ix),
+                    ']' => state = InlineState::NameEnd(b1, b2, ix),
+                    '[' => state = InlineState::RefLink(b2, b3, ix),
+                    ':' => state = InlineState::RefLinkDef(b2, b3, ix),
+                    _ => state = InlineState::Normal,
                 },
-                (TextState::LocationBegin(b1, b2, b3, b4), _) => {
+                (InlineState::RefLink(b1, b2, b3), _) => {
+                    if ch == ']' {
+                        let s = utf8_slice::slice(content, last, b1);
+                        if !s.is_empty() {
+                            buff.push(Token::new(s.to_string(), TokenKind::Text));
+                        }
+
+                        let s = utf8_slice::slice(content, b1, ix + 1);
+                        let s1 = utf8_slice::slice(content, b1 + 1, b2);
+                        let s2 = utf8_slice::slice(content, b3 + 1, ix);
+                        let t = Self::split_generic_link_details(s, s1, s2, TokenKind::RefLink);
+                        buff.push(t);
+
+                        last = ix + 1;
+                        state = InlineState::Normal;
+                    }
+                }
+                (InlineState::RefLinkDef(b1, b2, b3), _) => {
+                    let s = utf8_slice::from(content, last).trim_end_matches('\n');
+                    let s1 = utf8_slice::slice(content, b1 + 1, b2);
+                    let s2 = utf8_slice::from(content, ix).trim_end_matches('\n');
+                    let t = Self::split_generic_link_details(s, s1, s2, TokenKind::RefLinkDef);
+                    buff.push(t);
+
+                    state = InlineState::Finished;
+                }
+                (InlineState::Location(b1, b2, b3, b4), _) => {
                     if ch == ')' {
                         // when found ')', this means that we found a valid image or link.
                         let begin = b1.unwrap_or(b2);
@@ -323,18 +331,49 @@ impl<'lex> Lexer<'lex> {
                         let s2 = utf8_slice::slice(content, b4 + 1, ix); // s2 in ()
                         let t = if b1.is_some() {
                             // image
-                            Self::split_link_image_details(s, s1, s2, TokenKind::Image)
+                            Self::split_generic_link_details(s, s1, s2, TokenKind::Image)
                         } else {
                             // link
-                            Self::split_link_image_details(s, s1, s2, TokenKind::Link)
+                            Self::split_generic_link_details(s, s1, s2, TokenKind::Link)
                         };
                         buff.push(t);
 
                         last = ix + 1;
-                        state = TextState::Normal;
+                        state = InlineState::Normal;
                     }
                 }
-                (TextState::Continuous(begin), _) => {
+                (InlineState::QuickLink(begin), _) => {
+                    if ch.is_whitespace() {
+                        let s = utf8_slice::slice(content, begin + 1, ix).trim();
+                        if !s.is_empty() && !Self::is_url(s) && !Self::is_email(s) {
+                            state = InlineState::Normal;
+                        }
+                    }
+                    if ch == '>' {
+                        let link = utf8_slice::slice(content, begin + 1, ix).trim();
+                        if Self::is_url(link) || Self::is_email(link) {
+                            let before = utf8_slice::slice(content, last, begin);
+                            if !before.is_empty() {
+                                buff.push(Token::new(before.to_string(), TokenKind::Text));
+                            }
+
+                            let s = utf8_slice::slice(content, begin, ix + 1);
+                            let t = Self::split_generic_link_details(
+                                s,
+                                link,
+                                link,
+                                TokenKind::QuickLink,
+                            );
+                            buff.push(t);
+
+                            last = ix + 1;
+                            state = InlineState::Normal;
+                        } else {
+                            state = InlineState::Normal;
+                        }
+                    }
+                }
+                (InlineState::Continuous(begin), _) => {
                     if *content_iter.peek().map(|(_, n)| n).unwrap_or(&' ') != ch {
                         let s = utf8_slice::slice(content, begin, ix + 1);
                         let k = match ch {
@@ -346,8 +385,11 @@ impl<'lex> Lexer<'lex> {
                         buff.push(Token::new(s.to_string(), k));
 
                         last = ix + 1;
-                        state = TextState::Normal;
+                        state = InlineState::Normal;
                     }
+                }
+                (InlineState::Finished, _) => {
+                    break;
                 }
             }
         }
@@ -358,8 +400,9 @@ impl<'lex> Lexer<'lex> {
         buff
     }
 
-    fn split_link_image_details(s: &str, s1: &str, s2: &str, kind: TokenKind) -> Token {
-        let fields: Vec<&str> = s2.trim().splitn(2, [' ', '\t']).collect();
+    fn split_generic_link_details(s: &str, s1: &str, s2: &str, kind: TokenKind) -> Token {
+        let s2 = s2.trim();
+        let fields: Vec<&str> = s2.splitn(2, [' ', '\t']).collect();
         let (kind, location, title) = match fields.len().cmp(&2) {
             Ordering::Less => (kind, s2, ""),
             Ordering::Equal => {
@@ -375,15 +418,23 @@ impl<'lex> Lexer<'lex> {
         let mut t = Token::new(s.to_string(), kind);
         let rf = &mut t;
         match kind {
-            TokenKind::Image => {
-                rf.as_img_mut().insert_alt(s1);
-                rf.as_img_mut().insert_location(location);
-                rf.as_img_mut().insert_title(title);
+            TokenKind::Image | TokenKind::Link => {
+                rf.as_generic_link_mut().insert_name(s1);
+                rf.as_generic_link_mut().insert_location(location);
+                rf.as_generic_link_mut().insert_title(title);
             }
-            TokenKind::Link => {
-                rf.as_link_mut().insert_show_name(s1);
-                rf.as_link_mut().insert_location(location);
-                rf.as_link_mut().insert_title(title);
+            TokenKind::RefLink => {
+                rf.as_generic_link_mut().insert_name(s1);
+                rf.as_generic_link_mut().insert_reflink_tag(s2);
+            }
+            TokenKind::RefLinkDef => {
+                rf.as_generic_link_mut().insert_reflink_tag(s1);
+                rf.as_generic_link_mut().insert_location(location);
+                rf.as_generic_link_mut().insert_title(title);
+            }
+            TokenKind::QuickLink => {
+                rf.as_generic_link_mut().insert_name(s1);
+                rf.as_generic_link_mut().insert_location(location);
             }
             TokenKind::Text => {}
             _ => unreachable!(),
@@ -545,9 +596,11 @@ pub(crate) enum TokenKind {
     CodeMark,       // `
     BlankLine,      // \n
     LineBreak,      // <br>, double whitespace
-    Image,          // ![]()
-    Link,           // []()
-    AutoLink,       // <>
+    Image,          // ![name](location "title")
+    Link,           // [name](location "title")
+    QuickLink,      // <url or email>
+    RefLink,        // [name][tag]
+    RefLinkDef,     // [tag]: link "title"
     Text,
     Star,       // *
     UnderLine,  // _
@@ -592,32 +645,29 @@ impl Token {
         self.kind = kind
     }
 
-    // convert the token to link token
-    pub(crate) fn as_link(&self) -> LinkToken {
-        if self.kind() != TokenKind::Link {
-            panic!("token is not link");
+    // convert the token to generic link token
+    pub(crate) fn as_generic_link(&self) -> GenericLinkToken {
+        if self.kind() != TokenKind::Link
+            && self.kind() != TokenKind::Image
+            && self.kind() != TokenKind::RefLink
+            && self.kind() != TokenKind::RefLinkDef
+            && self.kind() != TokenKind::QuickLink
+        {
+            panic!("token is not a generic link");
         }
-        LinkToken(self)
-    }
-    fn as_link_mut(&mut self) -> LinkTokenAsMut {
-        if self.kind() != TokenKind::Link {
-            panic!("token is not link");
-        }
-        LinkTokenAsMut(self)
+        GenericLinkToken(self)
     }
 
-    // convert the token to img token
-    pub(crate) fn as_img(&self) -> ImgToken {
-        if self.kind() != TokenKind::Image {
-            panic!("token is not image");
+    fn as_generic_link_mut(&mut self) -> GenericLinkTokenAsMut {
+        if self.kind() != TokenKind::Link
+            && self.kind() != TokenKind::Image
+            && self.kind() != TokenKind::RefLink
+            && self.kind() != TokenKind::RefLinkDef
+            && self.kind() != TokenKind::QuickLink
+        {
+            panic!("token is not a generic link");
         }
-        ImgToken(self)
-    }
-    fn as_img_mut(&mut self) -> ImgTokenAsMut {
-        if self.kind() != TokenKind::Image {
-            panic!("token is not image");
-        }
-        ImgTokenAsMut(self)
+        GenericLinkTokenAsMut(self)
     }
 
     fn split_off(&mut self, at: usize) -> Token {
@@ -632,34 +682,43 @@ impl Token {
     }
 }
 
+// Link Token
 #[derive(PartialEq, Debug)]
-pub(crate) struct LinkToken<'link_token>(&'link_token Token);
+pub(crate) struct GenericLinkToken<'generic_link_token>(&'generic_link_token Token);
 
-impl<'link_token> LinkToken<'link_token> {
-    // Get show name of the link
-    pub(crate) fn get_show_name(&self) -> Option<&str> {
+impl<'generic_link_token> GenericLinkToken<'generic_link_token> {
+    // Get name of the link
+    pub(crate) fn name(&self) -> Option<&str> {
         self.0
             .details
             .as_ref()
-            .and_then(|x| x.get("show_name").map(|x| &**x))
+            .and_then(|x| x.get("name").map(|x| &**x))
     }
 
     // Get location of the link
-    pub(crate) fn get_location(&self) -> Option<&str> {
+    pub(crate) fn location(&self) -> Option<&str> {
         self.0
             .details
             .as_ref()
             .and_then(|x| x.get("location").map(|x| &**x))
     }
+
+    // Get title of the link
+    pub(crate) fn title(&self) -> Option<&str> {
+        self.0
+            .details
+            .as_ref()
+            .and_then(|x| x.get("title").map(|x| &**x))
+    }
 }
 
 #[derive(PartialEq, Debug)]
-pub(crate) struct LinkTokenAsMut<'link_token>(&'link_token mut Token);
+pub(crate) struct GenericLinkTokenAsMut<'link_token>(&'link_token mut Token);
 
-impl<'link_token> LinkTokenAsMut<'link_token> {
-    fn insert_show_name(&mut self, v: &str) {
+impl<'link_token> GenericLinkTokenAsMut<'link_token> {
+    fn insert_name(&mut self, v: &str) {
         if !v.is_empty() {
-            self.0.insert("show_name", v)
+            self.0.insert("name", v)
         }
     }
 
@@ -678,52 +737,10 @@ impl<'link_token> LinkTokenAsMut<'link_token> {
             )
         }
     }
-}
 
-#[derive(PartialEq, Debug)]
-pub(crate) struct ImgToken<'img_token>(&'img_token Token);
-
-impl<'img_token> ImgToken<'img_token> {
-    // Get alt name of the Image
-    pub(crate) fn get_alt_name(&self) -> Option<&str> {
-        self.0
-            .details
-            .as_ref()
-            .and_then(|x| x.get("alt").map(|x| &**x))
-    }
-
-    // Get location of the Image
-    pub(crate) fn get_location(&self) -> Option<&str> {
-        self.0
-            .details
-            .as_ref()
-            .and_then(|x| x.get("location").map(|x| &**x))
-    }
-}
-
-#[derive(PartialEq, Debug)]
-pub(crate) struct ImgTokenAsMut<'img_token>(&'img_token mut Token);
-
-impl<'img_token> ImgTokenAsMut<'img_token> {
-    fn insert_alt(&mut self, v: &str) {
+    fn insert_reflink_tag(&mut self, v: &str) {
         if !v.is_empty() {
-            self.0.insert("alt", v)
-        }
-    }
-
-    fn insert_location(&mut self, v: &str) {
-        if !v.is_empty() {
-            self.0.insert("location", v)
-        }
-    }
-
-    fn insert_title(&mut self, v: &str) {
-        if !v.is_empty() {
-            self.0.insert(
-                "title",
-                v.trim_end_matches(['\'', '"'])
-                    .trim_start_matches(['\'', '"']),
-            );
+            self.0.insert("ptr", v)
         }
     }
 }
@@ -751,7 +768,7 @@ mod tests {
         }
     }
 
-    fn exec_link_image_cases(cases: Vec<(&str, Vec<(&str, TokenKind, &str, &str, &str)>)>) {
+    fn exec_generic_link_cases(cases: Vec<(&str, Vec<(&str, TokenKind, &str, &str, &str)>)>) {
         for c in cases.iter() {
             let s = if c.0.ends_with('\n') {
                 c.0.to_string()
@@ -767,15 +784,20 @@ mod tests {
                     .map(|(v, k, s1, s2, s3)| {
                         let mut t = Token::new(v.to_string(), *k);
                         match k {
-                            TokenKind::Link => {
-                                let mut tm = t.as_link_mut();
-                                tm.insert_show_name(s1);
+                            TokenKind::Link | TokenKind::Image | TokenKind::QuickLink => {
+                                let mut tm = t.as_generic_link_mut();
+                                tm.insert_name(s1);
                                 tm.insert_location(s2);
                                 tm.insert_title(s3);
                             }
-                            TokenKind::Image => {
-                                let mut tm = t.as_img_mut();
-                                tm.insert_alt(s1);
+                            TokenKind::RefLink => {
+                                let mut tm = t.as_generic_link_mut();
+                                tm.insert_name(s1);
+                                tm.insert_reflink_tag(s2)
+                            }
+                            TokenKind::RefLinkDef => {
+                                let mut tm = t.as_generic_link_mut();
+                                tm.insert_reflink_tag(s1);
                                 tm.insert_location(s2);
                                 tm.insert_title(s3);
                             }
@@ -1120,7 +1142,7 @@ mod tests {
             ),
         ];
 
-        exec_link_image_cases(cases);
+        exec_generic_link_cases(cases);
     }
 
     #[test]
@@ -1152,7 +1174,7 @@ mod tests {
             ("[!]]()", vec![("[!]]()", TokenKind::Link, "!]", "", "")]),
         ];
 
-        exec_link_image_cases(cases);
+        exec_generic_link_cases(cases);
     }
 
     #[test]
@@ -1257,32 +1279,102 @@ mod tests {
     #[test]
     fn test_auto_link() {
         let cases = vec![
-            ("<>", vec![("<>", TokenKind::Text)]),
+            ("<>", vec![("<>", TokenKind::Text, "", "", "")]),
             (
                 "<https://example.com",
-                vec![("<https://example.com", TokenKind::Text)],
+                vec![("<https://example.com", TokenKind::Text, "", "", "")],
             ),
             (
                 "<https://example.com>",
-                vec![("https://example.com", TokenKind::AutoLink)],
+                vec![(
+                    "<https://example.com>",
+                    TokenKind::QuickLink,
+                    "https://example.com",
+                    "https://example.com",
+                    "",
+                )],
             ),
             (
                 "<  https://example.com >",
-                vec![("https://example.com", TokenKind::AutoLink)],
+                vec![(
+                    "<  https://example.com >",
+                    TokenKind::QuickLink,
+                    "https://example.com",
+                    "https://example.com",
+                    "",
+                )],
             ),
             (
                 "auto link <  https://example.com >!",
                 vec![
-                    ("auto link ", TokenKind::Text),
-                    ("https://example.com", TokenKind::AutoLink),
-                    ("!", TokenKind::Text),
+                    ("auto link ", TokenKind::Text, "", "", ""),
+                    (
+                        "<  https://example.com >",
+                        TokenKind::QuickLink,
+                        "https://example.com",
+                        "https://example.com",
+                        "",
+                    ),
+                    ("!", TokenKind::Text, "", "", ""),
                 ],
             ),
             (
                 "<user@example.com>",
-                vec![("user@example.com", TokenKind::AutoLink)],
+                vec![(
+                    "<user@example.com>",
+                    TokenKind::QuickLink,
+                    "user@example.com",
+                    "user@example.com",
+                    "",
+                )],
             ),
         ];
-        exec_cases(cases);
+        exec_generic_link_cases(cases);
+    }
+
+    #[test]
+    fn test_reflink() {
+        let cases = vec![
+            (
+                "[Example][link]",
+                vec![("[Example][link]", TokenKind::RefLink, "Example", "link", "")],
+            ),
+            (
+                "link: [Example][link].",
+                vec![
+                    ("link: ", TokenKind::Text, "", "", ""),
+                    ("[Example][link]", TokenKind::RefLink, "Example", "link", ""),
+                    (".", TokenKind::Text, "", "", ""),
+                ],
+            ),
+        ];
+        exec_generic_link_cases(cases);
+    }
+
+    #[test]
+    fn test_reflink_def() {
+        let cases = vec![
+            (
+                "[link]: https://example.com",
+                vec![(
+                    "[link]: https://example.com",
+                    TokenKind::RefLinkDef,
+                    "link",
+                    "https://example.com",
+                    "",
+                )],
+            ),
+            (
+                "[link]: https://example.com \"example\"",
+                vec![(
+                    "[link]: https://example.com \"example\"",
+                    TokenKind::RefLinkDef,
+                    "link",
+                    "https://example.com",
+                    "example",
+                )],
+            ),
+        ];
+        exec_generic_link_cases(cases);
     }
 }

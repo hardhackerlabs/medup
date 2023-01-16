@@ -92,23 +92,19 @@ impl<'generator> Generator<'generator> {
                         text.push_str("<strong><em>");
                     }
                 }
-                TokenKind::Link => {
-                    if let (Some(show_name), Some(location)) =
-                        (t.as_link().get_show_name(), t.as_link().get_location())
+                TokenKind::Link | TokenKind::QuickLink => {
+                    if let (Some(name), Some(location)) =
+                        (t.as_generic_link().name(), t.as_generic_link().location())
                     {
-                        let s = self.render_link(show_name, location);
+                        let s = self.render_link(name, location);
                         text.push_str(&s);
                     }
                 }
-                TokenKind::AutoLink => {
-                    let s = self.render_link(t.value(), t.value());
-                    text.push_str(&s);
-                }
                 TokenKind::Image => {
-                    if let (Some(alt), Some(location)) =
-                        (t.as_img().get_alt_name(), t.as_img().get_location())
+                    if let (Some(name), Some(location)) =
+                        (t.as_generic_link().name(), t.as_generic_link().location())
                     {
-                        let s = self.render_image(alt, location);
+                        let s = self.render_image(name, location);
                         text.push_str(&s);
                     }
                 }

@@ -39,7 +39,8 @@ fn main() {
 
             // output the html
             if let Some(mut out) = out_file {
-                out.write(html.as_bytes()).unwrap();
+                // out.write(html.as_bytes()).unwrap();
+                Write::write_all(&mut out, html.as_bytes()).unwrap();
             } else {
                 println!("{}", html);
             }

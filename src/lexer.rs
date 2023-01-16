@@ -36,9 +36,9 @@ enum TextState {
     // means !, usize is the index of '!'
     ImgBegin(usize),
     // means [, (usize, usize) is the index of ('!', '[')
-    PicTitleBegin(usize, usize),
+    ImgTitleBegin(usize, usize),
     // means [, usize is the index of '['
-    UrlTitleBegin(usize),
+    LinkTitleBegin(usize),
     // means ], (usize, usize, usize) is the index of ('!', '[', ']')
     TitleDone(Option<usize>, usize, usize),
     // means (, (usize, usize, usize, usize) is the index of ('!', '[', ']', '(')
@@ -137,23 +137,19 @@ impl<'lex> Lexer<'lex> {
                 Some(Token::new(first_word.to_string(), TokenKind::TitleMark))
             }
 
-            // Sorted List
-            [n1, '.'] if ('1'..='9').contains(&n1) => Some(Token::new(
-                first_word.to_string(),
-                TokenKind::SortedListMark,
-            )),
-            [n1, n2, '.'] if ('1'..='9').contains(&n1) && ('0'..='9').contains(&n2) => Some(
-                Token::new(first_word.to_string(), TokenKind::SortedListMark),
-            ),
+            // Ordered List
+            [n1, '.'] if ('1'..='9').contains(&n1) => {
+                Some(Token::new(first_word.to_string(), TokenKind::OrderedMark))
+            }
+            [n1, n2, '.'] if ('1'..='9').contains(&n1) && ('0'..='9').contains(&n2) => {
+                Some(Token::new(first_word.to_string(), TokenKind::OrderedMark))
+            }
             [n1, n2, n3, '.']
                 if ('1'..='9').contains(&n1)
                     && ('0'..='9').contains(&n2)
                     && ('0'..='9').contains(&n3) =>
             {
-                Some(Token::new(
-                    first_word.to_string(),
-                    TokenKind::SortedListMark,
-                ))
+                Some(Token::new(first_word.to_string(), TokenKind::OrderedMark))
             }
 
             // Quote
@@ -165,13 +161,10 @@ impl<'lex> Lexer<'lex> {
             //      ``` rust
             ['`', '`', '`', ..] => Some(Token::new("```".to_string(), TokenKind::CodeBlockMark)),
 
-            // Disordered List
-            ['+'] => Some(Token::new(
-                first_word.to_string(),
-                TokenKind::DisorderListMark,
-            )),
+            // Unordered List
+            ['+'] => Some(Token::new(first_word.to_string(), TokenKind::UnorderedMark)),
 
-            // Disordered List or Dividing Line
+            // Unordered List or Dividing Line
             ['*'] | ['-'] => {
                 if Lexer::is_dividing(self.line_text) {
                     // Here is a dividing line, not list
@@ -180,11 +173,8 @@ impl<'lex> Lexer<'lex> {
                         TokenKind::DividingMark,
                     ));
                 }
-                // Here is a disordered list
-                Some(Token::new(
-                    first_word.to_string(),
-                    TokenKind::DisorderListMark,
-                ))
+                // Here is a unordered list
+                Some(Token::new(first_word.to_string(), TokenKind::UnorderedMark))
             }
 
             // Dividing Line
@@ -207,7 +197,7 @@ impl<'lex> Lexer<'lex> {
         }
     }
 
-    // Parse text content, include bold, image and url etc.
+    // Parse text content, include bold, image and link etc.
     fn split_inline(content: &str) -> Vec<Token> {
         let mut last = 0;
 
@@ -269,7 +259,7 @@ impl<'lex> Lexer<'lex> {
                         }
                     }
                     '!' => state = TextState::ImgBegin(ix),
-                    '[' => state = TextState::UrlTitleBegin(ix),
+                    '[' => state = TextState::LinkTitleBegin(ix),
                     '<' => state = TextState::AutoLinkBegin(ix),
                     _ => (),
                 },
@@ -299,18 +289,18 @@ impl<'lex> Lexer<'lex> {
                     }
                 }
                 (TextState::ImgBegin(begin), _) => match ch {
-                    '[' => state = TextState::PicTitleBegin(begin, ix),
+                    '[' => state = TextState::ImgTitleBegin(begin, ix),
                     '!' => state = TextState::ImgBegin(ix),
                     _ => state = TextState::Normal,
                 },
-                (TextState::PicTitleBegin(b1, b2), _) => {
+                (TextState::ImgTitleBegin(b1, b2), _) => {
                     if ch == ']' {
                         state = TextState::TitleDone(Some(b1), b2, ix);
                     }
                 }
-                (TextState::UrlTitleBegin(begin), _) => match ch {
+                (TextState::LinkTitleBegin(begin), _) => match ch {
                     ']' => state = TextState::TitleDone(None, begin, ix),
-                    '[' => state = TextState::UrlTitleBegin(ix),
+                    '[' => state = TextState::LinkTitleBegin(ix),
                     _ => (),
                 },
                 (TextState::TitleDone(b1, b2, b3), _) => match ch {
@@ -320,7 +310,7 @@ impl<'lex> Lexer<'lex> {
                 },
                 (TextState::LocationBegin(b1, b2, b3, b4), _) => {
                     if ch == ')' {
-                        // when found ')', this means that we found a valid image or url.
+                        // when found ')', this means that we found a valid image or link.
                         let begin = b1.unwrap_or(b2);
                         // the part of normal text before '![]()' or '[]()' mark.
                         let s = utf8_slice::slice(content, last, begin);
@@ -333,10 +323,10 @@ impl<'lex> Lexer<'lex> {
                         let s2 = utf8_slice::slice(content, b4 + 1, ix); // s2 in ()
                         let t = if b1.is_some() {
                             // image
-                            Self::split_url_image_details(s, s1, s2, TokenKind::Image)
+                            Self::split_link_image_details(s, s1, s2, TokenKind::Image)
                         } else {
-                            // url
-                            Self::split_url_image_details(s, s1, s2, TokenKind::Url)
+                            // link
+                            Self::split_link_image_details(s, s1, s2, TokenKind::Link)
                         };
                         buff.push(t);
 
@@ -368,7 +358,7 @@ impl<'lex> Lexer<'lex> {
         buff
     }
 
-    fn split_url_image_details(s: &str, s1: &str, s2: &str, kind: TokenKind) -> Token {
+    fn split_link_image_details(s: &str, s1: &str, s2: &str, kind: TokenKind) -> Token {
         let fields: Vec<&str> = s2.trim().splitn(2, [' ', '\t']).collect();
         let (kind, location, title) = match fields.len().cmp(&2) {
             Ordering::Less => (kind, s2, ""),
@@ -390,10 +380,10 @@ impl<'lex> Lexer<'lex> {
                 rf.as_img_mut().insert_location(location);
                 rf.as_img_mut().insert_title(title);
             }
-            TokenKind::Url => {
-                rf.as_url_mut().insert_show_name(s1);
-                rf.as_url_mut().insert_location(location);
-                rf.as_url_mut().insert_title(title);
+            TokenKind::Link => {
+                rf.as_link_mut().insert_show_name(s1);
+                rf.as_link_mut().insert_location(location);
+                rf.as_link_mut().insert_title(title);
             }
             TokenKind::Text => {}
             _ => unreachable!(),
@@ -543,21 +533,21 @@ impl<'lex> Lexer<'lex> {
 
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub(crate) enum TokenKind {
-    TitleMark,        // #, ##, ###, ####
-    DisorderListMark, // *
-    SortedListMark,   // 1.
-    DividingMark,     // ---, ***, ___
-    QuoteMark,        // >
-    BoldMark,         // ** **
-    ItalicMark,       // * *
-    ItalicBoldMark,   // *** ***
-    CodeBlockMark,    // ```
-    CodeMark,         // `
-    BlankLine,        // \n
-    LineBreak,        // <br>, double whitespace
-    Image,            // ![]()
-    Url,              // []()
-    AutoLink,         // <>
+    TitleMark,      // #, ##, ###, ####
+    UnorderedMark,  // *
+    OrderedMark,    // 1.
+    DividingMark,   // ---, ***, ___
+    QuoteMark,      // >
+    BoldMark,       // ** **
+    ItalicMark,     // * *
+    ItalicBoldMark, // *** ***
+    CodeBlockMark,  // ```
+    CodeMark,       // `
+    BlankLine,      // \n
+    LineBreak,      // <br>, double whitespace
+    Image,          // ![]()
+    Link,           // []()
+    AutoLink,       // <>
     Text,
     Star,       // *
     UnderLine,  // _
@@ -602,18 +592,18 @@ impl Token {
         self.kind = kind
     }
 
-    // convert the token to url token
-    pub(crate) fn as_url(&self) -> UrlToken {
-        if self.kind() != TokenKind::Url {
-            panic!("token is not url");
+    // convert the token to link token
+    pub(crate) fn as_link(&self) -> LinkToken {
+        if self.kind() != TokenKind::Link {
+            panic!("token is not link");
         }
-        UrlToken(self)
+        LinkToken(self)
     }
-    fn as_url_mut(&mut self) -> UrlTokenAsMut {
-        if self.kind() != TokenKind::Url {
-            panic!("token is not url");
+    fn as_link_mut(&mut self) -> LinkTokenAsMut {
+        if self.kind() != TokenKind::Link {
+            panic!("token is not link");
         }
-        UrlTokenAsMut(self)
+        LinkTokenAsMut(self)
     }
 
     // convert the token to img token
@@ -643,10 +633,10 @@ impl Token {
 }
 
 #[derive(PartialEq, Debug)]
-pub(crate) struct UrlToken<'url_token>(&'url_token Token);
+pub(crate) struct LinkToken<'link_token>(&'link_token Token);
 
-impl<'url_token> UrlToken<'url_token> {
-    // Get show name of the URL
+impl<'link_token> LinkToken<'link_token> {
+    // Get show name of the link
     pub(crate) fn get_show_name(&self) -> Option<&str> {
         self.0
             .details
@@ -654,7 +644,7 @@ impl<'url_token> UrlToken<'url_token> {
             .and_then(|x| x.get("show_name").map(|x| &**x))
     }
 
-    // Get location of the URL
+    // Get location of the link
     pub(crate) fn get_location(&self) -> Option<&str> {
         self.0
             .details
@@ -664,9 +654,9 @@ impl<'url_token> UrlToken<'url_token> {
 }
 
 #[derive(PartialEq, Debug)]
-pub(crate) struct UrlTokenAsMut<'url_token>(&'url_token mut Token);
+pub(crate) struct LinkTokenAsMut<'link_token>(&'link_token mut Token);
 
-impl<'url_token> UrlTokenAsMut<'url_token> {
+impl<'link_token> LinkTokenAsMut<'link_token> {
     fn insert_show_name(&mut self, v: &str) {
         if !v.is_empty() {
             self.0.insert("show_name", v)
@@ -761,7 +751,7 @@ mod tests {
         }
     }
 
-    fn exec_url_image_cases(cases: Vec<(&str, Vec<(&str, TokenKind, &str, &str, &str)>)>) {
+    fn exec_link_image_cases(cases: Vec<(&str, Vec<(&str, TokenKind, &str, &str, &str)>)>) {
         for c in cases.iter() {
             let s = if c.0.ends_with('\n') {
                 c.0.to_string()
@@ -777,8 +767,8 @@ mod tests {
                     .map(|(v, k, s1, s2, s3)| {
                         let mut t = Token::new(v.to_string(), *k);
                         match k {
-                            TokenKind::Url => {
-                                let mut tm = t.as_url_mut();
+                            TokenKind::Link => {
+                                let mut tm = t.as_link_mut();
                                 tm.insert_show_name(s1);
                                 tm.insert_location(s2);
                                 tm.insert_title(s3);
@@ -1130,17 +1120,17 @@ mod tests {
             ),
         ];
 
-        exec_url_image_cases(cases);
+        exec_link_image_cases(cases);
     }
 
     #[test]
-    fn test_url() {
+    fn test_link() {
         let cases = vec![
             (
                 "[这是链接](/assets/img/philly-magic-garden.jpg \"Magic Gardens\")",
                 vec![(
                     "[这是链接](/assets/img/philly-magic-garden.jpg \"Magic Gardens\")",
-                    TokenKind::Url,
+                    TokenKind::Link,
                     "这是链接",
                     "/assets/img/philly-magic-garden.jpg",
                     "Magic Gardens",
@@ -1150,19 +1140,19 @@ mod tests {
                 "[](/assets/img/philly-magic-garden.jpg \"Magic Gardens\")",
                 vec![(
                     "[](/assets/img/philly-magic-garden.jpg \"Magic Gardens\")",
-                    TokenKind::Url,
+                    TokenKind::Link,
                     "",
                     "/assets/img/philly-magic-garden.jpg",
                     "Magic Gardens",
                 )],
             ),
-            ("[]()", vec![("[]()", TokenKind::Url, "", "", "")]),
-            ("[]]()", vec![("[]]()", TokenKind::Url, "]", "", "")]),
-            ("[]]]]()", vec![("[]]]]()", TokenKind::Url, "]]]", "", "")]),
-            ("[!]]()", vec![("[!]]()", TokenKind::Url, "!]", "", "")]),
+            ("[]()", vec![("[]()", TokenKind::Link, "", "", "")]),
+            ("[]]()", vec![("[]]()", TokenKind::Link, "]", "", "")]),
+            ("[]]]]()", vec![("[]]]]()", TokenKind::Link, "]]]", "", "")]),
+            ("[!]]()", vec![("[!]]()", TokenKind::Link, "!]", "", "")]),
         ];
 
-        exec_url_image_cases(cases);
+        exec_link_image_cases(cases);
     }
 
     #[test]
@@ -1209,59 +1199,44 @@ mod tests {
     }
 
     #[test]
-    fn test_disordered_list() {
+    fn test_unordered_list() {
         let cases = vec![(
             "* rust",
-            vec![
-                ("*", TokenKind::DisorderListMark),
-                ("rust", TokenKind::Text),
-            ],
+            vec![("*", TokenKind::UnorderedMark), ("rust", TokenKind::Text)],
         )];
         exec_cases(cases);
     }
 
     #[test]
-    fn test_sorted_list() {
+    fn test_ordered_list() {
         let cases = vec![
             (
                 "1. rust",
-                vec![("1.", TokenKind::SortedListMark), ("rust", TokenKind::Text)],
+                vec![("1.", TokenKind::OrderedMark), ("rust", TokenKind::Text)],
             ),
             (
                 "2. rust",
-                vec![("2.", TokenKind::SortedListMark), ("rust", TokenKind::Text)],
+                vec![("2.", TokenKind::OrderedMark), ("rust", TokenKind::Text)],
             ),
             (
                 "3. rust",
-                vec![("3.", TokenKind::SortedListMark), ("rust", TokenKind::Text)],
+                vec![("3.", TokenKind::OrderedMark), ("rust", TokenKind::Text)],
             ),
             (
                 "10. rust",
-                vec![
-                    ("10.", TokenKind::SortedListMark),
-                    ("rust", TokenKind::Text),
-                ],
+                vec![("10.", TokenKind::OrderedMark), ("rust", TokenKind::Text)],
             ),
             (
                 "20. rust",
-                vec![
-                    ("20.", TokenKind::SortedListMark),
-                    ("rust", TokenKind::Text),
-                ],
+                vec![("20.", TokenKind::OrderedMark), ("rust", TokenKind::Text)],
             ),
             (
                 "100. rust",
-                vec![
-                    ("100.", TokenKind::SortedListMark),
-                    ("rust", TokenKind::Text),
-                ],
+                vec![("100.", TokenKind::OrderedMark), ("rust", TokenKind::Text)],
             ),
             (
                 "999. rust",
-                vec![
-                    ("999.", TokenKind::SortedListMark),
-                    ("rust", TokenKind::Text),
-                ],
+                vec![("999.", TokenKind::OrderedMark), ("rust", TokenKind::Text)],
             ),
         ];
         exec_cases(cases);

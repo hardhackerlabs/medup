@@ -19,8 +19,8 @@ pub(crate) trait HtmlGenerate {
     fn body_dividling(&self, l: &SharedLine) -> String;
     fn body_normal(&self, ls: &[SharedLine]) -> String;
     fn body_blank(&self, ls: &[SharedLine]) -> String;
-    fn body_sorted_list(&self, ls: &[SharedLine]) -> String;
-    fn body_disordered_list(&self, ls: &[SharedLine]) -> String;
+    fn body_ordered_list(&self, ls: &[SharedLine]) -> String;
+    fn body_unordered_list(&self, ls: &[SharedLine]) -> String;
     fn body_quote(&self, ls: &[SharedLine]) -> String;
     fn body_code(&self, ls: &[SharedLine]) -> String;
 }
@@ -89,10 +89,10 @@ impl Ast {
                 Kind::NormalText => html.body_normal(b.lines()),
                 Kind::DividingLine => html.body_dividling(b.first()),
                 Kind::Code => html.body_code(b.lines()),
-                Kind::DisorderedList => html.body_disordered_list(b.lines()),
+                Kind::UnorderedList => html.body_unordered_list(b.lines()),
                 Kind::Blank => html.body_blank(b.lines()),
                 Kind::Quote => html.body_quote(b.lines()),
-                Kind::SortedList => html.body_sorted_list(b.lines()),
+                Kind::OrderedList => html.body_ordered_list(b.lines()),
                 Kind::CodeMark => html.body_normal(b.lines()), // as normal text
                 _ => unreachable!(),
             })
@@ -168,7 +168,7 @@ impl Ast {
             // Note: Don't use 'continue' statement in the match expression, because
             // we will save the kind of the previous block after the 'match'.
             match state.unwrap_or(curr_line.kind) {
-                Kind::DisorderedList | Kind::SortedList => {
+                Kind::UnorderedList | Kind::OrderedList => {
                     if let Some(b) = blocks.last_mut().filter(|b| b.kind() == curr_line.kind) {
                         b.push(Rc::clone(l));
                     } else {
@@ -292,7 +292,7 @@ impl Ast {
         // build nested lists recursively
         for b in blocks
             .iter()
-            .filter(|b| b.kind() == Kind::DisorderedList || b.kind() == Kind::SortedList)
+            .filter(|b| b.kind() == Kind::UnorderedList || b.kind() == Kind::OrderedList)
         {
             b.lines()
                 .iter()
@@ -379,8 +379,8 @@ enum Kind {
     NormalText,
     Blank,
     Title,
-    DisorderedList,
-    SortedList,
+    UnorderedList,
+    OrderedList,
     DividingLine,
     Quote,
     CodeMark,
@@ -398,8 +398,8 @@ pub(crate) struct Line {
     text: String,
     //
     // The lines in nesting:
-    //   Kind::DisorderedList
-    //   Kind::SortedList
+    //   Kind::UnorderedList
+    //   Kind::OrderedList
     //   Kind::Quote
     //   Kind::Normal
     nested_lines: Vec<SharedLine>,
@@ -459,10 +459,10 @@ impl Line {
                 Kind::NormalText => html.body_normal(b.lines()),
                 Kind::DividingLine => html.body_dividling(b.first()),
                 Kind::Code => html.body_code(b.lines()),
-                Kind::DisorderedList => html.body_disordered_list(b.lines()),
+                Kind::UnorderedList => html.body_unordered_list(b.lines()),
                 Kind::Blank => html.body_blank(b.lines()),
                 Kind::Quote => html.body_quote(b.lines()),
-                Kind::SortedList => html.body_sorted_list(b.lines()),
+                Kind::OrderedList => html.body_ordered_list(b.lines()),
                 _ => "".to_string(),
             })
             .join("\n")
@@ -502,8 +502,8 @@ impl Line {
         self.kind = match self.get_mark().kind() {
             TokenKind::BlankLine => Kind::Blank,
             TokenKind::TitleMark => Kind::Title,
-            TokenKind::DisorderListMark => Kind::DisorderedList,
-            TokenKind::SortedListMark => Kind::SortedList,
+            TokenKind::UnorderedMark => Kind::UnorderedList,
+            TokenKind::OrderedMark => Kind::OrderedList,
             TokenKind::DividingMark => Kind::DividingLine,
             TokenKind::QuoteMark => Kind::Quote,
             TokenKind::CodeBlockMark => Kind::CodeMark,

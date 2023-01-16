@@ -24,11 +24,11 @@ impl<'generator> Generator<'generator> {
     }
 
     fn init(&mut self) -> Result<(), Box<dyn Error>> {
-        self.tt.add_template(URL_TEMPLATE_NAME, URL_TEMPLATE)?;
+        self.tt.add_template(LINK_TEMPLATE_NAME, LINK_TEMPLATE)?;
         self.tt
-            .add_template(SORTED_LIST_TEMPLATE_NAME, SORTED_LIST_TEMPLATE)?;
+            .add_template(ORDERED_LIST_TEMPLATE_NAME, ORDERED_LIST_TEMPLATE)?;
         self.tt
-            .add_template(DISORDERED_LIST_TEMPLATE_NAME, DISORDERED_LIST_TEMPLATE)?;
+            .add_template(UNORDERED_LIST_TEMPLATE_NAME, UNORDERED_LIST_TEMPLATE)?;
         self.tt.add_template(TITLE_TEMPLATE_NAME, TITLE_TEMPLATE)?;
         self.tt.add_template(QUOTE_TEMPLATE_NAME, QUOTE_TEMPLATE)?;
         self.tt.add_template(IMG_TEMPLATE_NAME, IMG_TEMPLATE)?;
@@ -44,7 +44,7 @@ impl<'generator> Generator<'generator> {
         Ok(())
     }
 
-    fn gen_inline(&self, tokens: &Vec<Token>) -> String {
+    fn render_inline(&self, tokens: &Vec<Token>) -> String {
         let mut stack: stack::Stack<(TokenKind, &str)> = stack::Stack::new();
 
         let mut text = String::new();
@@ -92,23 +92,23 @@ impl<'generator> Generator<'generator> {
                         text.push_str("<strong><em>");
                     }
                 }
-                TokenKind::Url => {
+                TokenKind::Link => {
                     if let (Some(show_name), Some(location)) =
-                        (t.as_url().get_show_name(), t.as_url().get_location())
+                        (t.as_link().get_show_name(), t.as_link().get_location())
                     {
-                        let s = self.gen_url(show_name, location);
+                        let s = self.render_link(show_name, location);
                         text.push_str(&s);
                     }
                 }
                 TokenKind::AutoLink => {
-                    let s = self.gen_url(t.value(), t.value());
+                    let s = self.render_link(t.value(), t.value());
                     text.push_str(&s);
                 }
                 TokenKind::Image => {
                     if let (Some(alt), Some(location)) =
                         (t.as_img().get_alt_name(), t.as_img().get_location())
                     {
-                        let s = self.gen_image(alt, location);
+                        let s = self.render_image(alt, location);
                         text.push_str(&s);
                     }
                 }
@@ -118,11 +118,11 @@ impl<'generator> Generator<'generator> {
         text
     }
 
-    fn gen_url(&self, show_name: &str, location: &str) -> String {
+    fn render_link(&self, show_name: &str, location: &str) -> String {
         self.tt
             .render(
-                URL_TEMPLATE_NAME,
-                &UrlContext {
+                LINK_TEMPLATE_NAME,
+                &LinkContext {
                     show_name,
                     location,
                 },
@@ -130,7 +130,7 @@ impl<'generator> Generator<'generator> {
             .unwrap()
     }
 
-    fn gen_image(&self, alt: &str, location: &str) -> String {
+    fn render_image(&self, alt: &str, location: &str) -> String {
         self.tt
             .render(IMG_TEMPLATE_NAME, &ImageContext { alt, location })
             .unwrap()
@@ -162,7 +162,7 @@ impl<'generator> HtmlGenerate for Generator<'generator> {
     fn body_title(&self, l: &SharedLine) -> String {
         let l = l.borrow();
         let level = l.get_mark().len();
-        let value = self.gen_inline(l.all());
+        let value = self.render_inline(l.all());
 
         let ctx = TitleContext {
             is_l1: level == 1,
@@ -182,7 +182,7 @@ impl<'generator> HtmlGenerate for Generator<'generator> {
     fn body_normal(&self, ls: &[SharedLine]) -> String {
         let lines: Vec<String> = ls
             .iter()
-            .map(|l| self.gen_inline(l.borrow().all()))
+            .map(|l| self.render_inline(l.borrow().all()))
             .collect();
         self.tt
             .render(
@@ -197,11 +197,11 @@ impl<'generator> HtmlGenerate for Generator<'generator> {
         "".to_string()
     }
 
-    fn body_sorted_list(&self, ls: &[SharedLine]) -> String {
+    fn body_ordered_list(&self, ls: &[SharedLine]) -> String {
         let list: Vec<String> = ls
             .iter()
             .map(|l| {
-                let leader = self.gen_inline(l.borrow().all());
+                let leader = self.render_inline(l.borrow().all());
                 let nesting = l
                     .borrow()
                     .enter_nested_blocks(&Generator::new(self.cfg).unwrap());
@@ -213,15 +213,15 @@ impl<'generator> HtmlGenerate for Generator<'generator> {
             })
             .collect();
         self.tt
-            .render(SORTED_LIST_TEMPLATE_NAME, &SortedListContext { list })
+            .render(ORDERED_LIST_TEMPLATE_NAME, &OrderedListContext { list })
             .unwrap()
     }
 
-    fn body_disordered_list(&self, ls: &[SharedLine]) -> String {
+    fn body_unordered_list(&self, ls: &[SharedLine]) -> String {
         let list = ls
             .iter()
             .map(|l| {
-                let leader = self.gen_inline(l.borrow().all());
+                let leader = self.render_inline(l.borrow().all());
                 let nesting = l
                     .borrow()
                     .enter_nested_blocks(&Generator::new(self.cfg).unwrap());
@@ -233,17 +233,14 @@ impl<'generator> HtmlGenerate for Generator<'generator> {
             })
             .collect();
         self.tt
-            .render(
-                DISORDERED_LIST_TEMPLATE_NAME,
-                &DisorderedListContext { list },
-            )
+            .render(UNORDERED_LIST_TEMPLATE_NAME, &UnorderedListContext { list })
             .unwrap()
     }
 
     fn body_quote(&self, ls: &[SharedLine]) -> String {
         let lines: Vec<String> = ls
             .iter()
-            .map(|l| self.gen_inline(l.borrow().all()))
+            .map(|l| self.render_inline(l.borrow().all()))
             .collect();
         self.tt
             .render(QUOTE_TEMPLATE_NAME, &QuoteContext { lines })
@@ -329,9 +326,9 @@ struct TitleContext {
     text: String,
 }
 
-// sorted list
-const SORTED_LIST_TEMPLATE_NAME: &str = "sorted_list";
-const SORTED_LIST_TEMPLATE: &str = "\
+// ordered list
+const ORDERED_LIST_TEMPLATE_NAME: &str = "ordered_list";
+const ORDERED_LIST_TEMPLATE: &str = "\
 <ol>\
 {{ for item in list }}
     <li>{item}</li>\
@@ -339,13 +336,13 @@ const SORTED_LIST_TEMPLATE: &str = "\
 </ol>";
 
 #[derive(Serialize)]
-struct SortedListContext {
+struct OrderedListContext {
     list: Vec<String>,
 }
 
-// disordered list
-const DISORDERED_LIST_TEMPLATE_NAME: &str = "disordered_list";
-const DISORDERED_LIST_TEMPLATE: &str = "\
+// unordered list
+const UNORDERED_LIST_TEMPLATE_NAME: &str = "unordered_list";
+const UNORDERED_LIST_TEMPLATE: &str = "\
 <ul>\
 {{ for item in list }} 
     <li>{item}</li>\
@@ -353,7 +350,7 @@ const DISORDERED_LIST_TEMPLATE: &str = "\
 </ul>";
 
 #[derive(Serialize)]
-struct DisorderedListContext {
+struct UnorderedListContext {
     list: Vec<String>,
 }
 
@@ -362,12 +359,12 @@ struct QuoteContext {
     lines: Vec<String>,
 }
 
-// url
-const URL_TEMPLATE_NAME: &str = "url";
-const URL_TEMPLATE: &str = r#"<a href="{location}">{show_name}</a>"#;
+// link
+const LINK_TEMPLATE_NAME: &str = "link";
+const LINK_TEMPLATE: &str = r#"<a href="{location}">{show_name}</a>"#;
 
 #[derive(Serialize)]
-struct UrlContext<'uc> {
+struct LinkContext<'uc> {
     show_name: &'uc str,
     location: &'uc str,
 }

@@ -13,14 +13,17 @@ use crate::lexer::{Lexer, Token, TokenKind};
 pub(crate) type SharedLine = Rc<RefCell<Line>>;
 
 pub(crate) trait HtmlGenerate {
-    fn gen_title(&self, l: &SharedLine) -> String;
-    fn gen_dividling(&self, l: &SharedLine) -> String;
-    fn gen_normal(&self, ls: &[SharedLine]) -> String;
-    fn gen_blank(&self, ls: &[SharedLine]) -> String;
-    fn gen_sorted_list(&self, ls: &[SharedLine]) -> String;
-    fn gen_disordered_list(&self, ls: &[SharedLine]) -> String;
-    fn gen_quote(&self, ls: &[SharedLine]) -> String;
-    fn gen_code(&self, ls: &[SharedLine]) -> String;
+    fn header(&self) -> String;
+    fn body_begin(&self) -> String;
+    fn body_end(&self) -> String;
+    fn body_title(&self, l: &SharedLine) -> String;
+    fn body_dividling(&self, l: &SharedLine) -> String;
+    fn body_normal(&self, ls: &[SharedLine]) -> String;
+    fn body_blank(&self, ls: &[SharedLine]) -> String;
+    fn body_sorted_list(&self, ls: &[SharedLine]) -> String;
+    fn body_disordered_list(&self, ls: &[SharedLine]) -> String;
+    fn body_quote(&self, ls: &[SharedLine]) -> String;
+    fn body_code(&self, ls: &[SharedLine]) -> String;
 }
 
 // Ast represents the abstract syntax tree of the markdown file, it structurally represents the entire file.
@@ -76,41 +79,35 @@ impl Ast {
 
     // Iterate through each block of the Ast and process the block into a 'html' string
     pub(crate) fn render_html(&self, html: &impl HtmlGenerate) -> Result<String, Box<dyn Error>> {
-        let ss: Vec<String> = vec![
-            String::from(
-                r#"<!doctype html>
-<html>
-<head>
-<meta charset='UTF-8'><meta name='viewport' content='width=device-width initial-scale=1'>
-<title></title>
-</head>
+        let mut buff: Vec<String> = vec![];
 
-
-<body><article>"#,
-            ),
-            String::from("</article></body></html>"),
-        ];
-
-        let gens = self
+        let body = self
             .blocks()
             .iter()
             .filter(|b| b.kind() != Kind::Meta && b.kind() != Kind::ListNesting)
             .map(|b| match b.kind() {
-                Kind::Title => html.gen_title(b.first()),
-                Kind::NormalText => html.gen_normal(b.lines()),
-                Kind::DividingLine => html.gen_dividling(b.first()),
-                Kind::Code => html.gen_code(b.lines()),
-                Kind::DisorderedList => html.gen_disordered_list(b.lines()),
-                Kind::Blank => html.gen_blank(b.lines()),
-                Kind::Quote => html.gen_quote(b.lines()),
-                Kind::SortedList => html.gen_sorted_list(b.lines()),
-                Kind::CodeMark => html.gen_normal(b.lines()), // as normal text
+                Kind::Title => html.body_title(b.first()),
+                Kind::NormalText => html.body_normal(b.lines()),
+                Kind::DividingLine => html.body_dividling(b.first()),
+                Kind::Code => html.body_code(b.lines()),
+                Kind::DisorderedList => html.body_disordered_list(b.lines()),
+                Kind::Blank => html.body_blank(b.lines()),
+                Kind::Quote => html.body_quote(b.lines()),
+                Kind::SortedList => html.body_sorted_list(b.lines()),
+                Kind::CodeMark => html.body_normal(b.lines()), // as normal text
                 _ => unreachable!(),
             })
             .filter(|s| !s.is_empty())
             .join("\n\n");
 
-        Ok(Itertools::intersperse(ss.iter(), &gens).join("\n"))
+        buff.push(String::from("<!doctype html><html>"));
+        buff.push(html.header());
+        buff.push(html.body_begin());
+        buff.push(body);
+        buff.push(html.body_end());
+        buff.push(String::from("</html>"));
+
+        Ok(buff.join("\n"))
     }
 
     // Count the lines in ast
@@ -459,14 +456,14 @@ impl Line {
                     && b.kind() != Kind::Code
             })
             .map(|b| match b.kind() {
-                Kind::Title => html.gen_title(b.first()),
-                Kind::NormalText => html.gen_normal(b.lines()),
-                Kind::DividingLine => html.gen_dividling(b.first()),
-                Kind::Code => html.gen_code(b.lines()),
-                Kind::DisorderedList => html.gen_disordered_list(b.lines()),
-                Kind::Blank => html.gen_blank(b.lines()),
-                Kind::Quote => html.gen_quote(b.lines()),
-                Kind::SortedList => html.gen_sorted_list(b.lines()),
+                Kind::Title => html.body_title(b.first()),
+                Kind::NormalText => html.body_normal(b.lines()),
+                Kind::DividingLine => html.body_dividling(b.first()),
+                Kind::Code => html.body_code(b.lines()),
+                Kind::DisorderedList => html.body_disordered_list(b.lines()),
+                Kind::Blank => html.body_blank(b.lines()),
+                Kind::Quote => html.body_quote(b.lines()),
+                Kind::SortedList => html.body_sorted_list(b.lines()),
                 _ => "".to_string(),
             })
             .join("\n")

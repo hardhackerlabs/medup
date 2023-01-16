@@ -1,0 +1,6 @@
+{
+    "custom_html_header": "<head>\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<link rel=\"stylesheet\" href=\"https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.1.0/github-markdown-light.css\" integrity=\"sha512-1d9gwwC3dNW3O+lGwY8zTQrh08a41Ejci46DdzY1aQbqi/7Qr8Asp4ycWPsoD52tKXKrgu8h/lSpig1aAkvlMw==\" crossorigin=\"anonymous\" referrerpolicy=\"no-referrer\" />\n<style>\n.markdown-body {\nbox-sizing: border-box;\nmin-width: 200px;\nmax-width: 980px;\nmargin: 0 auto;\npadding: 45px;\n}\n@media (max-width: 767px) {\n.markdown-body {\npadding: 15px;\n}\n}\n</style>\n<title></title>\n</head>",
+    "add_class_on_article": "markdown-body",
+    "add_class_on_body": "",
+    "css_href": ""
+}

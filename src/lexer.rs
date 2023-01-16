@@ -122,7 +122,7 @@ impl<'lexer> Lexer<'lexer> {
         if let State::Inline(begin) = self.state {
             let rest = self.slice_rest(begin);
 
-            for t in Lexer::split_inline(rest)
+            for t in Self::split_inline(rest)
                 .into_iter()
                 .filter(|t| !t.value().is_empty())
             {
@@ -171,7 +171,7 @@ impl<'lexer> Lexer<'lexer> {
 
             // Unordered List or Dividing Line
             ['*'] | ['-'] => {
-                if Lexer::is_dividing(self.line_text) {
+                if Self::is_dividing(self.line_text) {
                     // Here is a dividing line, not list
                     return Some(Token::new(
                         self.line_text.trim_end_matches('\n').to_string(),
@@ -184,7 +184,7 @@ impl<'lexer> Lexer<'lexer> {
 
             // Dividing Line
             ['*', ..] | ['-', ..] | ['_', ..] => {
-                if Lexer::is_dividing(self.line_text) {
+                if Self::is_dividing(self.line_text) {
                     Some(Token::new(
                         self.line_text.trim_end_matches('\n').to_string(),
                         TokenKind::DividingMark,
@@ -257,7 +257,7 @@ impl<'lexer> Lexer<'lexer> {
                             let k = match ch {
                                 '*' => TokenKind::Star,
                                 '_' => TokenKind::UnderLine,
-                                '`' => TokenKind::BackTicks,
+                                '`' => TokenKind::BackTick,
                                 _ => unreachable!(),
                             };
                             buff.push(Token::new(s.to_string(), k));
@@ -307,7 +307,7 @@ impl<'lexer> Lexer<'lexer> {
                         state = InlineState::Normal;
                     }
                 }
-                (InlineState::RefLinkDef(b1, b2, b3), _) => {
+                (InlineState::RefLinkDef(b1, b2, _b3), _) => {
                     let s = utf8_slice::from(content, last).trim_end_matches('\n');
                     let s1 = utf8_slice::slice(content, b1 + 1, b2);
                     let s2 = utf8_slice::from(content, ix).trim_end_matches('\n');
@@ -379,7 +379,7 @@ impl<'lexer> Lexer<'lexer> {
                         let k = match ch {
                             '*' => TokenKind::Star,
                             '_' => TokenKind::UnderLine,
-                            '`' => TokenKind::BackTicks,
+                            '`' => TokenKind::BackTick,
                             _ => unreachable!(),
                         };
                         buff.push(Token::new(s.to_string(), k));
@@ -393,10 +393,10 @@ impl<'lexer> Lexer<'lexer> {
                 }
             }
         }
-        if Lexer::has_br(content) {
+        if Self::has_br(content) {
             buff.push(Token::new("<br>".to_string(), TokenKind::LineBreak));
         }
-        Lexer::tidy(&mut buff);
+        Self::tidy(&mut buff);
         buff
     }
 
@@ -443,15 +443,15 @@ impl<'lexer> Lexer<'lexer> {
     }
 
     fn tidy(buff: &mut Vec<Token>) {
-        Lexer::tidy_continuous_mark(TokenKind::Star, buff);
-        Lexer::tidy_continuous_mark(TokenKind::UnderLine, buff);
+        Self::tidy_continuous_mark(TokenKind::Star, buff);
+        Self::tidy_continuous_mark(TokenKind::UnderLine, buff);
 
         let mut stack: stack::Stack<&mut Token> = stack::Stack::new();
 
         let buff_iter = buff.iter_mut().filter(|t| {
             t.kind() == TokenKind::Star
                 || t.kind() == TokenKind::UnderLine
-                || t.kind() == TokenKind::BackTicks
+                || t.kind() == TokenKind::BackTick
         });
 
         for t in buff_iter {
@@ -601,11 +601,11 @@ pub(crate) enum TokenKind {
     QuickLink,      // <url or email>
     RefLink,        // [name][tag]
     RefLinkDef,     // [tag]: link "title"
-    Text,
-    Star,       // *
-    UnderLine,  // _
-    BackTicks,  // `
-    WhiteSpace, //
+    Text,           //
+    Star,           // *
+    UnderLine,      // _
+    BackTick,       // `
+    WhiteSpace,     //
 }
 
 // Token is a part of the line, the parser will parse the line into some tokens.
@@ -713,9 +713,11 @@ impl<'generic_link_token> GenericLinkToken<'generic_link_token> {
 }
 
 #[derive(PartialEq, Debug)]
-pub(crate) struct GenericLinkTokenAsMut<'link_token>(&'link_token mut Token);
+pub(crate) struct GenericLinkTokenAsMut<'generic_link_token_as_mut>(
+    &'generic_link_token_as_mut mut Token,
+);
 
-impl<'link_token> GenericLinkTokenAsMut<'link_token> {
+impl<'generic_link_token_as_mut> GenericLinkTokenAsMut<'generic_link_token_as_mut> {
     fn insert_name(&mut self, v: &str) {
         if !v.is_empty() {
             self.0.insert("name", v)

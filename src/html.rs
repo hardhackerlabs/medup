@@ -360,9 +360,9 @@ const LINK_TEMPLATE_NAME: &str = "link";
 const LINK_TEMPLATE: &str = r#"<a href="{location}">{show_name}</a>"#;
 
 #[derive(Serialize)]
-struct LinkContext<'uc> {
-    show_name: &'uc str,
-    location: &'uc str,
+struct LinkContext<'link_context> {
+    show_name: &'link_context str,
+    location: &'link_context str,
 }
 
 // image
@@ -370,9 +370,9 @@ const IMG_TEMPLATE_NAME: &str = "img";
 const IMG_TEMPLATE: &str = r#"<img src="{location}" alt="{alt}">"#;
 
 #[derive(Serialize)]
-struct ImageContext<'ic> {
-    alt: &'ic str,
-    location: &'ic str,
+struct ImageContext<'image_context> {
+    alt: &'image_context str,
+    location: &'image_context str,
 }
 
 // code block
@@ -382,9 +382,9 @@ const CODE_TEMPLATE: &str = "<pre><code class=\"language-{name}\">\
 </code></pre>";
 
 #[derive(Serialize)]
-struct CodeBlockContext<'cbc> {
-    name: &'cbc str,
-    text: &'cbc str,
+struct CodeBlockContext<'code_block_context> {
+    name: &'code_block_context str,
+    text: &'code_block_context str,
 }
 
 // normal text

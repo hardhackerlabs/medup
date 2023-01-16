@@ -78,7 +78,7 @@ impl Ast {
         }
         self.defer_queue.iter().for_each(|l| l.borrow_mut().parse());
         self.defer_queue.clear();
-        self.blocks = Ast::establish_blocks(&self.document);
+        self.blocks = Self::establish_blocks(&self.document);
         Ok(())
     }
 
@@ -178,7 +178,7 @@ impl Ast {
                     if let Some(b) = blocks.last_mut().filter(|b| b.kind() == curr_line.kind) {
                         b.push(Rc::clone(l));
                     } else {
-                        Ast::insert_block(&mut blocks, Block::new(Rc::clone(l), curr_line.kind));
+                        Self::insert_block(&mut blocks, Block::new(Rc::clone(l), curr_line.kind));
                     }
 
                     // Check the next line is a list nesting or not
@@ -231,7 +231,7 @@ impl Ast {
                             state = Some(Kind::Code);
                         }
                     }
-                    Ast::insert_block(
+                    Self::insert_block(
                         &mut blocks,
                         Block::new(Rc::clone(l), k.unwrap_or(Kind::CodeMark)),
                     );
@@ -254,7 +254,7 @@ impl Ast {
                     if let Some(b) = blocks.last_mut().filter(|b| b.kind() == curr_line.kind) {
                         b.push(Rc::clone(l));
                     } else {
-                        Ast::insert_block(&mut blocks, Block::new(Rc::clone(l), curr_line.kind));
+                        Self::insert_block(&mut blocks, Block::new(Rc::clone(l), curr_line.kind));
                     }
                 }
 
@@ -265,7 +265,7 @@ impl Ast {
                     if pre_line_kind.unwrap_or(Kind::Blank) == Kind::Blank
                         && next_line_kind == Kind::Blank
                     {
-                        Ast::insert_block(&mut blocks, Block::new(Rc::clone(l), curr_line.kind))
+                        Self::insert_block(&mut blocks, Block::new(Rc::clone(l), curr_line.kind))
                     } else {
                         curr_line.kind = Kind::NormalText;
                         curr_line
@@ -277,7 +277,7 @@ impl Ast {
                         {
                             b.push(Rc::clone(l));
                         } else {
-                            Ast::insert_block(
+                            Self::insert_block(
                                 &mut blocks,
                                 Block::new(Rc::clone(l), curr_line.kind),
                             );
@@ -286,7 +286,7 @@ impl Ast {
                 }
 
                 Kind::Title => {
-                    Ast::insert_block(&mut blocks, Block::new(Rc::clone(l), curr_line.kind));
+                    Self::insert_block(&mut blocks, Block::new(Rc::clone(l), curr_line.kind));
                 }
                 Kind::Meta => unreachable!(),
             }
@@ -305,7 +305,7 @@ impl Ast {
                 .filter(|l| !l.borrow().nested_lines.is_empty())
                 .for_each(|l| {
                     let mut l = l.borrow_mut();
-                    let mut bs = Ast::establish_blocks(&l.nested_lines);
+                    let mut bs = Self::establish_blocks(&l.nested_lines);
                     l.nested_blocks.append(&mut bs);
                 });
         }
@@ -346,8 +346,6 @@ struct Block {
     indices: Vec<SharedLine>,
     kind: Kind,
     seq: usize,
-    // pre: Weak<RefCell<Block>>,
-    // next: Rc<RefCell<Block>>,
 }
 
 impl Block {

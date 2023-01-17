@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::fmt::Debug;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
@@ -27,10 +28,16 @@ pub(crate) trait HtmlGenerate {
 
 // Ast represents the abstract syntax tree of the markdown file, it structurally represents the entire file.
 pub(crate) struct Ast {
+    // Store all parsed line structs in order
     document: Vec<SharedLine>,
+    // Related lines are compressed into the same block
     blocks: Vec<Block>,
+    // Store all lines that need to be parsed later
     defer_queue: Vec<SharedLine>,
+    // This is a switch that controls delayed parsing or not
     enabled_defer: bool,
+    // Store all tags of the ref link, the map is "tag -> (location, title)"
+    ref_link_tags: HashMap<String, (String, String)>,
 }
 
 impl Ast {
@@ -41,6 +48,7 @@ impl Ast {
             blocks: vec![],
             defer_queue: vec![],
             enabled_defer: false,
+            ref_link_tags: HashMap::new(),
         }
     }
 
@@ -63,7 +71,7 @@ impl Ast {
 
     // Parse markdown document from a reader, the 'reader' may be a file reader, byte buff or network socket etc.
     pub(crate) fn parse_from(&mut self, reader: &mut dyn BufRead) -> Result<(), io::Error> {
-        let mut num: usize = 0;
+        let mut ln: usize = 0;
         loop {
             let mut buf = String::new();
             let num_bytes = reader.read_line(&mut buf)?;
@@ -73,8 +81,8 @@ impl Ast {
             if !buf.ends_with('\n') {
                 buf.push('\n');
             }
-            num += 1;
-            self.parse_line(num, buf);
+            ln += 1;
+            self.parse_line(ln, buf);
         }
         self.defer_queue.iter().for_each(|l| l.borrow_mut().parse());
         self.defer_queue.clear();
@@ -92,14 +100,14 @@ impl Ast {
             .filter(|b| b.kind() != Kind::Meta && b.kind() != Kind::ListNesting)
             .map(|b| match b.kind() {
                 Kind::Title => html.body_title(b.first()),
-                Kind::NormalText => html.body_normal(b.lines()),
+                Kind::PlainText => html.body_normal(b.lines()),
                 Kind::DividingLine => html.body_dividling(b.first()),
-                Kind::Code => html.body_code(b.lines()),
+                Kind::CodeBlock => html.body_code(b.lines()),
                 Kind::UnorderedList => html.body_unordered_list(b.lines()),
                 Kind::Blank => html.body_blank(b.lines()),
                 Kind::Quote => html.body_quote(b.lines()),
                 Kind::OrderedList => html.body_ordered_list(b.lines()),
-                Kind::CodeMark => html.body_normal(b.lines()), // as normal text
+                Kind::CodeBlockMark => html.body_normal(b.lines()), // as normal text
                 _ => unreachable!(),
             })
             .filter(|s| !s.is_empty())
@@ -121,36 +129,53 @@ impl Ast {
     }
 
     // Get the Line object with line number
-    pub(crate) fn _get_line(&self, num: usize) -> Option<&SharedLine> {
-        self.document.get(num)
+    pub(crate) fn _get_line(&self, ln: usize) -> Option<&SharedLine> {
+        self.document.get(ln)
+    }
+
+    pub(crate) fn ref_link_tags(&self) -> &HashMap<String, (String, String)> {
+        &self.ref_link_tags
     }
 
     fn blocks(&self) -> &Vec<Block> {
         &self.blocks
     }
 
-    fn parse_line(&mut self, num: usize, line: String) {
+    fn parse_line(&mut self, ln: usize, line: String) {
         let l = if self.defer_parse(&line) {
-            let c = RefCell::new(Line::new_without_parsing(num, line));
+            let c = RefCell::new(Line::new_without_parsing(ln, line));
             let l1 = Rc::new(c);
             let l2 = Rc::clone(&l1);
             self.defer_queue.push(l1);
             l2
         } else {
-            let c = RefCell::new(Line::new(num, line));
+            let c = RefCell::new(Line::new(ln, line));
             Rc::new(c)
         };
-        if l.borrow().kind == Kind::CodeMark {
+        if l.borrow().kind == Kind::CodeBlockMark {
             self.enabled_defer = !self.enabled_defer;
             if !self.enabled_defer {
                 // closed code block
                 self.defer_queue.clear();
             }
         }
+        for t in l
+            .borrow()
+            .all()
+            .iter()
+            .filter(|t| t.kind() == TokenKind::RefLinkDef)
+        {
+            let gl = t.as_generic_link();
+            let (tag, location, title) = (gl.tag(), gl.location(), gl.title());
+            if !tag.is_empty() {
+                self.ref_link_tags
+                    .insert(tag.to_string(), (location.to_string(), title.to_string()));
+            }
+        }
         self.document.push(l);
 
-        debug_assert_eq!(self.count_lines(), num);
-        debug_assert_eq!(self.document[num].borrow().num, num);
+        debug_assert_eq!(self.count_lines(), ln);
+        debug_assert_eq!(self.document[ln].borrow().ln, ln);
     }
 
     fn defer_parse(&self, s: &str) -> bool {
@@ -188,8 +213,8 @@ impl Ast {
                             && next.kind != Kind::Blank
                             && next.kind != Kind::Title
                             && next.kind != Kind::DividingLine
-                            && next.kind != Kind::CodeMark
-                            && next.kind != Kind::Code
+                            && next.kind != Kind::CodeBlockMark
+                            && next.kind != Kind::CodeBlock
                         {
                             state = Some(Kind::ListNesting);
                             leader = Some(l); // save the previous line object as leader
@@ -210,8 +235,8 @@ impl Ast {
                             && next.kind != Kind::Blank
                             && next.kind != Kind::Title
                             && next.kind != Kind::DividingLine
-                            && next.kind != Kind::CodeMark
-                            && next.kind != Kind::Code
+                            && next.kind != Kind::CodeBlockMark
+                            && next.kind != Kind::CodeBlock
                             {
                                 // keep the state
                             } else {
@@ -222,35 +247,35 @@ impl Ast {
                     }
                 }
 
-                Kind::CodeMark => {
+                Kind::CodeBlockMark => {
                     let mut k: Option<Kind> = None;
                     if let Some(next) = iter.peek() {
                         let next = next.borrow();
-                        if next.kind == Kind::CodeMark || next.kind == Kind::Code {
-                            k = Some(Kind::Code);
-                            state = Some(Kind::Code);
+                        if next.kind == Kind::CodeBlockMark || next.kind == Kind::CodeBlock {
+                            k = Some(Kind::CodeBlock);
+                            state = Some(Kind::CodeBlock);
                         }
                     }
                     Self::insert_block(
                         &mut blocks,
-                        Block::new(Rc::clone(l), k.unwrap_or(Kind::CodeMark)),
+                        Block::new(Rc::clone(l), k.unwrap_or(Kind::CodeBlockMark)),
                     );
                 }
-                Kind::Code => {
-                    let b = blocks.last_mut().filter(|b| b.kind() == Kind::Code);
+                Kind::CodeBlock => {
+                    let b = blocks.last_mut().filter(|b| b.kind() == Kind::CodeBlock);
                     debug_assert!(b.is_some());
 
                     if let Some(b) = b {
                         b.push(Rc::clone(l));
                     }
 
-                    if curr_line.kind == Kind::CodeMark {
+                    if curr_line.kind == Kind::CodeBlockMark {
                         // close this code block
                         state = None;
                     }
                 }
 
-                Kind::Blank | Kind::Quote | Kind::NormalText => {
+                Kind::Blank | Kind::Quote | Kind::PlainText => {
                     if let Some(b) = blocks.last_mut().filter(|b| b.kind() == curr_line.kind) {
                         b.push(Rc::clone(l));
                     } else {
@@ -267,14 +292,13 @@ impl Ast {
                     {
                         Self::insert_block(&mut blocks, Block::new(Rc::clone(l), curr_line.kind))
                     } else {
-                        curr_line.kind = Kind::NormalText;
+                        curr_line.kind = Kind::PlainText;
                         curr_line
                             .buff
                             .iter_mut()
                             .for_each(|t| t.update_kind(TokenKind::Text));
 
-                        if let Some(b) = blocks.last_mut().filter(|b| b.kind() == Kind::NormalText)
-                        {
+                        if let Some(b) = blocks.last_mut().filter(|b| b.kind() == Kind::PlainText) {
                             b.push(Rc::clone(l));
                         } else {
                             Self::insert_block(
@@ -329,7 +353,7 @@ impl Debug for Ast {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut debug = String::new();
         for line in self.document.iter() {
-            debug.push_str(format!("[{}, {:?}]: ", line.borrow().num, line.borrow().kind).as_str());
+            debug.push_str(format!("[{}, {:?}]: ", line.borrow().ln, line.borrow().kind).as_str());
             for t in line.borrow().all() {
                 let s = format!("{:?} ", t);
                 debug.push_str(&s);
@@ -380,15 +404,15 @@ impl Block {
 
 #[derive(Debug, PartialEq, Copy, Clone)]
 enum Kind {
-    NormalText,
+    PlainText,
     Blank,
     Title,
     UnorderedList,
     OrderedList,
     DividingLine,
     Quote,
-    CodeMark,
-    Code,
+    CodeBlockMark,
+    CodeBlock,
     Meta,
     ListNesting,
 }
@@ -398,7 +422,7 @@ enum Kind {
 pub(crate) struct Line {
     buff: Vec<Token>,
     kind: Kind,
-    num: usize,
+    ln: usize,
     text: String,
     //
     // The lines in nesting:
@@ -413,9 +437,9 @@ pub(crate) struct Line {
 impl Line {
     fn new(ln: usize, line: String) -> Self {
         let mut l = Line {
-            num: ln,
+            ln,
             text: line,
-            kind: Kind::NormalText,
+            kind: Kind::PlainText,
             buff: vec![],
             nested_lines: vec![],
             nested_blocks: vec![],
@@ -426,9 +450,9 @@ impl Line {
 
     fn new_without_parsing(ln: usize, line: String) -> Self {
         Line {
-            num: ln,
+            ln,
             text: line,
-            kind: Kind::Code,
+            kind: Kind::CodeBlock,
             buff: vec![],
             nested_lines: vec![],
             nested_blocks: vec![],
@@ -439,7 +463,7 @@ impl Line {
         Line {
             buff: vec![],
             kind: Kind::Meta,
-            num: 0,
+            ln: 0,
             text: "meta".to_string(),
             nested_lines: vec![],
             nested_blocks: vec![],
@@ -455,14 +479,14 @@ impl Line {
                     && b.kind() != Kind::Blank
                     && b.kind() != Kind::Title
                     && b.kind() != Kind::DividingLine
-                    && b.kind() != Kind::CodeMark
-                    && b.kind() != Kind::Code
+                    && b.kind() != Kind::CodeBlockMark
+                    && b.kind() != Kind::CodeBlock
             })
             .map(|b| match b.kind() {
                 Kind::Title => html.body_title(b.first()),
-                Kind::NormalText => html.body_normal(b.lines()),
+                Kind::PlainText => html.body_normal(b.lines()),
                 Kind::DividingLine => html.body_dividling(b.first()),
-                Kind::Code => html.body_code(b.lines()),
+                Kind::CodeBlock => html.body_code(b.lines()),
                 Kind::UnorderedList => html.body_unordered_list(b.lines()),
                 Kind::Blank => html.body_blank(b.lines()),
                 Kind::Quote => html.body_quote(b.lines()),
@@ -510,8 +534,8 @@ impl Line {
             TokenKind::OrderedMark => Kind::OrderedList,
             TokenKind::DividingMark => Kind::DividingLine,
             TokenKind::QuoteMark => Kind::Quote,
-            TokenKind::CodeBlockMark => Kind::CodeMark,
-            _ => Kind::NormalText,
+            TokenKind::CodeBlockMark => Kind::CodeBlockMark,
+            _ => Kind::PlainText,
         };
 
         debug_assert!(!self.all().is_empty());
@@ -644,10 +668,10 @@ _____________
         assert_eq!(ast.blocks.len(), 4);
 
         let kinds = vec![
-            Kind::NormalText,
-            Kind::Code,
-            Kind::CodeMark,
-            Kind::NormalText,
+            Kind::PlainText,
+            Kind::CodeBlock,
+            Kind::CodeBlockMark,
+            Kind::PlainText,
         ];
         assert_eq!(
             ast.blocks().iter().map(|b| b.kind()).collect::<Vec<Kind>>(),

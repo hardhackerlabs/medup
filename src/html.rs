@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::error::Error;
 
 use crate::config::Config;
@@ -11,13 +12,18 @@ use tinytemplate::TinyTemplate;
 pub(crate) struct Generator<'generator> {
     tt: TinyTemplate<'generator>,
     cfg: &'generator Config,
+    ref_link_tags: &'generator HashMap<String, (String, String)>,
 }
 
 impl<'generator> Generator<'generator> {
-    pub(crate) fn new(cfg: &'generator Config) -> Result<Self, Box<dyn Error>> {
+    pub(crate) fn new(
+        cfg: &'generator Config,
+        ref_link_tags: &'generator HashMap<String, (String, String)>,
+    ) -> Result<Self, Box<dyn Error>> {
         let mut g = Generator {
             tt: TinyTemplate::new(),
             cfg,
+            ref_link_tags,
         };
         g.init()?;
         Ok(g)
@@ -92,19 +98,27 @@ impl<'generator> Generator<'generator> {
                         text.push_str("<strong><em>");
                     }
                 }
-                TokenKind::Link | TokenKind::QuickLink => {
-                    if let (Some(name), Some(location)) =
-                        (t.as_generic_link().name(), t.as_generic_link().location())
-                    {
-                        let s = self.render_link(name, location);
+                TokenKind::Link | TokenKind::QuickLink | TokenKind::Image => {
+                    let gl = t.as_generic_link();
+                    let (name, location) = (gl.name(), gl.location());
+
+                    if !name.is_empty() && !location.is_empty() {
+                        let s = if t.kind() == TokenKind::Image {
+                            self.render_image(name, location)
+                        } else {
+                            self.render_link(name, location)
+                        };
                         text.push_str(&s);
                     }
                 }
-                TokenKind::Image => {
-                    if let (Some(name), Some(location)) =
-                        (t.as_generic_link().name(), t.as_generic_link().location())
-                    {
-                        let s = self.render_image(name, location);
+                TokenKind::RefLink => {
+                    let gl = t.as_generic_link();
+                    let (name, tag) = (gl.name(), gl.tag());
+
+                    let default = (String::from(""), String::from(""));
+                    let (location, _title) = self.ref_link_tags.get(tag).unwrap_or(&default);
+                    if !name.is_empty() && !location.is_empty() {
+                        let s = self.render_link(name, location);
                         text.push_str(&s);
                     }
                 }
@@ -172,7 +186,7 @@ impl<'generator> HtmlGenerate for Generator<'generator> {
     }
 
     fn body_dividling(&self, _l: &SharedLine) -> String {
-        "<hr>".to_string()
+        String::from("<hr>")
     }
 
     fn body_normal(&self, ls: &[SharedLine]) -> String {
@@ -190,7 +204,7 @@ impl<'generator> HtmlGenerate for Generator<'generator> {
 
     fn body_blank(&self, _ls: &[SharedLine]) -> String {
         // ls.iter().map(|_| "<p></p>").collect()
-        "".to_string()
+        String::from("")
     }
 
     fn body_ordered_list(&self, ls: &[SharedLine]) -> String {
@@ -200,7 +214,7 @@ impl<'generator> HtmlGenerate for Generator<'generator> {
                 let leader = self.render_inline(l.borrow().all());
                 let nesting = l
                     .borrow()
-                    .enter_nested_blocks(&Generator::new(self.cfg).unwrap());
+                    .enter_nested_blocks(&Generator::new(self.cfg, self.ref_link_tags).unwrap());
                 if !nesting.is_empty() {
                     leader + "\n" + nesting.as_str()
                 } else {
@@ -220,7 +234,7 @@ impl<'generator> HtmlGenerate for Generator<'generator> {
                 let leader = self.render_inline(l.borrow().all());
                 let nesting = l
                     .borrow()
-                    .enter_nested_blocks(&Generator::new(self.cfg).unwrap());
+                    .enter_nested_blocks(&Generator::new(self.cfg, self.ref_link_tags).unwrap());
                 if !nesting.is_empty() {
                     leader + "\n" + nesting.as_str()
                 } else {

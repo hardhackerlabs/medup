@@ -688,27 +688,38 @@ pub(crate) struct GenericLinkToken<'generic_link_token>(&'generic_link_token Tok
 
 impl<'generic_link_token> GenericLinkToken<'generic_link_token> {
     // Get name of the link
-    pub(crate) fn name(&self) -> Option<&str> {
+    pub(crate) fn name(&self) -> &str {
         self.0
             .details
             .as_ref()
             .and_then(|x| x.get("name").map(|x| &**x))
+            .unwrap_or("")
     }
 
     // Get location of the link
-    pub(crate) fn location(&self) -> Option<&str> {
+    pub(crate) fn location(&self) -> &str {
         self.0
             .details
             .as_ref()
             .and_then(|x| x.get("location").map(|x| &**x))
+            .unwrap_or("")
     }
 
     // Get title of the link
-    pub(crate) fn title(&self) -> Option<&str> {
+    pub(crate) fn title(&self) -> &str {
         self.0
             .details
             .as_ref()
             .and_then(|x| x.get("title").map(|x| &**x))
+            .unwrap_or("")
+    }
+
+    pub(crate) fn tag(&self) -> &str {
+        self.0
+            .details
+            .as_ref()
+            .and_then(|x| x.get("tag").map(|x| &**x))
+            .unwrap_or("")
     }
 }
 
@@ -742,7 +753,7 @@ impl<'generic_link_token_as_mut> GenericLinkTokenAsMut<'generic_link_token_as_mu
 
     fn insert_reflink_tag(&mut self, v: &str) {
         if !v.is_empty() {
-            self.0.insert("ptr", v)
+            self.0.insert("tag", v)
         }
     }
 }

@@ -31,8 +31,14 @@ __这是一段粗体___这是一段斜体____这是一段斜体+粗体___
 
 ## 链接
 [这是一个链接](https://www.example.com)
+
 <https://www.example.com>
+
 <user@example.com>
+
+[Example][link]
+
+[link]: https://www.example.com "example"
 
 ## 引用块
 > 这是一段引用文本  

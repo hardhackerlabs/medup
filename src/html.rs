@@ -40,7 +40,7 @@ impl<'generator> Generator<'generator> {
         self.tt.add_template(IMG_TEMPLATE_NAME, IMG_TEMPLATE)?;
         self.tt.add_template(CODE_TEMPLATE_NAME, CODE_TEMPLATE)?;
         self.tt
-            .add_template(TEXT_PARAGRAPH_TEMPLATE_NAME, TEXT_PARAGRAPH_TEMPLATE)?;
+            .add_template(PLAIN_TEXT_TEMPLATE_NAME, PLAIN_TEXT_TEMPLATE)?;
         self.tt.add_template(HEAD_TEMPLATE_NAME, HEAD_TEMPLATE)?;
         self.tt
             .add_template(BODY_BEGIN_TEMPLATE_NAME, BODY_BEGIN_TEMPLATE)?;
@@ -50,22 +50,21 @@ impl<'generator> Generator<'generator> {
         Ok(())
     }
 
-    fn render_inline(&self, tokens: &Vec<Token>) -> String {
+    fn render_inline(&self, tokens: &Vec<Token>, cfg: &Config) -> String {
         let mut stack: stack::Stack<(TokenKind, &str)> = stack::Stack::new();
-
-        let mut text = String::new();
+        let mut buff = String::new();
 
         for t in tokens {
             match t.kind() {
-                TokenKind::Text => text.push_str(t.value()),
+                TokenKind::Text | TokenKind::LineBreak => buff.push_str(t.value()),
                 TokenKind::CodeMark => {
                     let matched = stack.pop_or_push((t.kind(), t.value()), |e| {
                         e.0 == t.kind() && e.1 == t.value()
                     });
                     if matched.is_some() {
-                        text.push_str("</code>");
+                        buff.push_str("</code>");
                     } else {
-                        text.push_str("<code>");
+                        buff.push_str("<code>");
                     }
                 }
                 TokenKind::BoldMark => {
@@ -73,9 +72,9 @@ impl<'generator> Generator<'generator> {
                         e.0 == t.kind() && e.1 == t.value()
                     });
                     if matched.is_some() {
-                        text.push_str("</strong>");
+                        buff.push_str("</strong>");
                     } else {
-                        text.push_str("<strong>");
+                        buff.push_str("<strong>");
                     }
                 }
                 TokenKind::ItalicMark => {
@@ -83,9 +82,9 @@ impl<'generator> Generator<'generator> {
                         e.0 == t.kind() && e.1 == t.value()
                     });
                     if matched.is_some() {
-                        text.push_str("</em>");
+                        buff.push_str("</em>");
                     } else {
-                        text.push_str("<em>");
+                        buff.push_str("<em>");
                     }
                 }
                 TokenKind::ItalicBoldMark => {
@@ -93,9 +92,9 @@ impl<'generator> Generator<'generator> {
                         e.0 == t.kind() && e.1 == t.value()
                     });
                     if matched.is_some() {
-                        text.push_str("</em></strong>");
+                        buff.push_str("</em></strong>");
                     } else {
-                        text.push_str("<strong><em>");
+                        buff.push_str("<strong><em>");
                     }
                 }
                 TokenKind::Link | TokenKind::QuickLink | TokenKind::Image => {
@@ -108,7 +107,7 @@ impl<'generator> Generator<'generator> {
                         } else {
                             self.render_link(name, location)
                         };
-                        text.push_str(&s);
+                        buff.push_str(&s);
                     }
                 }
                 TokenKind::RefLink => {
@@ -119,13 +118,23 @@ impl<'generator> Generator<'generator> {
                     let (location, _title) = self.ref_link_tags.get(tag).unwrap_or(&default);
                     if !name.is_empty() && !location.is_empty() {
                         let s = self.render_link(name, location);
-                        text.push_str(&s);
+                        buff.push_str(&s);
                     }
                 }
                 _ => (),
             }
         }
-        text
+
+        if cfg.enable_newline_br {
+            if tokens
+                .last()
+                .filter(|v| v.kind() == TokenKind::LineBreak)
+                .is_none()
+            {
+                buff.push_str("<br>")
+            }
+        }
+        buff
     }
 
     fn render_link(&self, show_name: &str, location: &str) -> String {
@@ -172,7 +181,7 @@ impl<'generator> HtmlGenerate for Generator<'generator> {
     fn body_title(&self, l: &SharedLine) -> String {
         let l = l.borrow();
         let level = l.get_mark().len();
-        let value = self.render_inline(l.all());
+        let value = self.render_inline(l.all(), self.cfg);
 
         let ctx = TitleContext {
             is_l1: level == 1,
@@ -189,21 +198,17 @@ impl<'generator> HtmlGenerate for Generator<'generator> {
         String::from("<hr>")
     }
 
-    fn body_normal(&self, ls: &[SharedLine]) -> String {
+    fn body_plain_text(&self, ls: &[SharedLine]) -> String {
         let lines: Vec<String> = ls
             .iter()
-            .map(|l| self.render_inline(l.borrow().all()))
+            .map(|l| self.render_inline(l.borrow().all(), self.cfg))
             .collect();
         self.tt
-            .render(
-                TEXT_PARAGRAPH_TEMPLATE_NAME,
-                &TextParagraphContext { lines },
-            )
+            .render(PLAIN_TEXT_TEMPLATE_NAME, &PlainTextContext { lines })
             .unwrap()
     }
 
     fn body_blank(&self, _ls: &[SharedLine]) -> String {
-        // ls.iter().map(|_| "<p></p>").collect()
         String::from("")
     }
 
@@ -211,7 +216,7 @@ impl<'generator> HtmlGenerate for Generator<'generator> {
         let list: Vec<String> = ls
             .iter()
             .map(|l| {
-                let leader = self.render_inline(l.borrow().all());
+                let leader = self.render_inline(l.borrow().all(), self.cfg);
                 let nesting = l
                     .borrow()
                     .enter_nested_blocks(&Generator::new(self.cfg, self.ref_link_tags).unwrap());
@@ -231,7 +236,7 @@ impl<'generator> HtmlGenerate for Generator<'generator> {
         let list = ls
             .iter()
             .map(|l| {
-                let leader = self.render_inline(l.borrow().all());
+                let leader = self.render_inline(l.borrow().all(), self.cfg);
                 let nesting = l
                     .borrow()
                     .enter_nested_blocks(&Generator::new(self.cfg, self.ref_link_tags).unwrap());
@@ -250,7 +255,7 @@ impl<'generator> HtmlGenerate for Generator<'generator> {
     fn body_quote(&self, ls: &[SharedLine]) -> String {
         let lines: Vec<String> = ls
             .iter()
-            .map(|l| self.render_inline(l.borrow().all()))
+            .map(|l| self.render_inline(l.borrow().all(), self.cfg))
             .collect();
         self.tt
             .render(QUOTE_TEMPLATE_NAME, &QuoteContext { lines })
@@ -364,11 +369,6 @@ struct UnorderedListContext {
     list: Vec<String>,
 }
 
-#[derive(Serialize)]
-struct QuoteContext {
-    lines: Vec<String>,
-}
-
 // link
 const LINK_TEMPLATE_NAME: &str = "link";
 const LINK_TEMPLATE: &str = r#"<a href="{location}">{show_name}</a>"#;
@@ -401,26 +401,31 @@ struct CodeBlockContext<'code_block_context> {
     text: &'code_block_context str,
 }
 
-// normal text
-const TEXT_PARAGRAPH_TEMPLATE_NAME: &str = "normal_text";
-const TEXT_PARAGRAPH_TEMPLATE: &str = "\
+// plain text
+const PLAIN_TEXT_TEMPLATE_NAME: &str = "plain_text";
+const PLAIN_TEXT_TEMPLATE: &str = "\
 <p>\
 {{ for text in lines}}\
-{text}<br>\
+{text}\
 {{ endfor }}\
 </p>";
+
+#[derive(Serialize)]
+struct PlainTextContext {
+    lines: Vec<String>,
+}
 
 // quote block
 const QUOTE_TEMPLATE_NAME: &str = "quote";
 const QUOTE_TEMPLATE: &str = "\
 <blockquote>
 <p>{{ for text in lines }} 
-    {text}<br>\
+    {text}\
 {{ endfor }}
 </p>
 </blockquote>";
 
 #[derive(Serialize)]
-struct TextParagraphContext {
+struct QuoteContext {
     lines: Vec<String>,
 }

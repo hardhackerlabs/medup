@@ -7,6 +7,8 @@ pub struct Config {
     pub css_href: String,
     pub custom_html_head: String,
     pub add_class_on_article: String,
+    // br is html tag <br>
+    pub enable_newline_br: bool,
 }
 
 impl Config {
@@ -15,6 +17,7 @@ impl Config {
             css_href: String::from(""),
             custom_html_head: String::from(""),
             add_class_on_article: String::from(""),
+            enable_newline_br: false,
         }
     }
 }

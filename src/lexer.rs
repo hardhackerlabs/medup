@@ -224,8 +224,10 @@ impl<'lexer> Lexer<'lexer> {
                     break;
                 }
                 (_, '\\') => {
-                    let next = content_iter.peek().map(|(_, n)| *n).unwrap_or('x');
-                    if ESCAPE_CHARS.contains(next) {
+                    let next = content_iter
+                        .peek()
+                        .filter(|(_, n)| ESCAPE_CHARS.contains(*n));
+                    if next.is_some() {
                         // need to skip the next character
                         state = InlineState::Skip;
 
@@ -249,7 +251,7 @@ impl<'lexer> Lexer<'lexer> {
 
                         last = ix;
 
-                        if content_iter.peek().map(|(_, n)| *n).unwrap_or(' ') == ch {
+                        if content_iter.peek().filter(|(_, n)| *n == ch).is_some() {
                             state = InlineState::Continuous(ix);
                         } else {
                             let s = utf8_slice::slice(content, ix, ix + 1);
@@ -374,7 +376,7 @@ impl<'lexer> Lexer<'lexer> {
                     }
                 }
                 (InlineState::Continuous(begin), _) => {
-                    if *content_iter.peek().map(|(_, n)| n).unwrap_or(&' ') != ch {
+                    if content_iter.peek().filter(|(_, n)| *n == ch).is_none() {
                         let s = utf8_slice::slice(content, begin, ix + 1);
                         let k = match ch {
                             '*' => TokenKind::Star,

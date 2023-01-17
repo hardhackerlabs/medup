@@ -18,7 +18,7 @@ pub(crate) trait HtmlGenerate {
     fn body_end(&self) -> String;
     fn body_title(&self, l: &SharedLine) -> String;
     fn body_dividling(&self, l: &SharedLine) -> String;
-    fn body_normal(&self, ls: &[SharedLine]) -> String;
+    fn body_plain_text(&self, ls: &[SharedLine]) -> String;
     fn body_blank(&self, ls: &[SharedLine]) -> String;
     fn body_ordered_list(&self, ls: &[SharedLine]) -> String;
     fn body_unordered_list(&self, ls: &[SharedLine]) -> String;
@@ -100,14 +100,14 @@ impl Ast {
             .filter(|b| b.kind() != Kind::Meta && b.kind() != Kind::ListNesting)
             .map(|b| match b.kind() {
                 Kind::Title => html.body_title(b.first()),
-                Kind::PlainText => html.body_normal(b.lines()),
+                Kind::PlainText => html.body_plain_text(b.lines()),
                 Kind::DividingLine => html.body_dividling(b.first()),
                 Kind::CodeBlock => html.body_code(b.lines()),
                 Kind::UnorderedList => html.body_unordered_list(b.lines()),
                 Kind::Blank => html.body_blank(b.lines()),
                 Kind::Quote => html.body_quote(b.lines()),
                 Kind::OrderedList => html.body_ordered_list(b.lines()),
-                Kind::CodeBlockMark => html.body_normal(b.lines()), // as normal text
+                Kind::CodeBlockMark => html.body_plain_text(b.lines()), // treat code block mark as plain text
                 _ => unreachable!(),
             })
             .filter(|s| !s.is_empty())
@@ -187,8 +187,6 @@ impl Ast {
 
         let mut leader: Option<&SharedLine> = None;
         let mut state: Option<Kind> = None;
-
-        let mut pre_line_kind: Option<Kind> = None;
 
         let mut iter = all
             .iter()
@@ -284,14 +282,20 @@ impl Ast {
                 }
 
                 Kind::DividingLine => {
-                    let next_line_kind =
-                        iter.peek().map(|l| l.borrow().kind).unwrap_or(Kind::Blank);
+                    // get kind of the previous line
+                    let prev = all.get(curr_line.ln - 1).map(|v| v.borrow().kind);
+                    // get kind of the next line
+                    let next = iter.peek().map(|v| v.borrow().kind);
 
-                    if pre_line_kind.unwrap_or(Kind::Blank) == Kind::Blank
-                        && next_line_kind == Kind::Blank
+                    if prev.unwrap_or(Kind::Blank) == Kind::Blank
+                        && next.unwrap_or(Kind::Blank) == Kind::Blank
                     {
-                        Self::insert_block(&mut blocks, Block::new(Rc::clone(l), curr_line.kind))
+                        Self::insert_block(
+                            &mut blocks,
+                            Block::new(Rc::clone(l), Kind::DividingLine),
+                        )
                     } else {
+                        // convert dividing to plain text
                         curr_line.kind = Kind::PlainText;
                         curr_line
                             .buff
@@ -303,20 +307,17 @@ impl Ast {
                         } else {
                             Self::insert_block(
                                 &mut blocks,
-                                Block::new(Rc::clone(l), curr_line.kind),
+                                Block::new(Rc::clone(l), Kind::PlainText),
                             );
                         }
                     }
                 }
 
                 Kind::Title => {
-                    Self::insert_block(&mut blocks, Block::new(Rc::clone(l), curr_line.kind));
+                    Self::insert_block(&mut blocks, Block::new(Rc::clone(l), Kind::Title));
                 }
                 Kind::Meta => unreachable!(),
             }
-
-            // save the kind of previous block
-            pre_line_kind = Some(curr_line.kind);
         }
 
         // build nested lists recursively
@@ -484,7 +485,7 @@ impl Line {
             })
             .map(|b| match b.kind() {
                 Kind::Title => html.body_title(b.first()),
-                Kind::PlainText => html.body_normal(b.lines()),
+                Kind::PlainText => html.body_plain_text(b.lines()),
                 Kind::DividingLine => html.body_dividling(b.first()),
                 Kind::CodeBlock => html.body_code(b.lines()),
                 Kind::UnorderedList => html.body_unordered_list(b.lines()),

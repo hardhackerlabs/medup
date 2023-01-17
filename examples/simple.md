@@ -30,14 +30,10 @@ __这是一段粗体___这是一段斜体____这是一段斜体+粗体___
 1. 有序列表项 3
 
 ## 链接
-[这是一个链接](https://www.example.com)
-
-<https://www.example.com>
-
-<user@example.com>
-
-[Example][link]
-
+[这是一个链接](https://www.example.com) <br>
+<https://www.example.com> <br>
+<user@example.com> <br>
+[Example][link] <br>
 [link]: https://www.example.com "example"
 
 ## 引用块

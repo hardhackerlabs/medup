@@ -24,6 +24,7 @@ enum State {
     Begin,
     Mark(usize),
     Inline(usize),
+    StopParse(usize),
     Finished,
 }
 
@@ -88,7 +89,6 @@ impl<'lexer> Lexer<'lexer> {
                         }
                     }
                 }
-
                 State::Mark(begin) => {
                     // find the first word
                     let first_word = if curr.is_whitespace() {
@@ -98,36 +98,50 @@ impl<'lexer> Lexer<'lexer> {
                         continue;
                     };
 
-                    if let Some(m) = self.extract_mark(first_word) {
-                        match m.kind() {
-                            TokenKind::CodeBlockMark => self.goto(State::Inline(begin + 3)),
-                            TokenKind::DividingMark => self.goto(State::Finished),
-                            _ => self.goto(State::Inline(ix + 1)),
+                    match self.extract_mark(first_word) {
+                        None => self.goto(State::Inline(begin)),
+                        Some(m) => {
+                            match m.kind() {
+                                TokenKind::QuoteMark => {
+                                    let pos = if first_word.len() == m.len() {
+                                        ix + 1
+                                    } else {
+                                        begin + 1
+                                    };
+                                    self.goto(State::StopParse(pos));
+                                }
+                                TokenKind::CodeBlockMark => self.goto(State::Inline(begin + 3)),
+                                TokenKind::DividingMark => self.goto(State::Finished),
+                                _ => self.goto(State::Inline(ix + 1)),
+                            }
+                            buff.push(m)
                         }
-                        buff.push(m);
-                    } else {
-                        // normal text
-                        self.goto(State::Inline(begin));
                     }
                 }
-                State::Inline(_) => {
-                    break;
-                }
-                State::Finished => {
+                State::Inline(_) | State::StopParse(_) | State::Finished => {
                     break;
                 }
             };
         }
 
-        if let State::Inline(begin) = self.state {
-            let rest = self.slice_rest(begin);
-
-            for t in Self::split_inline(rest)
-                .into_iter()
-                .filter(|t| !t.value().is_empty())
-            {
-                buff.push(t);
+        match self.state {
+            State::StopParse(begin) => {
+                let rest = self.slice_rest(begin);
+                let t = Token::new(rest.to_string(), TokenKind::Text);
+                if !t.value().is_empty() {
+                    buff.push(t);
+                }
             }
+            State::Inline(begin) => {
+                let rest = self.slice_rest(begin);
+                for t in Self::split_inline(rest)
+                    .into_iter()
+                    .filter(|t| !t.value().is_empty())
+                {
+                    buff.push(t);
+                }
+            }
+            _ => (),
         }
         buff
     }
@@ -158,7 +172,9 @@ impl<'lexer> Lexer<'lexer> {
             }
 
             // Quote
-            ['>'] => Some(Token::new(first_word.to_string(), TokenKind::QuoteMark)),
+            ['>', ..] if first_word_chars.iter().dedup().count() == 1 => {
+                Some(Token::new(">".to_string(), TokenKind::QuoteMark))
+            }
 
             // Code Block
             // .e.g:
@@ -1226,9 +1242,15 @@ mod tests {
     #[test]
     fn test_quote() {
         let cases = vec![(
-            "> Rust, A language empowering everyone to build reliable and efficient software.",
+            "> Rust, A language empowering everyone to build reliable and efficient software.\n",
             vec![(">", TokenKind::QuoteMark), (
-                "Rust, A language empowering everyone to build reliable and efficient software.",
+                "Rust, A language empowering everyone to build reliable and efficient software.\n",
+                TokenKind::Text,
+            )],
+        ), (
+            ">>> Rust\n",
+            vec![(">", TokenKind::QuoteMark), (
+                ">> Rust\n",
                 TokenKind::Text,
             )],
         )];

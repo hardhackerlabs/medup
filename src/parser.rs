@@ -112,7 +112,7 @@ impl Ast {
     fn render_html_body(&self, html: &impl HtmlGenerate) -> String {
         self.blocks()
             .iter()
-            .filter(|b| b.kind() != Kind::Meta && b.kind() != Kind::ListNesting)
+            .filter(|b| b.kind() != Kind::Meta__ && b.kind() != Kind::ListNesting__)
             .map(|b| match b.kind() {
                 Kind::Title => html.body_title(b.first()),
                 Kind::PlainText => html.body_plain_text(b.lines()),
@@ -203,7 +203,7 @@ impl Ast {
 
         let mut iter = all
             .iter()
-            .filter(|x| x.borrow().kind != Kind::Meta)
+            .filter(|x| x.borrow().kind != Kind::Meta__)
             .peekable();
         while let Some(l) = iter.next() {
             let mut curr_line = l.borrow_mut();
@@ -217,22 +217,15 @@ impl Ast {
                         Self::insert_block(&mut blocks, Block::new(Rc::clone(l), curr_line.kind));
                     }
 
-                    // Check the next line is a list nesting or not
+                    // Determine whether the next line is a list nesting
                     if let Some(next) = iter.peek() {
-                        let next = next.borrow();
-                        if next.indents() - curr_line.indents() == 1 // indent 1
-                            && next.kind != Kind::Blank
-                            && next.kind != Kind::Title
-                            && next.kind != Kind::DividingLine
-                            && next.kind != Kind::CodeBlockMark
-                            && next.kind != Kind::CodeBlock
-                        {
-                            state = Some(Kind::ListNesting);
+                        if next.borrow().is_nested(&curr_line) == 1 {
+                            state = Some(Kind::ListNesting__);
                             leader = Some(l); // save the previous line object as leader
                         }
                     }
                 }
-                Kind::ListNesting => {
+                Kind::ListNesting__ => {
                     // leader must not be None
                     debug_assert!(leader.is_some());
 
@@ -241,18 +234,8 @@ impl Ast {
                         ld.nested_lines.push(Rc::clone(l));
 
                         if let Some(next) = iter.peek() {
-                            let next = next.borrow();
-                            if next.indents() - ld.indents() >= 1 // at least indent 1
-                            && next.kind != Kind::Blank
-                            && next.kind != Kind::Title
-                            && next.kind != Kind::DividingLine
-                            && next.kind != Kind::CodeBlockMark
-                            && next.kind != Kind::CodeBlock
-                            {
-                                // keep the state
-                            } else {
-                                state = None;
-                                leader = None;
+                            if next.borrow().is_nested(&ld) < 1 {
+                                (state, leader) = (None, None);
                             }
                         }
                     }
@@ -329,7 +312,7 @@ impl Ast {
                 Kind::Title => {
                     Self::insert_block(&mut blocks, Block::new(Rc::clone(l), Kind::Title));
                 }
-                Kind::Meta => unreachable!(),
+                Kind::Meta__ => unreachable!(),
             }
         }
 
@@ -352,15 +335,13 @@ impl Ast {
         for b in blocks.iter_mut().filter(|b| b.kind() == Kind::Quote) {
             let mut ast = Ast::new();
             for (ix, e) in b.lines().iter().enumerate() {
-                ast.parse_line(
-                    ix + 1,
-                    e.borrow()
-                        .text
-                        .trim_start()
-                        .trim_start_matches('>')
-                        .trim_start_matches([' ', '\t'])
-                        .to_string(),
-                );
+                let e = e.borrow();
+                let last = e.last_token();
+                if last.kind() == TokenKind::Text {
+                    ast.parse_line(ix + 1, last.value().to_string());
+                } else {
+                    ast.parse_line(ix + 1, "\n".to_string());
+                }
             }
             ast.postpones();
             b.ast_of_quote = Some(ast);
@@ -447,8 +428,8 @@ enum Kind {
     Quote,
     CodeBlockMark,
     CodeBlock,
-    Meta,
-    ListNesting,
+    Meta__,
+    ListNesting__,
 }
 
 // Line is a line of the markdown file, it be parsed into some tokens.
@@ -496,7 +477,7 @@ impl Line {
     fn meta() -> Self {
         Line {
             buff: vec![],
-            kind: Kind::Meta,
+            kind: Kind::Meta__,
             ln: 0,
             text: "meta".to_string(),
             nested_lines: vec![],
@@ -508,8 +489,8 @@ impl Line {
         self.nested_blocks
             .iter()
             .filter(|b| {
-                b.kind() != Kind::Meta
-                    && b.kind() != Kind::ListNesting
+                b.kind() != Kind::Meta__
+                    && b.kind() != Kind::ListNesting__
                     && b.kind() != Kind::Blank
                     && b.kind() != Kind::Title
                     && b.kind() != Kind::DividingLine
@@ -596,8 +577,27 @@ impl Line {
         sum / 2
     }
 
+    // Determine whether the current line is a nested line of 'parent'
+    // The return value is the number of nested indents, it's not a nested if less than or equal to 0.
+    fn is_nested(&self, parent: &Line) -> usize {
+        if self.kind == Kind::Blank
+            || self.kind == Kind::Title
+            || self.kind == Kind::DividingLine
+            || self.kind == Kind::CodeBlockMark
+            || self.kind == Kind::CodeBlock
+        {
+            0
+        } else {
+            self.indents() - parent.indents()
+        }
+    }
+
     fn first_token(&self) -> &Token {
         &self.buff[0]
+    }
+
+    fn last_token(&self) -> &Token {
+        self.all().last().unwrap_or_else(|| self.first_token())
     }
 }
 

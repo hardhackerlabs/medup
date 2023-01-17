@@ -22,7 +22,7 @@ pub(crate) trait HtmlGenerate {
     fn body_blank(&self, ls: &[SharedLine]) -> String;
     fn body_ordered_list(&self, ls: &[SharedLine]) -> String;
     fn body_unordered_list(&self, ls: &[SharedLine]) -> String;
-    fn body_quote(&self, ls: &[SharedLine]) -> String;
+    fn body_quote(&self, s: &str) -> String;
     fn body_code(&self, ls: &[SharedLine]) -> String;
 }
 
@@ -84,34 +84,20 @@ impl Ast {
             ln += 1;
             self.parse_line(ln, buf);
         }
+        self.postpones();
+        Ok(())
+    }
+
+    fn postpones(&mut self) {
         self.defer_queue.iter().for_each(|l| l.borrow_mut().parse());
         self.defer_queue.clear();
         self.blocks = Self::establish_blocks(&self.document);
-        Ok(())
     }
 
     // Iterate through each block of the Ast and process the block into a 'html' string
     pub(crate) fn render_html(&self, html: &impl HtmlGenerate) -> String {
         let mut buff: Vec<String> = vec![];
-
-        let body = self
-            .blocks()
-            .iter()
-            .filter(|b| b.kind() != Kind::Meta && b.kind() != Kind::ListNesting)
-            .map(|b| match b.kind() {
-                Kind::Title => html.body_title(b.first()),
-                Kind::PlainText => html.body_plain_text(b.lines()),
-                Kind::DividingLine => html.body_dividling(b.first()),
-                Kind::CodeBlock => html.body_code(b.lines()),
-                Kind::UnorderedList => html.body_unordered_list(b.lines()),
-                Kind::Blank => html.body_blank(b.lines()),
-                Kind::Quote => html.body_quote(b.lines()),
-                Kind::OrderedList => html.body_ordered_list(b.lines()),
-                Kind::CodeBlockMark => html.body_plain_text(b.lines()), // treat code block mark as plain text
-                _ => unreachable!(),
-            })
-            .filter(|s| !s.is_empty())
-            .join("\n\n");
+        let body = self.render_html_body(html);
 
         buff.push(String::from("<!doctype html><html>"));
         buff.push(html.head());
@@ -121,6 +107,33 @@ impl Ast {
         buff.push(String::from("</html>"));
 
         buff.join("\n")
+    }
+
+    fn render_html_body(&self, html: &impl HtmlGenerate) -> String {
+        self.blocks()
+            .iter()
+            .filter(|b| b.kind() != Kind::Meta && b.kind() != Kind::ListNesting)
+            .map(|b| match b.kind() {
+                Kind::Title => html.body_title(b.first()),
+                Kind::PlainText => html.body_plain_text(b.lines()),
+                Kind::DividingLine => html.body_dividling(b.first()),
+                Kind::CodeBlock => html.body_code(b.lines()),
+                Kind::UnorderedList => html.body_unordered_list(b.lines()),
+                Kind::Blank => html.body_blank(b.lines()),
+                Kind::Quote => {
+                    let s = b
+                        .ast_of_quote
+                        .as_ref()
+                        .map(|a| a.render_html_body(html))
+                        .unwrap_or("".to_string());
+                    html.body_quote(&s)
+                }
+                Kind::OrderedList => html.body_ordered_list(b.lines()),
+                Kind::CodeBlockMark => html.body_plain_text(b.lines()), // treat code block mark as plain text
+                _ => unreachable!(),
+            })
+            .filter(|s| !s.is_empty())
+            .join("\n\n")
     }
 
     // Count the lines in ast
@@ -335,6 +348,24 @@ impl Ast {
                 });
         }
 
+        // build nested quote block recursively
+        for b in blocks.iter_mut().filter(|b| b.kind() == Kind::Quote) {
+            let mut ast = Ast::new();
+            for (ix, e) in b.lines().iter().enumerate() {
+                ast.parse_line(
+                    ix + 1,
+                    e.borrow()
+                        .text
+                        .trim_start()
+                        .trim_start_matches('>')
+                        .trim_start_matches([' ', '\t'])
+                        .to_string(),
+                );
+            }
+            ast.postpones();
+            b.ast_of_quote = Some(ast);
+        }
+
         blocks
     }
 
@@ -371,6 +402,7 @@ struct Block {
     indices: Vec<SharedLine>,
     kind: Kind,
     seq: usize,
+    ast_of_quote: Option<Ast>,
 }
 
 impl Block {
@@ -379,6 +411,7 @@ impl Block {
             indices: vec![l],
             kind,
             seq: 0,
+            ast_of_quote: None,
         }
     }
 
@@ -490,7 +523,14 @@ impl Line {
                 Kind::CodeBlock => html.body_code(b.lines()),
                 Kind::UnorderedList => html.body_unordered_list(b.lines()),
                 Kind::Blank => html.body_blank(b.lines()),
-                Kind::Quote => html.body_quote(b.lines()),
+                Kind::Quote => {
+                    let s = b
+                        .ast_of_quote
+                        .as_ref()
+                        .map(|a| a.render_html_body(html))
+                        .unwrap_or("".to_string());
+                    html.body_quote(&s)
+                }
                 Kind::OrderedList => html.body_ordered_list(b.lines()),
                 _ => "".to_string(),
             })

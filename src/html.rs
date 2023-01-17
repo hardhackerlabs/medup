@@ -30,21 +30,21 @@ impl<'generator> Generator<'generator> {
     }
 
     fn init(&mut self) -> Result<(), Box<dyn Error>> {
-        self.tt.add_template(LINK_TEMPLATE_NAME, LINK_TEMPLATE)?;
-        self.tt
-            .add_template(ORDERED_LIST_TEMPLATE_NAME, ORDERED_LIST_TEMPLATE)?;
-        self.tt
-            .add_template(UNORDERED_LIST_TEMPLATE_NAME, UNORDERED_LIST_TEMPLATE)?;
-        self.tt.add_template(TITLE_TEMPLATE_NAME, TITLE_TEMPLATE)?;
-        self.tt.add_template(QUOTE_TEMPLATE_NAME, QUOTE_TEMPLATE)?;
-        self.tt.add_template(IMG_TEMPLATE_NAME, IMG_TEMPLATE)?;
-        self.tt.add_template(CODE_TEMPLATE_NAME, CODE_TEMPLATE)?;
-        self.tt
-            .add_template(PLAIN_TEXT_TEMPLATE_NAME, PLAIN_TEXT_TEMPLATE)?;
-        self.tt.add_template(HEAD_TEMPLATE_NAME, HEAD_TEMPLATE)?;
-        self.tt
-            .add_template(BODY_BEGIN_TEMPLATE_NAME, BODY_BEGIN_TEMPLATE)?;
-
+        let templates = vec![
+            (LINK_TEMPLATE_NAME, LINK_TEMPLATE),
+            (ORDERED_LIST_TEMPLATE_NAME, ORDERED_LIST_TEMPLATE),
+            (UNORDERED_LIST_TEMPLATE_NAME, UNORDERED_LIST_TEMPLATE),
+            (TITLE_TEMPLATE_NAME, TITLE_TEMPLATE),
+            (QUOTE_TEMPLATE_NAME, QUOTE_TEMPLATE),
+            (IMG_TEMPLATE_NAME, IMG_TEMPLATE),
+            (CODE_TEMPLATE_NAME, CODE_TEMPLATE),
+            (PLAIN_TEXT_TEMPLATE_NAME, PLAIN_TEXT_TEMPLATE),
+            (HEAD_TEMPLATE_NAME, HEAD_TEMPLATE),
+            (BODY_BEGIN_TEMPLATE_NAME, BODY_BEGIN_TEMPLATE),
+        ];
+        for (name, tpl) in templates {
+            self.tt.add_template(name, tpl)?;
+        }
         self.tt
             .set_default_formatter(&tinytemplate::format_unescaped);
         Ok(())
@@ -252,13 +252,9 @@ impl<'generator> HtmlGenerate for Generator<'generator> {
             .unwrap()
     }
 
-    fn body_quote(&self, ls: &[SharedLine]) -> String {
-        let lines: Vec<String> = ls
-            .iter()
-            .map(|l| self.render_inline(l.borrow().all(), self.cfg))
-            .collect();
+    fn body_quote(&self, s: &str) -> String {
         self.tt
-            .render(QUOTE_TEMPLATE_NAME, &QuoteContext { lines })
+            .render(QUOTE_TEMPLATE_NAME, &QuoteContext { text: s })
             .unwrap()
     }
 
@@ -418,14 +414,11 @@ struct PlainTextContext {
 // quote block
 const QUOTE_TEMPLATE_NAME: &str = "quote";
 const QUOTE_TEMPLATE: &str = "\
-<blockquote>
-<p>{{ for text in lines }} 
-    {text}\
-{{ endfor }}
-</p>
-</blockquote>";
+<blockquote><p>
+    {text}
+</p></blockquote>";
 
 #[derive(Serialize)]
-struct QuoteContext {
-    lines: Vec<String>,
+struct QuoteContext<'quote_context> {
+    text: &'quote_context str,
 }

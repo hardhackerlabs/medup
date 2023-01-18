@@ -2,5 +2,5 @@
     "custom_html_head": "",
     "add_class_on_article": "markdown-body",
     "css_href": "https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.1.0/github-markdown.min.css",
-    "enable_newline_br": false
+    "enable_newline_to_br": false
 }

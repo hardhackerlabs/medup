@@ -125,14 +125,13 @@ impl<'generator> Generator<'generator> {
             }
         }
 
-        if cfg.enable_newline_br {
-            if tokens
+        if cfg.enable_newline_to_br
+            && tokens
                 .last()
                 .filter(|v| v.kind() == TokenKind::LineBreak)
                 .is_none()
-            {
-                buff.push_str("<br>")
-            }
+        {
+            buff.push_str("<br>")
         }
         buff
     }
@@ -180,7 +179,7 @@ impl<'generator> HtmlGenerate for Generator<'generator> {
 
     fn body_title(&self, l: &SharedLine) -> String {
         let l = l.borrow();
-        let level = l.get_mark().len();
+        let level = l.mark_token().len();
         let value = self.render_inline(l.all(), self.cfg);
 
         let ctx = TitleContext {

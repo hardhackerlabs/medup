@@ -32,10 +32,6 @@ pub(crate) struct Ast {
     document: Vec<SharedLine>,
     // Related lines are compressed into the same block
     blocks: Vec<Block>,
-    // Store all lines that need to be parsed later
-    defer_queue: Vec<SharedLine>,
-    // This is a switch that controls delayed parsing or not
-    enabled_defer: bool,
     // Store all tags of the ref link, the map is "tag -> (location, title)"
     ref_link_tags: HashMap<String, (String, String)>,
 }
@@ -46,17 +42,15 @@ impl Ast {
         Ast {
             document: vec![Rc::new(RefCell::new(Line::meta()))],
             blocks: vec![],
-            defer_queue: vec![],
-            enabled_defer: false,
             ref_link_tags: HashMap::new(),
         }
     }
 
-    pub(crate) fn insert_line(&mut self, ln: usize, s: &str) {}
+    pub(crate) fn _insert_line(&mut self, _ln: usize, _s: &str) {}
 
-    pub(crate) fn update_line(&mut self, ln: usize, s: &str) {}
+    pub(crate) fn _update_line(&mut self, _ln: usize, _s: &str) {}
 
-    pub(crate) fn delete_line(&mut self, ln: usize) {}
+    pub(crate) fn _delete_line(&mut self, _ln: usize) {}
 
     // Parse markdown document from a file, the 'path' argument is the file path.
     pub(crate) fn parse_file(&mut self, path: &str) -> Result<(), io::Error> {
@@ -71,27 +65,101 @@ impl Ast {
 
     // Parse markdown document from a reader, the 'reader' may be a file reader, byte buff or network socket etc.
     pub(crate) fn parse_from(&mut self, reader: &mut dyn BufRead) -> Result<(), io::Error> {
+        let mut is_lazy = false;
+        let mut lazy_queue: Vec<SharedLine> = vec![];
+
         let mut ln: usize = 0;
+
         loop {
-            let mut buf = String::new();
-            let num_bytes = reader.read_line(&mut buf)?;
-            if num_bytes == 0 {
+            let (n, buf) = Self::read_line(reader)?;
+            if n == 0 {
                 break;
             }
-            if !buf.ends_with('\n') {
-                buf.push('\n');
-            }
             ln += 1;
-            self.parse_line(ln, buf);
-        }
-        self.postpones();
+
+            let l = Line::new(ln, buf);
+            let lrc = Rc::new(RefCell::new(l));
+
+            // add the scope block to reduce the lifecycle of the 'l' (l = lrc.borrow_mut())
+            {
+                let mut l = lrc.borrow_mut();
+
+                match (l.weak_parse(), is_lazy) {
+                    (Kind::CodeBlockMark, true) => {
+                        // need to close the lazy parsing
+                        is_lazy = false;
+                        lazy_queue.clear();
+                        // parse it really
+                        l.parse();
+                    }
+                    (Kind::CodeBlockMark, false) => {
+                        // need to open the lazy parsing
+                        is_lazy = true;
+                        // parse it really
+                        l.parse();
+                    }
+                    (_, true) => {
+                        // lazy parsing
+                        lazy_queue.push(Rc::clone(&lrc));
+                        l.without_parse(Kind::CodeBlock);
+                    }
+                    _ => {
+                        // parse it really
+                        l.parse();
+                    }
+                }
+
+                // postpone
+                l.pick_reflink_tags(&mut self.ref_link_tags);
+            }
+            self.document.push(lrc);
+
+            debug_assert_eq!(self.count_lines(), ln);
+            debug_assert_eq!(self.document[ln].borrow().ln, ln);
+        } // end of loop
+
+        lazy_queue.iter().for_each(|l| l.borrow_mut().parse());
+        lazy_queue.clear();
+        self.blocks = Self::establish_blocks(&self.document);
+
         Ok(())
     }
 
-    fn postpones(&mut self) {
-        self.defer_queue.iter().for_each(|l| l.borrow_mut().parse());
-        self.defer_queue.clear();
-        self.blocks = Self::establish_blocks(&self.document);
+    fn read_line(reader: &mut dyn BufRead) -> Result<(usize, String), io::Error> {
+        let mut buf = String::new();
+        let num_bytes = reader.read_line(&mut buf)?;
+        if num_bytes == 0 {
+            return Ok((0, "".to_string()));
+        }
+        if !buf.ends_with('\n') {
+            buf.push('\n');
+        }
+        Ok((num_bytes, buf))
+    }
+
+    // Parse quote block into a new ast
+    fn parse_quote_block(blocks: &mut [Block]) {
+        for b in blocks.iter_mut().filter(|b| b.kind() == Kind::Quote) {
+            let mut ast = Ast::new();
+
+            let text = b
+                .lines()
+                .iter()
+                .map(|e| {
+                    let e = e.borrow();
+                    let last = e.last_token();
+                    if last.kind() == TokenKind::Text {
+                        last.value().to_string()
+                    } else {
+                        "\n".to_string()
+                    }
+                })
+                .collect::<Vec<String>>()
+                .join("\n");
+
+            ast.parse_string(&text).unwrap_or_else(|_e| unreachable!());
+            b.ast_of_quote = Some(ast);
+        }
     }
 
     // Iterate through each block of the Ast and process the block into a 'html' string
@@ -125,7 +193,7 @@ impl Ast {
                         .ast_of_quote
                         .as_ref()
                         .map(|a| a.render_html_body(html))
-                        .unwrap_or("".to_string());
+                        .unwrap_or_else(|| "".to_string());
                     html.body_quote(&s)
                 }
                 Kind::OrderedList => html.body_ordered_list(b.lines()),
@@ -152,47 +220,6 @@ impl Ast {
 
     fn blocks(&self) -> &Vec<Block> {
         &self.blocks
-    }
-
-    fn parse_line(&mut self, ln: usize, line: String) {
-        let l = if self.defer_parse(&line) {
-            let c = RefCell::new(Line::new_without_parsing(ln, line));
-            let l1 = Rc::new(c);
-            let l2 = Rc::clone(&l1);
-            self.defer_queue.push(l1);
-            l2
-        } else {
-            let c = RefCell::new(Line::new(ln, line));
-            Rc::new(c)
-        };
-        if l.borrow().kind == Kind::CodeBlockMark {
-            self.enabled_defer = !self.enabled_defer;
-            if !self.enabled_defer {
-                // closed code block
-                self.defer_queue.clear();
-            }
-        }
-        for t in l
-            .borrow()
-            .all()
-            .iter()
-            .filter(|t| t.kind() == TokenKind::RefLinkDef)
-        {
-            let gl = t.as_generic_link();
-            let (tag, location, title) = (gl.tag(), gl.location(), gl.title());
-            if !tag.is_empty() {
-                self.ref_link_tags
-                    .insert(tag.to_string(), (location.to_string(), title.to_string()));
-            }
-        }
-        self.document.push(l);
-
-        debug_assert_eq!(self.count_lines(), ln);
-        debug_assert_eq!(self.document[ln].borrow().ln, ln);
-    }
-
-    fn defer_parse(&self, s: &str) -> bool {
-        self.enabled_defer && s.trim() != "```"
     }
 
     fn establish_blocks(all: &[SharedLine]) -> Vec<Block> {
@@ -240,7 +267,6 @@ impl Ast {
                         }
                     }
                 }
-
                 Kind::CodeBlockMark => {
                     let mut k: Option<Kind> = None;
                     if let Some(next) = iter.peek() {
@@ -268,7 +294,6 @@ impl Ast {
                         state = None;
                     }
                 }
-
                 Kind::Blank | Kind::Quote | Kind::PlainText => {
                     if let Some(b) = blocks.last_mut().filter(|b| b.kind() == curr_line.kind) {
                         b.push(Rc::clone(l));
@@ -276,7 +301,6 @@ impl Ast {
                         Self::insert_block(&mut blocks, Block::new(Rc::clone(l), curr_line.kind));
                     }
                 }
-
                 Kind::DividingLine => {
                     // get kind of the previous line
                     let prev = all.get(curr_line.ln - 1).map(|v| v.borrow().kind);
@@ -308,7 +332,6 @@ impl Ast {
                         }
                     }
                 }
-
                 Kind::Title => {
                     Self::insert_block(&mut blocks, Block::new(Rc::clone(l), Kind::Title));
                 }
@@ -331,22 +354,7 @@ impl Ast {
                 });
         }
 
-        // build nested quote block recursively
-        for b in blocks.iter_mut().filter(|b| b.kind() == Kind::Quote) {
-            let mut ast = Ast::new();
-            for (ix, e) in b.lines().iter().enumerate() {
-                let e = e.borrow();
-                let last = e.last_token();
-                if last.kind() == TokenKind::Text {
-                    ast.parse_line(ix + 1, last.value().to_string());
-                } else {
-                    ast.parse_line(ix + 1, "\n".to_string());
-                }
-            }
-            ast.postpones();
-            b.ast_of_quote = Some(ast);
-        }
-
+        Self::parse_quote_block(&mut blocks);
         blocks
     }
 
@@ -451,105 +459,26 @@ pub(crate) struct Line {
 
 impl Line {
     fn new(ln: usize, line: String) -> Self {
-        let mut l = Line {
+        Line {
             ln,
             text: line,
             kind: Kind::PlainText,
             buff: vec![],
             nested_lines: vec![],
             nested_blocks: vec![],
-        };
-        l.parse();
-        l
-    }
-
-    fn new_without_parsing(ln: usize, line: String) -> Self {
-        Line {
-            ln,
-            text: line,
-            kind: Kind::CodeBlock,
-            buff: vec![],
-            nested_lines: vec![],
-            nested_blocks: vec![],
         }
     }
 
-    fn meta() -> Self {
-        Line {
-            buff: vec![],
-            kind: Kind::Meta__,
-            ln: 0,
-            text: "meta".to_string(),
-            nested_lines: vec![],
-            nested_blocks: vec![],
-        }
+    fn without_parse(&mut self, kind: Kind) {
+        self.kind = kind;
     }
 
-    pub(crate) fn enter_nested_blocks(&self, html: &impl HtmlGenerate) -> String {
-        self.nested_blocks
-            .iter()
-            .filter(|b| {
-                b.kind() != Kind::Meta__
-                    && b.kind() != Kind::ListNesting__
-                    && b.kind() != Kind::Blank
-                    && b.kind() != Kind::Title
-                    && b.kind() != Kind::DividingLine
-                    && b.kind() != Kind::CodeBlockMark
-                    && b.kind() != Kind::CodeBlock
-            })
-            .map(|b| match b.kind() {
-                Kind::Title => html.body_title(b.first()),
-                Kind::PlainText => html.body_plain_text(b.lines()),
-                Kind::DividingLine => html.body_dividling(b.first()),
-                Kind::CodeBlock => html.body_code(b.lines()),
-                Kind::UnorderedList => html.body_unordered_list(b.lines()),
-                Kind::Blank => html.body_blank(b.lines()),
-                Kind::Quote => {
-                    let s = b
-                        .ast_of_quote
-                        .as_ref()
-                        .map(|a| a.render_html_body(html))
-                        .unwrap_or("".to_string());
-                    html.body_quote(&s)
-                }
-                Kind::OrderedList => html.body_ordered_list(b.lines()),
-                _ => "".to_string(),
-            })
-            .join("\n")
-    }
-
-    // Get the mark token in the Line, the mark token may be the first or second
-    pub(crate) fn get_mark(&self) -> &Token {
-        let first = self.first_token();
-        if first.kind() == TokenKind::WhiteSpace {
-            // if the first token is 'WhiteSpace', the second token must be exist
-            &self.buff[1]
-        } else {
-            first
-        }
-    }
-
-    // Get the Nth Token in the Line
-    pub(crate) fn get(&self, at: usize) -> Option<&Token> {
-        self.buff.get(at)
-    }
-
-    // Get all tokens in the Line
-    pub(crate) fn all(&self) -> &Vec<Token> {
-        &self.buff
-    }
-
-    // Get the line text
-    pub(crate) fn text(&self) -> &str {
-        &self.text
-    }
-
-    // Parses a line of text into 'Line' struct that contains multi tokens.
-    // Line's kind is determinded by the first token's kind.
+    // Parse a line of text into 'Line' struct that contains multi tokens.
+    // Line's kind is determinded by the mark token's kind.
     fn parse(&mut self) {
         self.buff = Lexer::new(&self.text).split();
 
-        self.kind = match self.get_mark().kind() {
+        self.kind = match self.mark_token().kind() {
             TokenKind::BlankLine => Kind::Blank,
             TokenKind::TitleMark => Kind::Title,
             TokenKind::UnorderedMark => Kind::UnorderedList,
@@ -561,6 +490,14 @@ impl Line {
         };
 
         debug_assert!(!self.all().is_empty());
+    }
+
+    fn weak_parse(&self) -> Kind {
+        if self.text().trim_start().starts_with("```") {
+            Kind::CodeBlockMark
+        } else {
+            Kind::PlainText
+        }
     }
 
     // Get number of the indent, two white space(' ') or one '\t' is a indent
@@ -598,6 +535,85 @@ impl Line {
 
     fn last_token(&self) -> &Token {
         self.all().last().unwrap_or_else(|| self.first_token())
+    }
+
+    fn pick_reflink_tags(&self, tags: &mut HashMap<String, (String, String)>) {
+        for t in self
+            .all()
+            .iter()
+            .filter(|t| t.kind() == TokenKind::RefLinkDef)
+        {
+            let gl = t.as_generic_link();
+            let (tag, location, title) = (gl.tag(), gl.location(), gl.title());
+            if !tag.is_empty() {
+                tags.insert(tag.to_string(), (location.to_string(), title.to_string()));
+            }
+        }
+    }
+
+    fn meta() -> Self {
+        let mut l = Self::new(0, "meta".to_string());
+        l.without_parse(Kind::Meta__);
+        l
+    }
+
+    pub(crate) fn enter_nested_blocks(&self, html: &impl HtmlGenerate) -> String {
+        self.nested_blocks
+            .iter()
+            .filter(|b| {
+                b.kind() != Kind::Meta__
+                    && b.kind() != Kind::ListNesting__
+                    && b.kind() != Kind::Blank
+                    && b.kind() != Kind::Title
+                    && b.kind() != Kind::DividingLine
+                    && b.kind() != Kind::CodeBlockMark
+                    && b.kind() != Kind::CodeBlock
+            })
+            .map(|b| match b.kind() {
+                Kind::Title => html.body_title(b.first()),
+                Kind::PlainText => html.body_plain_text(b.lines()),
+                Kind::DividingLine => html.body_dividling(b.first()),
+                Kind::CodeBlock => html.body_code(b.lines()),
+                Kind::UnorderedList => html.body_unordered_list(b.lines()),
+                Kind::Blank => html.body_blank(b.lines()),
+                Kind::Quote => {
+                    let s = b
+                        .ast_of_quote
+                        .as_ref()
+                        .map(|a| a.render_html_body(html))
+                        .unwrap_or_else(|| "".to_string());
+                    html.body_quote(&s)
+                }
+                Kind::OrderedList => html.body_ordered_list(b.lines()),
+                _ => "".to_string(),
+            })
+            .join("\n")
+    }
+
+    // Get the mark token in the Line, the mark token may be the first or second
+    pub(crate) fn mark_token(&self) -> &Token {
+        let first = self.first_token();
+        if first.kind() == TokenKind::WhiteSpace {
+            // if the first token is 'WhiteSpace', the second token must be exist
+            &self.buff[1]
+        } else {
+            first
+        }
+    }
+
+    // Get the Nth Token in the Line
+    pub(crate) fn get(&self, at: usize) -> Option<&Token> {
+        self.buff.get(at)
+    }
+
+    // Get all tokens in the Line
+    pub(crate) fn all(&self) -> &Vec<Token> {
+        &self.buff
+    }
+
+    // Get the line text
+    pub(crate) fn text(&self) -> &str {
+        &self.text
     }
 }
 

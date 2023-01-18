@@ -3,7 +3,7 @@ use std::{
     collections::{HashMap, VecDeque},
 };
 
-use crate::stack;
+use crate::{cursor, stack};
 
 use email_address::EmailAddress;
 use itertools::Itertools;
@@ -100,7 +100,7 @@ impl<'lexer> Lexer<'lexer> {
                         continue;
                     };
 
-                    match self.split_mark(first_word) {
+                    match Self::split_mark(self.line_text, first_word) {
                         None => self.goto(State::Inline(begin)),
                         Some(m) => {
                             match m.kind() {
@@ -152,7 +152,7 @@ impl<'lexer> Lexer<'lexer> {
     }
 
     // Parse the first word in the line as the mark token
-    fn split_mark(&self, first_word: &str) -> Option<Token> {
+    fn split_mark(line_text: &str, first_word: &str) -> Option<Token> {
         let first_word_chars: Vec<char> = first_word.chars().collect();
 
         match first_word_chars[..] {
@@ -192,10 +192,10 @@ impl<'lexer> Lexer<'lexer> {
 
             // Unordered List or Dividing Line
             ['*'] | ['-'] => {
-                if Self::is_dividing(self.line_text) {
+                if Self::is_dividing(line_text) {
                     // Here is a dividing line, not list
                     return Some(Token::new(
-                        self.line_text.trim_end_matches('\n').to_string(),
+                        line_text.trim_end_matches('\n').to_string(),
                         TokenKind::DividingMark,
                     ));
                 }
@@ -205,9 +205,9 @@ impl<'lexer> Lexer<'lexer> {
 
             // Dividing Line
             ['*', ..] | ['-', ..] | ['_', ..] => {
-                if Self::is_dividing(self.line_text) {
+                if Self::is_dividing(line_text) {
                     Some(Token::new(
-                        self.line_text.trim_end_matches('\n').to_string(),
+                        line_text.trim_end_matches('\n').to_string(),
                         TokenKind::DividingMark,
                     ))
                 } else {
@@ -225,22 +225,22 @@ impl<'lexer> Lexer<'lexer> {
 
     // Parse inline syntax, include bold, image and link etc.
     fn split_inline(content: &str, skip: usize) -> Vec<Token> {
-        let mut last = 0;
+        let mut cursor = cursor::Cursor::new(content);
 
         let mut buff: Vec<Token> = Vec::new();
         let mut state = InlineState::Plain;
 
         let mut cnt_iter = content.chars().enumerate().skip(skip).peekable();
-        while let Some((ix, ch)) = cnt_iter.next() {
-            match (state, ch) {
+        while let Some((curr_ix, curr)) = cnt_iter.next() {
+            match (state, curr) {
                 (InlineState::Stopped, _) => {
                     break;
                 }
                 (InlineState::FallBack(begin), _) => {
                     state = InlineState::Stopped;
 
-                    let sub_content = utf8_slice::from(content, last);
-                    for t in Self::split_inline(sub_content, begin - last)
+                    let sub = cursor.rest_slice();
+                    for t in Self::split_inline(sub, begin - cursor.index())
                         .into_iter()
                         .filter(|e| !e.value().is_empty())
                     {
@@ -252,7 +252,8 @@ impl<'lexer> Lexer<'lexer> {
                 }
                 (_, '\n') => {
                     // end of the line
-                    let s = utf8_slice::slice(content, last, ix)
+                    let s = cursor
+                        .slice_to(curr_ix)
                         .trim_end()
                         .trim_end_matches("<br>")
                         .to_string();
@@ -264,53 +265,49 @@ impl<'lexer> Lexer<'lexer> {
                 (_, '\\') => {
                     let next = cnt_iter.peek().filter(|(_, n)| ESCAPE_CHARS.contains(*n));
                     if next.is_some() {
-                        // need to skip the next character
-                        state = InlineState::Skip;
-
-                        let s = utf8_slice::slice(content, last, ix);
-                        if !s.is_empty() {
-                            buff.push(Token::new(s.to_string(), TokenKind::Text));
-                        }
-                        last = ix + 1; // drop the character: '\'
+                        // cursor -> current
+                        cursor.consume_to(curr_ix, |s| {
+                            buff.push(Token::new(s.to_string(), TokenKind::Text))
+                        });
+                        cursor.move_one(); // skip the current character '\'
+                        state = InlineState::Skip; // need to skip the next character
                     }
                 }
-                (InlineState::Plain, _) => match ch {
+                (InlineState::Plain, _) => match curr {
                     '*' | '_' | '`' => {
-                        // the part of normal text before mark.
-                        let s = utf8_slice::slice(content, last, ix);
-                        if !s.is_empty() {
-                            buff.push(Token::new(s.to_string(), TokenKind::Text));
-                        }
+                        // cursor -> current
+                        cursor.consume_to(curr_ix, |s| {
+                            buff.push(Token::new(s.to_string(), TokenKind::Text))
+                        });
 
-                        last = ix;
-
-                        if cnt_iter.peek().filter(|(_, n)| *n == ch).is_some() {
-                            state = InlineState::Continuous(ix);
+                        if cnt_iter.peek().filter(|(_, n)| *n == curr).is_some() {
+                            state = InlineState::Continuous(curr_ix);
                         } else {
-                            let s = utf8_slice::slice(content, ix, ix + 1);
-                            last = ix + 1;
-                            let k = match ch {
-                                '*' => TokenKind::Star,
-                                '_' => TokenKind::UnderLine,
-                                '`' => TokenKind::BackTick,
-                                _ => unreachable!(),
-                            };
-                            buff.push(Token::new(s.to_string(), k));
+                            // current -> next
+                            cursor.consume_to(curr_ix + 1, |s| {
+                                let k = match curr {
+                                    '*' => TokenKind::Star,
+                                    '_' => TokenKind::UnderLine,
+                                    '`' => TokenKind::BackTick,
+                                    _ => unreachable!(),
+                                };
+                                buff.push(Token::new(s.to_string(), k));
+                            });
                         }
                     }
-                    '!' => state = InlineState::ImgBegin(ix),
-                    '[' => state = InlineState::LinkNameBegin(ix),
-                    '<' => state = InlineState::QuickLink(ix),
+                    '!' => state = InlineState::ImgBegin(curr_ix),
+                    '[' => state = InlineState::LinkNameBegin(curr_ix),
+                    '<' => state = InlineState::QuickLink(curr_ix),
                     _ => (),
                 },
-                (InlineState::ImgBegin(begin), _) => match ch {
-                    '[' => state = InlineState::ImgNameBegin(begin, ix),
-                    '!' => state = InlineState::ImgBegin(ix),
+                (InlineState::ImgBegin(begin), _) => match curr {
+                    '[' => state = InlineState::ImgNameBegin(begin, curr_ix),
+                    '!' => state = InlineState::ImgBegin(curr_ix),
                     _ => state = InlineState::Plain, // not fall
                 },
                 (InlineState::ImgNameBegin(b1, b2), _) => {
-                    if ch == ']' {
-                        state = InlineState::NameEnd(Some(b1), b2, ix);
+                    if curr == ']' {
+                        state = InlineState::NameEnd(Some(b1), b2, curr_ix);
                     } else {
                         // determine whether the next charater is '\n'
                         if cnt_iter.peek().filter(|(_, v)| *v == '\n').is_some() {
@@ -318,9 +315,9 @@ impl<'lexer> Lexer<'lexer> {
                         }
                     }
                 }
-                (InlineState::LinkNameBegin(begin), _) => match ch {
-                    ']' => state = InlineState::NameEnd(None, begin, ix),
-                    '[' => state = InlineState::LinkNameBegin(ix),
+                (InlineState::LinkNameBegin(begin), _) => match curr {
+                    ']' => state = InlineState::NameEnd(None, begin, curr_ix),
+                    '[' => state = InlineState::LinkNameBegin(curr_ix),
                     _ => {
                         // determine whether the next charater is '\n'
                         if cnt_iter.peek().filter(|(_, v)| *v == '\n').is_some() {
@@ -328,28 +325,27 @@ impl<'lexer> Lexer<'lexer> {
                         }
                     }
                 },
-                (InlineState::NameEnd(b1, b2, b3), _) => match ch {
-                    '(' => state = InlineState::Location(b1, b2, b3, ix),
-                    ']' => state = InlineState::NameEnd(b1, b2, ix),
-                    '[' => state = InlineState::RefLink(b2, b3, ix),
-                    ':' => state = InlineState::RefLinkDef(b2, b3, ix),
-                    // _ => state = InlineState::Plain,
+                (InlineState::NameEnd(b1, b2, b3), _) => match curr {
+                    '(' => state = InlineState::Location(b1, b2, b3, curr_ix),
+                    ']' => state = InlineState::NameEnd(b1, b2, curr_ix),
+                    '[' => state = InlineState::RefLink(b2, b3, curr_ix),
+                    ':' => state = InlineState::RefLinkDef(b2, b3, curr_ix),
                     _ => state = InlineState::FallBack(b2 + 1),
                 },
                 (InlineState::RefLink(b1, b2, b3), _) => {
-                    if ch == ']' {
-                        let s = utf8_slice::slice(content, last, b1);
-                        if !s.is_empty() {
+                    if curr == ']' {
+                        // cursor -> b1
+                        cursor.consume_to(b1, |s| {
                             buff.push(Token::new(s.to_string(), TokenKind::Text));
-                        }
+                        });
+                        // b1 -> next
+                        cursor.consume_to(curr_ix + 1, |s| {
+                            let s1 = utf8_slice::slice(content, b1 + 1, b2);
+                            let s2 = utf8_slice::slice(content, b3 + 1, curr_ix);
+                            let t = Self::split_generic_link(s, s1, s2, TokenKind::RefLink);
+                            buff.push(t);
+                        });
 
-                        let s = utf8_slice::slice(content, b1, ix + 1);
-                        let s1 = utf8_slice::slice(content, b1 + 1, b2);
-                        let s2 = utf8_slice::slice(content, b3 + 1, ix);
-                        let t = Self::split_generic_link(s, s1, s2, TokenKind::RefLink);
-                        buff.push(t);
-
-                        last = ix + 1;
                         state = InlineState::Plain;
                     } else {
                         // determine whether the next charater is '\n'
@@ -359,37 +355,38 @@ impl<'lexer> Lexer<'lexer> {
                     }
                 }
                 (InlineState::RefLinkDef(b1, b2, _b3), _) => {
-                    let s = utf8_slice::from(content, last).trim_end_matches('\n');
+                    let s = cursor.rest_slice().trim_end_matches('\n');
                     let s1 = utf8_slice::slice(content, b1 + 1, b2);
-                    let s2 = utf8_slice::from(content, ix).trim_end_matches('\n');
+                    let s2 = utf8_slice::from(content, curr_ix).trim_end_matches('\n');
                     let t = Self::split_generic_link(s, s1, s2, TokenKind::RefLinkDef);
                     buff.push(t);
 
                     state = InlineState::Stopped;
                 }
                 (InlineState::Location(b1, b2, b3, b4), _) => {
-                    if ch == ')' {
+                    if curr == ')' {
                         // when found ')', this means that we found a valid image or link.
                         let begin = b1.unwrap_or(b2);
-                        // the part of normal text before '![]()' or '[]()' mark.
-                        let s = utf8_slice::slice(content, last, begin);
-                        if !s.is_empty() {
+                        // the part of text before '![]()' or '[]()' mark
+                        // cursor -> begin
+                        cursor.consume_to(begin, |s| {
                             buff.push(Token::new(s.to_string(), TokenKind::Text));
-                        }
+                        });
                         // '![]()' or '[]()' mark
-                        let s = utf8_slice::slice(content, begin, ix + 1);
-                        let s1 = utf8_slice::slice(content, b2 + 1, b3); // s1 in []
-                        let s2 = utf8_slice::slice(content, b4 + 1, ix); // s2 in ()
-                        let t = if b1.is_some() {
-                            // image
-                            Self::split_generic_link(s, s1, s2, TokenKind::Image)
-                        } else {
-                            // link
-                            Self::split_generic_link(s, s1, s2, TokenKind::Link)
-                        };
-                        buff.push(t);
+                        // begin -> next
+                        cursor.consume_to(curr_ix + 1, |s| {
+                            let s1 = utf8_slice::slice(content, b2 + 1, b3); // s1 in []
+                            let s2 = utf8_slice::slice(content, b4 + 1, curr_ix); // s2 in ()
+                            let t = if b1.is_some() {
+                                // image
+                                Self::split_generic_link(s, s1, s2, TokenKind::Image)
+                            } else {
+                                // link
+                                Self::split_generic_link(s, s1, s2, TokenKind::Link)
+                            };
+                            buff.push(t);
+                        });
 
-                        last = ix + 1;
                         state = InlineState::Plain;
                     } else {
                         // determine whether the next charater is '\n'
@@ -399,25 +396,26 @@ impl<'lexer> Lexer<'lexer> {
                     }
                 }
                 (InlineState::QuickLink(begin), _) => {
-                    if ch.is_whitespace() {
-                        let s = utf8_slice::slice(content, begin + 1, ix).trim();
+                    if curr.is_whitespace() {
+                        let s = utf8_slice::slice(content, begin + 1, curr_ix).trim();
                         if !s.is_empty() && !Self::is_url(s) && !Self::is_email(s) {
                             state = InlineState::Plain;
                         }
                     }
-                    if ch == '>' {
-                        let link = utf8_slice::slice(content, begin + 1, ix).trim();
+                    if curr == '>' {
+                        let link = utf8_slice::slice(content, begin + 1, curr_ix).trim();
                         if Self::is_url(link) || Self::is_email(link) {
-                            let before = utf8_slice::slice(content, last, begin);
-                            if !before.is_empty() {
-                                buff.push(Token::new(before.to_string(), TokenKind::Text));
-                            }
+                            // cursor -> begin
+                            cursor.consume_to(begin, |s| {
+                                buff.push(Token::new(s.to_string(), TokenKind::Text));
+                            });
+                            // begin -> next
+                            cursor.consume_to(curr_ix + 1, |s| {
+                                let t =
+                                    Self::split_generic_link(s, link, link, TokenKind::QuickLink);
+                                buff.push(t);
+                            });
 
-                            let s = utf8_slice::slice(content, begin, ix + 1);
-                            let t = Self::split_generic_link(s, link, link, TokenKind::QuickLink);
-                            buff.push(t);
-
-                            last = ix + 1;
                             state = InlineState::Plain;
                         } else {
                             state = InlineState::Plain;
@@ -430,17 +428,19 @@ impl<'lexer> Lexer<'lexer> {
                     }
                 }
                 (InlineState::Continuous(begin), _) => {
-                    if cnt_iter.peek().filter(|(_, n)| *n == ch).is_none() {
-                        let s = utf8_slice::slice(content, begin, ix + 1);
-                        let k = match ch {
-                            '*' => TokenKind::Star,
-                            '_' => TokenKind::UnderLine,
-                            '`' => TokenKind::BackTick,
-                            _ => unreachable!(),
-                        };
-                        buff.push(Token::new(s.to_string(), k));
+                    debug_assert_eq!(cursor.index(), begin);
 
-                        last = ix + 1;
+                    if cnt_iter.peek().filter(|(_, n)| *n == curr).is_none() {
+                        cursor.consume_to(curr_ix + 1, |s| {
+                            let k = match curr {
+                                '*' => TokenKind::Star,
+                                '_' => TokenKind::UnderLine,
+                                '`' => TokenKind::BackTick,
+                                _ => unreachable!(),
+                            };
+                            buff.push(Token::new(s.to_string(), k));
+                        });
+
                         state = InlineState::Plain;
                     }
                 }

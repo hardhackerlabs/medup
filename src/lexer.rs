@@ -30,9 +30,7 @@ enum State {
 
 #[derive(PartialEq, Clone, Copy)]
 enum InlineState {
-    Skip,
-    Finished,
-    Normal,
+    Plain,
     // means *, usize is start position in line
     Continuous(usize),
     // means !, usize is the index of '!'
@@ -51,6 +49,10 @@ enum InlineState {
     Location(Option<usize>, usize, usize, usize),
     // means <, usize is the index of '<'
     QuickLink(usize),
+
+    Skip,
+    FallBack(usize),
+    Stopped,
 }
 
 // Lexer is a lexical analyzer that parses lines of text into multiple tokens.
@@ -98,7 +100,7 @@ impl<'lexer> Lexer<'lexer> {
                         continue;
                     };
 
-                    match self.extract_mark(first_word) {
+                    match self.split_mark(first_word) {
                         None => self.goto(State::Inline(begin)),
                         Some(m) => {
                             match m.kind() {
@@ -134,10 +136,13 @@ impl<'lexer> Lexer<'lexer> {
             }
             State::Inline(begin) => {
                 let rest = self.slice_rest(begin);
-                for t in Self::split_inline(rest)
-                    .into_iter()
-                    .filter(|t| !t.value().is_empty())
-                {
+                let mut tokens = Self::split_inline(rest, 0);
+                if Self::has_br(rest) {
+                    tokens.push(Token::new("<br>".to_string(), TokenKind::LineBreak));
+                }
+                Self::tidy(&mut tokens);
+
+                for t in tokens.into_iter().filter(|t| !t.value().is_empty()) {
                     buff.push(t);
                 }
             }
@@ -147,7 +152,7 @@ impl<'lexer> Lexer<'lexer> {
     }
 
     // Parse the first word in the line as the mark token
-    fn extract_mark(&self, first_word: &str) -> Option<Token> {
+    fn split_mark(&self, first_word: &str) -> Option<Token> {
         let first_word_chars: Vec<char> = first_word.chars().collect();
 
         match first_word_chars[..] {
@@ -219,15 +224,32 @@ impl<'lexer> Lexer<'lexer> {
     }
 
     // Parse inline syntax, include bold, image and link etc.
-    fn split_inline(content: &str) -> Vec<Token> {
+    fn split_inline(content: &str, skip: usize) -> Vec<Token> {
         let mut last = 0;
 
         let mut buff: Vec<Token> = Vec::new();
-        let mut state = InlineState::Normal;
+        let mut state = InlineState::Plain;
 
-        let mut content_iter = content.chars().enumerate().peekable();
-        while let Some((ix, ch)) = content_iter.next() {
+        let mut cnt_iter = content.chars().enumerate().skip(skip).peekable();
+        while let Some((ix, ch)) = cnt_iter.next() {
             match (state, ch) {
+                (InlineState::Stopped, _) => {
+                    break;
+                }
+                (InlineState::FallBack(begin), _) => {
+                    state = InlineState::Stopped;
+
+                    let sub_content = utf8_slice::from(content, last);
+                    for t in Self::split_inline(sub_content, begin - last)
+                        .into_iter()
+                        .filter(|e| !e.value().is_empty())
+                    {
+                        buff.push(t);
+                    }
+                }
+                (InlineState::Skip, _) => {
+                    state = InlineState::Plain;
+                }
                 (_, '\n') => {
                     // end of the line
                     let s = utf8_slice::slice(content, last, ix)
@@ -237,12 +259,10 @@ impl<'lexer> Lexer<'lexer> {
                     if !s.is_empty() {
                         buff.push(Token::new(s, TokenKind::Text));
                     }
-                    break;
+                    state = InlineState::Stopped;
                 }
                 (_, '\\') => {
-                    let next = content_iter
-                        .peek()
-                        .filter(|(_, n)| ESCAPE_CHARS.contains(*n));
+                    let next = cnt_iter.peek().filter(|(_, n)| ESCAPE_CHARS.contains(*n));
                     if next.is_some() {
                         // need to skip the next character
                         state = InlineState::Skip;
@@ -254,10 +274,7 @@ impl<'lexer> Lexer<'lexer> {
                         last = ix + 1; // drop the character: '\'
                     }
                 }
-                (InlineState::Skip, _) => {
-                    state = InlineState::Normal;
-                }
-                (InlineState::Normal, _) => match ch {
+                (InlineState::Plain, _) => match ch {
                     '*' | '_' | '`' => {
                         // the part of normal text before mark.
                         let s = utf8_slice::slice(content, last, ix);
@@ -267,7 +284,7 @@ impl<'lexer> Lexer<'lexer> {
 
                         last = ix;
 
-                        if content_iter.peek().filter(|(_, n)| *n == ch).is_some() {
+                        if cnt_iter.peek().filter(|(_, n)| *n == ch).is_some() {
                             state = InlineState::Continuous(ix);
                         } else {
                             let s = utf8_slice::slice(content, ix, ix + 1);
@@ -289,24 +306,35 @@ impl<'lexer> Lexer<'lexer> {
                 (InlineState::ImgBegin(begin), _) => match ch {
                     '[' => state = InlineState::ImgNameBegin(begin, ix),
                     '!' => state = InlineState::ImgBegin(ix),
-                    _ => state = InlineState::Normal,
+                    _ => state = InlineState::Plain, // not fall
                 },
                 (InlineState::ImgNameBegin(b1, b2), _) => {
                     if ch == ']' {
                         state = InlineState::NameEnd(Some(b1), b2, ix);
+                    } else {
+                        // determine whether the next charater is '\n'
+                        if cnt_iter.peek().filter(|(_, v)| *v == '\n').is_some() {
+                            state = InlineState::FallBack(b2 + 1);
+                        }
                     }
                 }
                 (InlineState::LinkNameBegin(begin), _) => match ch {
                     ']' => state = InlineState::NameEnd(None, begin, ix),
                     '[' => state = InlineState::LinkNameBegin(ix),
-                    _ => (),
+                    _ => {
+                        // determine whether the next charater is '\n'
+                        if cnt_iter.peek().filter(|(_, v)| *v == '\n').is_some() {
+                            state = InlineState::FallBack(begin + 1);
+                        }
+                    }
                 },
                 (InlineState::NameEnd(b1, b2, b3), _) => match ch {
                     '(' => state = InlineState::Location(b1, b2, b3, ix),
                     ']' => state = InlineState::NameEnd(b1, b2, ix),
                     '[' => state = InlineState::RefLink(b2, b3, ix),
                     ':' => state = InlineState::RefLinkDef(b2, b3, ix),
-                    _ => state = InlineState::Normal,
+                    // _ => state = InlineState::Plain,
+                    _ => state = InlineState::FallBack(b2 + 1),
                 },
                 (InlineState::RefLink(b1, b2, b3), _) => {
                     if ch == ']' {
@@ -318,21 +346,26 @@ impl<'lexer> Lexer<'lexer> {
                         let s = utf8_slice::slice(content, b1, ix + 1);
                         let s1 = utf8_slice::slice(content, b1 + 1, b2);
                         let s2 = utf8_slice::slice(content, b3 + 1, ix);
-                        let t = Self::split_generic_link_details(s, s1, s2, TokenKind::RefLink);
+                        let t = Self::split_generic_link(s, s1, s2, TokenKind::RefLink);
                         buff.push(t);
 
                         last = ix + 1;
-                        state = InlineState::Normal;
+                        state = InlineState::Plain;
+                    } else {
+                        // determine whether the next charater is '\n'
+                        if cnt_iter.peek().filter(|(_, v)| *v == '\n').is_some() {
+                            state = InlineState::FallBack(b1 + 1);
+                        }
                     }
                 }
                 (InlineState::RefLinkDef(b1, b2, _b3), _) => {
                     let s = utf8_slice::from(content, last).trim_end_matches('\n');
                     let s1 = utf8_slice::slice(content, b1 + 1, b2);
                     let s2 = utf8_slice::from(content, ix).trim_end_matches('\n');
-                    let t = Self::split_generic_link_details(s, s1, s2, TokenKind::RefLinkDef);
+                    let t = Self::split_generic_link(s, s1, s2, TokenKind::RefLinkDef);
                     buff.push(t);
 
-                    state = InlineState::Finished;
+                    state = InlineState::Stopped;
                 }
                 (InlineState::Location(b1, b2, b3, b4), _) => {
                     if ch == ')' {
@@ -349,22 +382,27 @@ impl<'lexer> Lexer<'lexer> {
                         let s2 = utf8_slice::slice(content, b4 + 1, ix); // s2 in ()
                         let t = if b1.is_some() {
                             // image
-                            Self::split_generic_link_details(s, s1, s2, TokenKind::Image)
+                            Self::split_generic_link(s, s1, s2, TokenKind::Image)
                         } else {
                             // link
-                            Self::split_generic_link_details(s, s1, s2, TokenKind::Link)
+                            Self::split_generic_link(s, s1, s2, TokenKind::Link)
                         };
                         buff.push(t);
 
                         last = ix + 1;
-                        state = InlineState::Normal;
+                        state = InlineState::Plain;
+                    } else {
+                        // determine whether the next charater is '\n'
+                        if cnt_iter.peek().filter(|(_, v)| *v == '\n').is_some() {
+                            state = InlineState::FallBack(b2 + 1);
+                        }
                     }
                 }
                 (InlineState::QuickLink(begin), _) => {
                     if ch.is_whitespace() {
                         let s = utf8_slice::slice(content, begin + 1, ix).trim();
                         if !s.is_empty() && !Self::is_url(s) && !Self::is_email(s) {
-                            state = InlineState::Normal;
+                            state = InlineState::Plain;
                         }
                     }
                     if ch == '>' {
@@ -376,23 +414,23 @@ impl<'lexer> Lexer<'lexer> {
                             }
 
                             let s = utf8_slice::slice(content, begin, ix + 1);
-                            let t = Self::split_generic_link_details(
-                                s,
-                                link,
-                                link,
-                                TokenKind::QuickLink,
-                            );
+                            let t = Self::split_generic_link(s, link, link, TokenKind::QuickLink);
                             buff.push(t);
 
                             last = ix + 1;
-                            state = InlineState::Normal;
+                            state = InlineState::Plain;
                         } else {
-                            state = InlineState::Normal;
+                            state = InlineState::Plain;
+                        }
+                    } else {
+                        // determine whether the next charater is '\n'
+                        if cnt_iter.peek().filter(|(_, v)| *v == '\n').is_some() {
+                            state = InlineState::FallBack(begin + 1);
                         }
                     }
                 }
                 (InlineState::Continuous(begin), _) => {
-                    if content_iter.peek().filter(|(_, n)| *n == ch).is_none() {
+                    if cnt_iter.peek().filter(|(_, n)| *n == ch).is_none() {
                         let s = utf8_slice::slice(content, begin, ix + 1);
                         let k = match ch {
                             '*' => TokenKind::Star,
@@ -403,22 +441,16 @@ impl<'lexer> Lexer<'lexer> {
                         buff.push(Token::new(s.to_string(), k));
 
                         last = ix + 1;
-                        state = InlineState::Normal;
+                        state = InlineState::Plain;
                     }
                 }
-                (InlineState::Finished, _) => {
-                    break;
-                }
-            }
-        }
-        if Self::has_br(content) {
-            buff.push(Token::new("<br>".to_string(), TokenKind::LineBreak));
-        }
-        Self::tidy(&mut buff);
+            } // end of match
+        } // end of while
+
         buff
     }
 
-    fn split_generic_link_details(s: &str, s1: &str, s2: &str, kind: TokenKind) -> Token {
+    fn split_generic_link(s: &str, s1: &str, s2: &str, kind: TokenKind) -> Token {
         let s2 = s2.trim();
         let fields: Vec<&str> = s2.splitn(2, [' ', '\t']).collect();
         let (kind, location, title) = match fields.len().cmp(&2) {
@@ -1413,5 +1445,84 @@ mod tests {
             ),
         ];
         exec_generic_link_cases(cases);
+    }
+
+    #[test]
+    fn test_inline_fallback() {
+        let cases = vec![
+            (
+                "![example](exmaple.com**example**",
+                vec![
+                    ("![example](exmaple.com", TokenKind::Text),
+                    ("**", TokenKind::BoldMark),
+                    ("example", TokenKind::Text),
+                    ("**", TokenKind::BoldMark),
+                ],
+            ),
+            (
+                "![example]exmaple.com**example**",
+                vec![
+                    ("![example]exmaple.com", TokenKind::Text),
+                    ("**", TokenKind::BoldMark),
+                    ("example", TokenKind::Text),
+                    ("**", TokenKind::BoldMark),
+                ],
+            ),
+            (
+                "![exmaple.com**example**",
+                vec![
+                    ("![exmaple.com", TokenKind::Text),
+                    ("**", TokenKind::BoldMark),
+                    ("example", TokenKind::Text),
+                    ("**", TokenKind::BoldMark),
+                ],
+            ),
+            (
+                "!exmaple.com**example**",
+                vec![
+                    ("!exmaple.com", TokenKind::Text),
+                    ("**", TokenKind::BoldMark),
+                    ("example", TokenKind::Text),
+                    ("**", TokenKind::BoldMark),
+                ],
+            ),
+            (
+                "[exmaple.com**example**",
+                vec![
+                    ("[exmaple.com", TokenKind::Text),
+                    ("**", TokenKind::BoldMark),
+                    ("example", TokenKind::Text),
+                    ("**", TokenKind::BoldMark),
+                ],
+            ),
+            (
+                "[example]exmaple.com**example**",
+                vec![
+                    ("[example]exmaple.com", TokenKind::Text),
+                    ("**", TokenKind::BoldMark),
+                    ("example", TokenKind::Text),
+                    ("**", TokenKind::BoldMark),
+                ],
+            ),
+            (
+                "[example][exmaple.com**example**",
+                vec![
+                    ("[example][exmaple.com", TokenKind::Text),
+                    ("**", TokenKind::BoldMark),
+                    ("example", TokenKind::Text),
+                    ("**", TokenKind::BoldMark),
+                ],
+            ),
+            (
+                "<exmaple.com**example**",
+                vec![
+                    ("<exmaple.com", TokenKind::Text),
+                    ("**", TokenKind::BoldMark),
+                    ("example", TokenKind::Text),
+                    ("**", TokenKind::BoldMark),
+                ],
+            ),
+        ];
+        exec_cases(cases);
     }
 }

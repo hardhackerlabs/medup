@@ -142,6 +142,7 @@ impl Ast {
         for b in blocks.iter_mut().filter(|b| b.kind() == Kind::Quote) {
             let mut ast = Ast::new();
 
+            // Since there is a newline(\n) character at the end of each line, so we use empty string ("") to join them
             let text = b
                 .lines()
                 .iter()
@@ -155,7 +156,7 @@ impl Ast {
                     }
                 })
                 .collect::<Vec<String>>()
-                .join("\n");
+                .join("");
 
             ast.parse_string(&text).unwrap_or_else(|_e| unreachable!());
             b.ast_of_quote = Some(ast);
@@ -336,8 +337,8 @@ impl Ast {
                     Self::insert_block(&mut blocks, Block::new(Rc::clone(l), Kind::Title));
                 }
                 Kind::Meta__ => unreachable!(),
-            }
-        }
+            } // end of match
+        } // end of while
 
         // build nested lists recursively
         for b in blocks
@@ -388,7 +389,7 @@ impl Debug for Ast {
 // Block is a group of multiple lines.
 #[derive(Debug)]
 struct Block {
-    indices: Vec<SharedLine>,
+    contains: Vec<SharedLine>,
     kind: Kind,
     seq: usize,
     ast_of_quote: Option<Ast>,
@@ -397,7 +398,7 @@ struct Block {
 impl Block {
     fn new(l: SharedLine, kind: Kind) -> Self {
         Block {
-            indices: vec![l],
+            contains: vec![l],
             kind,
             seq: 0,
             ast_of_quote: None,
@@ -405,11 +406,11 @@ impl Block {
     }
 
     fn lines(&self) -> &Vec<SharedLine> {
-        &self.indices
+        &self.contains
     }
 
     fn first(&self) -> &SharedLine {
-        &self.indices[0]
+        &self.contains[0]
     }
 
     fn kind(&self) -> Kind {
@@ -417,11 +418,11 @@ impl Block {
     }
 
     fn push(&mut self, l: SharedLine) {
-        self.indices.push(l)
+        self.contains.push(l)
     }
 
     fn _count(&self) -> usize {
-        self.indices.len()
+        self.contains.len()
     }
 }
 
@@ -743,5 +744,67 @@ _____________
                 .collect::<Vec<usize>>(),
             counts
         );
+    }
+
+    fn exec_document_cases(doc: &Vec<SharedLine>) -> Vec<(Kind, usize, usize, usize)> {
+        doc.iter()
+            .skip(1)
+            .map(|x| {
+                let x = x.borrow();
+                (x.kind, x.ln, x.nested_lines.len(), x.nested_blocks.len())
+            })
+            .collect()
+    }
+
+    fn exec_blocks_cases(blocks: &Vec<Block>) -> Vec<(Kind, usize, Option<usize>)> {
+        blocks
+            .iter()
+            .map(|x| {
+                (
+                    x.kind(),
+                    x.contains.len(),
+                    x.ast_of_quote
+                        .as_ref()
+                        .map(|a| Some(a.count_lines()))
+                        .unwrap_or(None),
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn test_quote_block() {
+        {
+            let md = r#"# header1
+> hello, rust
+> hello, world
+>> hello, nested
+
+<user@gmail.com>
+"#;
+
+            let mut ast = Ast::new();
+            ast.parse_string(md).unwrap();
+
+            // (line kind, line number, nested line count, nested block count)
+            let document = vec![
+                (Kind::Title, 1, 0, 0),
+                (Kind::Quote, 2, 0, 0),
+                (Kind::Quote, 3, 0, 0),
+                (Kind::Quote, 4, 0, 0),
+                (Kind::Blank, 5, 0, 0),
+                (Kind::PlainText, 6, 0, 0),
+            ];
+            assert_eq!(exec_document_cases(&ast.document), document);
+
+            // (block kind, line count in block, line count of quote ast)
+            let blocks = vec![
+                (Kind::Title, 1, None),
+                (Kind::Quote, 3, Some(3)),
+                (Kind::Blank, 1, None),
+                (Kind::PlainText, 1, None),
+            ];
+            assert_eq!(exec_blocks_cases(ast.blocks()), blocks);
+        }
     }
 }

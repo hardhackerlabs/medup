@@ -115,7 +115,7 @@ impl Ast {
             self.document.push(lrc);
 
             debug_assert_eq!(self.count_lines(), ln);
-            debug_assert_eq!(self.document[ln].borrow().ln, ln);
+            debug_assert_eq!(self.document[ln].borrow().num, ln);
         } // end of loop
 
         lazy_queue.iter().for_each(|l| l.borrow_mut().parse());
@@ -304,7 +304,7 @@ impl Ast {
                 }
                 Kind::DividingLine => {
                     // get kind of the previous line
-                    let prev = all.get(curr_line.ln - 1).map(|v| v.borrow().kind);
+                    let prev = all.get(curr_line.num - 1).map(|v| v.borrow().kind);
                     // get kind of the next line
                     let next = iter.peek().map(|v| v.borrow().kind);
 
@@ -375,7 +375,7 @@ impl Debug for Ast {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut debug = String::new();
         for line in self.document.iter() {
-            debug.push_str(format!("[{}, {:?}]: ", line.borrow().ln, line.borrow().kind).as_str());
+            debug.push_str(format!("[{}, {:?}]: ", line.borrow().num, line.borrow().kind).as_str());
             for t in line.borrow().all() {
                 let s = format!("{:?} ", t);
                 debug.push_str(&s);
@@ -446,7 +446,7 @@ enum Kind {
 pub(crate) struct Line {
     buff: Vec<Token>,
     kind: Kind,
-    ln: usize,
+    num: usize,
     text: String,
     //
     // The lines in nesting:
@@ -461,7 +461,7 @@ pub(crate) struct Line {
 impl Line {
     fn new(ln: usize, line: String) -> Self {
         Line {
-            ln,
+            num: ln,
             text: line,
             kind: Kind::PlainText,
             buff: vec![],
@@ -622,136 +622,12 @@ impl Line {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_document() {
-        let md = "# dice 是一个 markdown 编辑器
-这是我的一个学习 rust 编程语言的项目，我将尝试去开发一个强大的 markdown 编辑器。
-
-重点:
-* 支持 vim 操作
-* 支持自动化的命令去编辑文档
-* 扩展内容的左右水平布局
-* 更好交互的表格
-* 支持幻灯片模式的播放
-* 必须是快速的
-* ...
-
-1. 支持 vim 操作
-2. 支持自动化的命令去编辑文档
-3. 扩展内容的左右水平布局
-4. 更好交互的表格
-5. 支持幻灯片模式的播放
-6. 必须是快速的
-7. ...
-
----
-****
-_____________
---- 这不是一个分界线
----a 这也不是一个分界线
-
-这里带有换行  
-新的一行
-
-![这是图片](/assets/img/philly-magic-garden.jpg \"Magic Gardens\")
-这里是一个链接 [链接](https://a.com/assets/img/philly-magic-garden.jpg \"Magic Gardens\")
-
-> Rust, A language empowering everyone to build reliable and efficient software.";
-
-        let mut ast = Ast::new();
-        ast.parse_string(md).unwrap();
-        assert_eq!(ast.count_lines(), md.lines().count());
-    }
-
-    #[test]
-    fn test_establish_blocks() {
-        let md = "# dice 是一个 markdown 编辑器
-这是我的一个学习 rust 编程语言的项目，我将尝试去开发一个强大的 markdown 编辑器。
-
-* 支持 vim 操作
-  vim1
-* 支持自动化的命令去编辑文档
-
-1. 支持 vim 操作
-2. 支持自动化的命令去编辑文档
-3. 扩展内容的左右水平布局
-
-
-> Rust, A language empowering everyone to build reliable and efficient software.";
-
-        let mut ast = Ast::new();
-        ast.parse_string(md).unwrap();
-
-        assert_eq!(ast.count_lines(), md.lines().count());
-        assert_eq!(ast.blocks.len(), 8);
-
-        assert_eq!(
-            ast.blocks[3]
-                .lines()
-                .get(0)
-                .unwrap()
-                .borrow()
-                .nested_lines
-                .len(),
-            1
-        );
-        assert_eq!(
-            ast.blocks[3]
-                .lines()
-                .get(0)
-                .unwrap()
-                .borrow()
-                .nested_blocks
-                .len(),
-            1
-        );
-    }
-
-    #[test]
-    fn test_code_block() {
-        let md = "这是一个代码块的例子：
-```
-    let s = \"hello world\";
-    let s1 = s.to_string();
-```
-    ```
-    let s;
-    assert_eq!(ast.doc[0].sequence[1].kind, TokenKind::Url);
-    assert_eq!(ast.doc[0].sequence[1].value, url.to_string());";
-
-        let mut ast = Ast::new();
-        ast.parse_string(md).unwrap();
-
-        assert_eq!(ast.count_lines(), md.lines().count());
-        assert_eq!(ast.blocks.len(), 4);
-
-        let kinds = vec![
-            Kind::PlainText,
-            Kind::CodeBlock,
-            Kind::CodeBlockMark,
-            Kind::PlainText,
-        ];
-        assert_eq!(
-            ast.blocks().iter().map(|b| b.kind()).collect::<Vec<Kind>>(),
-            kinds
-        );
-
-        let counts: Vec<usize> = vec![1, 4, 1, 3];
-        assert_eq!(
-            ast.blocks()
-                .iter()
-                .map(|b| b._count())
-                .collect::<Vec<usize>>(),
-            counts
-        );
-    }
-
     fn exec_document_cases(doc: &Vec<SharedLine>) -> Vec<(Kind, usize, usize, usize)> {
         doc.iter()
             .skip(1)
             .map(|x| {
                 let x = x.borrow();
-                (x.kind, x.ln, x.nested_lines.len(), x.nested_blocks.len())
+                (x.kind, x.num, x.nested_lines.len(), x.nested_blocks.len())
             })
             .collect()
     }
@@ -770,6 +646,44 @@ _____________
                 )
             })
             .collect()
+    }
+
+    #[test]
+    fn test_code_block() {
+        let md = r#"这是一个代码块的例子：
+```
+    let s = \"hello world\";
+    let s1 = s.to_string();
+```
+    ```
+    let s;
+    assert_eq!(ast.doc[0].sequence[1].kind, TokenKind::Url);
+    assert_eq!(ast.doc[0].sequence[1].value, url.to_string());"#;
+        let mut ast = Ast::new();
+        ast.parse_string(md).unwrap();
+
+        // (line kind, line number, nested line count, nested block count)
+        let document = vec![
+            (Kind::PlainText, 1, 0, 0),
+            (Kind::CodeBlockMark, 2, 0, 0),
+            (Kind::CodeBlock, 3, 0, 0),
+            (Kind::CodeBlock, 4, 0, 0),
+            (Kind::CodeBlockMark, 5, 0, 0),
+            (Kind::CodeBlockMark, 6, 0, 0),
+            (Kind::PlainText, 7, 0, 0),
+            (Kind::PlainText, 8, 0, 0),
+            (Kind::PlainText, 9, 0, 0),
+        ];
+        assert_eq!(exec_document_cases(&ast.document), document);
+
+        // (block kind, line count in block, line count of quote ast)
+        let blocks = vec![
+            (Kind::PlainText, 1, None),
+            (Kind::CodeBlock, 4, None),
+            (Kind::CodeBlockMark, 1, None),
+            (Kind::PlainText, 3, None),
+        ];
+        assert_eq!(exec_blocks_cases(ast.blocks()), blocks);
     }
 
     #[test]
@@ -806,5 +720,48 @@ _____________
             ];
             assert_eq!(exec_blocks_cases(ast.blocks()), blocks);
         }
+    }
+
+    #[test]
+    fn test_nested_list() {
+        let md = r#"## 无序列表
+- 列表项 1
+  嵌入文本 1
+  - 嵌入项 1
+  - 嵌入项 2
+- 列表项 2
+- 列表项 3"#;
+        let mut ast = Ast::new();
+        ast.parse_string(md).unwrap();
+
+        let document = vec![
+            (Kind::Title, 1, 0, 0),
+            (Kind::UnorderedList, 2, 3, 2),
+            (Kind::PlainText, 3, 0, 0),
+            (Kind::UnorderedList, 4, 0, 0),
+            (Kind::UnorderedList, 5, 0, 0),
+            (Kind::UnorderedList, 6, 0, 0),
+            (Kind::UnorderedList, 7, 0, 0),
+        ];
+        assert_eq!(exec_document_cases(&ast.document), document);
+
+        // (block kind, line count in block, line count of quote ast)
+        let blocks = vec![(Kind::Title, 1, None), (Kind::UnorderedList, 3, None)];
+        assert_eq!(exec_blocks_cases(ast.blocks()), blocks);
+    }
+
+    #[test]
+    fn test_ref_link_tags() {
+        let md = r#"## 链接
+[Example][link] <br>
+[link]: https://www.example.com "example""#;
+        let mut ast = Ast::new();
+        ast.parse_string(md).unwrap();
+
+        assert_eq!(ast.ref_link_tags().len(), 1);
+        assert_eq!(
+            ast.ref_link_tags().get("link"),
+            Some(&("https://www.example.com".to_string(), "example".to_string()))
+        );
     }
 }

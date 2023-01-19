@@ -194,7 +194,7 @@ impl<'generator> HtmlGenerate for Generator<'generator> {
         self.tt.render(TITLE_TEMPLATE_NAME, &ctx).unwrap()
     }
 
-    fn body_dividling(&self, _l: &SharedLine) -> String {
+    fn body_dividing(&self, _l: &SharedLine) -> String {
         String::from("<hr>")
     }
 

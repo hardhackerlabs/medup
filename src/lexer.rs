@@ -5,17 +5,7 @@ use std::{
 
 use crate::{cursor, stack};
 
-use email_address::EmailAddress;
 use itertools::Itertools;
-use lazy_static::lazy_static;
-use regex::Regex;
-use url::Url;
-
-// This regex is used to match a string with double quotes("") or single quotes('')
-lazy_static! {
-    static ref D_QUOTED_STRING_RE: Regex = Regex::new("^\"([^\"\\\\]|\\\\.)*\"$").unwrap();
-    static ref S_QUOTED_STRING_RE: Regex = Regex::new("^\'([^\'\\\\]|\\\\.)*\'$").unwrap();
-}
 
 const ESCAPE_CHARS: &str = ":*_`#+-.![]()<>\\";
 
@@ -24,7 +14,7 @@ enum State {
     Begin,
     Mark(usize),
     Inline(usize),
-    StopParse(usize),
+    Stop(usize),
     Finished,
 }
 
@@ -110,7 +100,7 @@ impl<'lexer> Lexer<'lexer> {
                                     } else {
                                         begin + 1
                                     };
-                                    self.goto(State::StopParse(pos));
+                                    self.goto(State::Stop(pos));
                                 }
                                 TokenKind::CodeBlockMark => self.goto(State::Inline(begin + 3)),
                                 TokenKind::DividingMark => self.goto(State::Finished),
@@ -120,17 +110,17 @@ impl<'lexer> Lexer<'lexer> {
                         }
                     }
                 }
-                State::Inline(_) | State::StopParse(_) | State::Finished => {
+                State::Inline(_) | State::Stop(_) | State::Finished => {
                     break;
                 }
             };
         }
 
         match self.state {
-            State::StopParse(begin) => {
+            State::Stop(begin) => {
                 let rest = self.slice_rest(begin);
                 let t = Token::new(rest.to_string(), TokenKind::Text);
-                if !t.value().is_empty() {
+                if !t.is_empty() {
                     buff.push(t);
                 }
             }
@@ -142,7 +132,7 @@ impl<'lexer> Lexer<'lexer> {
                 }
                 Self::tidy(&mut tokens);
 
-                for t in tokens.into_iter().filter(|t| !t.value().is_empty()) {
+                for t in tokens.into_iter().filter(|t| !t.is_empty()) {
                     buff.push(t);
                 }
             }
@@ -242,7 +232,7 @@ impl<'lexer> Lexer<'lexer> {
                     let sub = cursor.rest_slice();
                     for t in Self::split_inline(sub, begin - cursor.index())
                         .into_iter()
-                        .filter(|e| !e.value().is_empty())
+                        .filter(|e| !e.is_empty())
                     {
                         buff.push(t);
                     }
@@ -393,13 +383,13 @@ impl<'lexer> Lexer<'lexer> {
                 (InlineState::QuickLink(begin), _) => {
                     if curr.is_whitespace() {
                         let s = utf8_slice::slice(content, begin + 1, curr_ix).trim();
-                        if !s.is_empty() && !Self::is_url(s) && !Self::is_email(s) {
+                        if !s.is_empty() && !super::is_url(s) && !super::is_email(s) {
                             state = InlineState::Plain;
                         }
                     }
                     if curr == '>' {
                         let link = utf8_slice::slice(content, begin + 1, curr_ix).trim();
-                        if Self::is_url(link) || Self::is_email(link) {
+                        if super::is_url(link) || super::is_email(link) {
                             // cursor -> begin
                             cursor.consume_to(begin, |s| {
                                 buff.push(Token::new(s.to_string(), TokenKind::Text));
@@ -447,7 +437,7 @@ impl<'lexer> Lexer<'lexer> {
         let (kind, location, title) = match fields.len().cmp(&2) {
             Ordering::Less => (kind, s2, ""),
             Ordering::Equal => {
-                if Self::is_quoted_string(fields[1]) {
+                if super::is_quoted_string(fields[1]) {
                     (kind, fields[0], fields[1])
                 } else {
                     (TokenKind::Text, "", "")
@@ -502,32 +492,29 @@ impl<'lexer> Lexer<'lexer> {
                 let matched = pops.get_mut(0).unwrap(); // Notice: don't panic
                 match t.value() {
                     "*" | "_" => {
-                        matched.update_kind(TokenKind::ItalicMark);
-                        t.update_kind(TokenKind::ItalicMark);
+                        (matched.kind, t.kind) = (TokenKind::ItalicMark, TokenKind::ItalicMark);
                     }
                     "**" | "__" => {
-                        matched.update_kind(TokenKind::BoldMark);
-                        t.update_kind(TokenKind::BoldMark);
+                        (matched.kind, t.kind) = (TokenKind::BoldMark, TokenKind::BoldMark);
                     }
                     "***" | "___" => {
-                        matched.update_kind(TokenKind::ItalicBoldMark);
-                        t.update_kind(TokenKind::ItalicBoldMark);
+                        (matched.kind, t.kind) =
+                            (TokenKind::ItalicBoldMark, TokenKind::ItalicBoldMark);
                     }
                     "`" | "``" | "```" => {
-                        matched.update_kind(TokenKind::CodeMark);
-                        t.update_kind(TokenKind::CodeMark);
+                        (matched.kind, t.kind) = (TokenKind::CodeMark, TokenKind::CodeMark);
                     }
                     _ => unreachable!(),
                 }
                 pops.iter_mut()
                     .skip(1)
-                    .for_each(|e| e.update_kind(TokenKind::Text));
+                    .for_each(|e| e.kind = TokenKind::Text);
             } else {
                 // not found in stack
                 if t.len() < 4 {
                     stack.push(t);
                 } else {
-                    t.update_kind(TokenKind::Text)
+                    t.kind = TokenKind::Text;
                 }
             }
         }
@@ -536,7 +523,7 @@ impl<'lexer> Lexer<'lexer> {
         stack
             .all_mut()
             .iter_mut()
-            .for_each(|e| e.update_kind(TokenKind::Text));
+            .for_each(|e| e.kind = TokenKind::Text);
     }
 
     fn tidy_continuous_mark(kind: TokenKind, buff: &mut Vec<Token>) {
@@ -609,18 +596,6 @@ impl<'lexer> Lexer<'lexer> {
                 .unwrap_or(0)
                 >= 3
     }
-
-    fn is_quoted_string(s: &str) -> bool {
-        D_QUOTED_STRING_RE.is_match(s) || S_QUOTED_STRING_RE.is_match(s)
-    }
-
-    fn is_url(s: &str) -> bool {
-        Url::try_from(s).is_ok()
-    }
-
-    fn is_email(s: &str) -> bool {
-        EmailAddress::is_valid(s)
-    }
 }
 
 #[derive(Debug, PartialEq, Copy, Clone)]
@@ -681,9 +656,9 @@ impl Token {
         self.kind
     }
 
-    // Set a new kind of the token
-    pub(crate) fn update_kind(&mut self, kind: TokenKind) {
-        self.kind = kind
+    // Check if the token is empty
+    pub(crate) fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     // convert the token to generic link token
@@ -720,6 +695,10 @@ impl Token {
         self.details
             .get_or_insert(HashMap::new())
             .insert(k.to_string(), v.to_string());
+    }
+
+    pub(crate) fn downgrade_to_text(&mut self) {
+        self.kind = TokenKind::Text
     }
 }
 

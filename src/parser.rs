@@ -133,7 +133,7 @@ impl Ast {
 
             // Since there is a newline(\n) character at the end of each line, so we use empty string ("") to join them
             let text = b
-                .lines()
+                .contains()
                 .iter()
                 .map(|e| {
                     let e = e.borrow();
@@ -148,7 +148,7 @@ impl Ast {
                 .join("");
 
             ast.parse_string(&text).unwrap_or_else(|_e| unreachable!());
-            b.ast_of_quote = Some(ast);
+            b.quote_ast = Some(ast);
         }
     }
 
@@ -173,21 +173,21 @@ impl Ast {
             .filter(|b| b.kind() != Kind::Meta__ && b.kind() != Kind::ListNesting__)
             .map(|b| match b.kind() {
                 Kind::Title => html.body_title(b.first()),
-                Kind::PlainText => html.body_plain_text(b.lines()),
-                Kind::DividingLine => html.body_dividling(b.first()),
-                Kind::CodeBlock => html.body_code(b.lines()),
-                Kind::UnorderedList => html.body_unordered_list(b.lines()),
-                Kind::Blank => html.body_blank(b.lines()),
+                Kind::PlainText => html.body_plain_text(b.contains()),
+                Kind::Dividing => html.body_dividing(b.first()),
+                Kind::CodeBlock => html.body_code(b.contains()),
+                Kind::UnorderedList => html.body_unordered_list(b.contains()),
+                Kind::Blank => html.body_blank(b.contains()),
                 Kind::Quote => {
                     let s = b
-                        .ast_of_quote
+                        .quote_ast
                         .as_ref()
                         .map(|a| a.render_html_body(html))
                         .unwrap_or_else(|| "".to_string());
                     html.body_quote(&s)
                 }
-                Kind::OrderedList => html.body_ordered_list(b.lines()),
-                Kind::CodeBlockMark => html.body_plain_text(b.lines()), // treat code block mark as plain text
+                Kind::OrderedList => html.body_ordered_list(b.contains()),
+                Kind::CodeBlockMark => html.body_plain_text(b.contains()), // treat code block mark as plain text
                 _ => unreachable!(),
             })
             .filter(|s| !s.is_empty())
@@ -197,11 +197,6 @@ impl Ast {
     // Count the lines in ast
     pub(crate) fn count_lines(&self) -> usize {
         self.document.len() - 1
-    }
-
-    // Get the Line object with line number
-    pub(crate) fn _get_line(&self, ln: usize) -> Option<&SharedLine> {
-        self.document.get(ln)
     }
 
     pub(crate) fn ref_link_tags(&self) -> &HashMap<String, (String, String)> {
@@ -291,7 +286,7 @@ impl Ast {
                         Self::insert_block(&mut blocks, Block::new(Rc::clone(l), curr_line.kind));
                     }
                 }
-                Kind::DividingLine => {
+                Kind::Dividing => {
                     // get kind of the previous line
                     let prev = all.get(curr_line.num - 1).map(|v| v.borrow().kind);
                     // get kind of the next line
@@ -300,17 +295,14 @@ impl Ast {
                     if prev.unwrap_or(Kind::Blank) == Kind::Blank
                         && next.unwrap_or(Kind::Blank) == Kind::Blank
                     {
-                        Self::insert_block(
-                            &mut blocks,
-                            Block::new(Rc::clone(l), Kind::DividingLine),
-                        )
+                        Self::insert_block(&mut blocks, Block::new(Rc::clone(l), Kind::Dividing))
                     } else {
                         // convert dividing to plain text
                         curr_line.kind = Kind::PlainText;
                         curr_line
                             .buff
                             .iter_mut()
-                            .for_each(|t| t.update_kind(TokenKind::Text));
+                            .for_each(|t| t.downgrade_to_text());
 
                         if let Some(b) = blocks.last_mut().filter(|b| b.kind() == Kind::PlainText) {
                             b.push(Rc::clone(l));
@@ -334,7 +326,7 @@ impl Ast {
             .iter()
             .filter(|b| b.kind() == Kind::UnorderedList || b.kind() == Kind::OrderedList)
         {
-            b.lines()
+            b.contains()
                 .iter()
                 .filter(|l| !l.borrow().nested_lines.is_empty())
                 .for_each(|l| {
@@ -375,13 +367,28 @@ impl Debug for Ast {
     }
 }
 
-// Block is a group of multiple lines.
+#[derive(Debug, PartialEq, Copy, Clone)]
+enum Kind {
+    PlainText,
+    Blank,
+    Title,
+    UnorderedList,
+    OrderedList,
+    Dividing,
+    Quote,
+    CodeBlockMark,
+    CodeBlock,
+    Meta__,
+    ListNesting__,
+}
+
+// Block is a combination of associated lines.
 #[derive(Debug)]
 struct Block {
-    contains: Vec<SharedLine>,
-    kind: Kind,
     seq: usize,
-    ast_of_quote: Option<Ast>,
+    kind: Kind,
+    contains: Vec<SharedLine>,
+    quote_ast: Option<Ast>,
 }
 
 impl Block {
@@ -390,11 +397,11 @@ impl Block {
             contains: vec![l],
             kind,
             seq: 0,
-            ast_of_quote: None,
+            quote_ast: None,
         }
     }
 
-    fn lines(&self) -> &Vec<SharedLine> {
+    fn contains(&self) -> &Vec<SharedLine> {
         &self.contains
     }
 
@@ -409,25 +416,6 @@ impl Block {
     fn push(&mut self, l: SharedLine) {
         self.contains.push(l)
     }
-
-    fn _count(&self) -> usize {
-        self.contains.len()
-    }
-}
-
-#[derive(Debug, PartialEq, Copy, Clone)]
-enum Kind {
-    PlainText,
-    Blank,
-    Title,
-    UnorderedList,
-    OrderedList,
-    DividingLine,
-    Quote,
-    CodeBlockMark,
-    CodeBlock,
-    Meta__,
-    ListNesting__,
 }
 
 // Line is a line of the markdown file, it be parsed into some tokens.
@@ -473,7 +461,7 @@ impl Line {
             TokenKind::TitleMark => Kind::Title,
             TokenKind::UnorderedMark => Kind::UnorderedList,
             TokenKind::OrderedMark => Kind::OrderedList,
-            TokenKind::DividingMark => Kind::DividingLine,
+            TokenKind::DividingMark => Kind::Dividing,
             TokenKind::QuoteMark => Kind::Quote,
             TokenKind::CodeBlockMark => Kind::CodeBlockMark,
             _ => Kind::PlainText,
@@ -509,7 +497,7 @@ impl Line {
     fn is_nested(&self, parent: &Line) -> usize {
         if self.kind == Kind::Blank
             || self.kind == Kind::Title
-            || self.kind == Kind::DividingLine
+            || self.kind == Kind::Dividing
             || self.kind == Kind::CodeBlockMark
             || self.kind == Kind::CodeBlock
         {
@@ -555,26 +543,26 @@ impl Line {
                     && b.kind() != Kind::ListNesting__
                     && b.kind() != Kind::Blank
                     && b.kind() != Kind::Title
-                    && b.kind() != Kind::DividingLine
+                    && b.kind() != Kind::Dividing
                     && b.kind() != Kind::CodeBlockMark
                     && b.kind() != Kind::CodeBlock
             })
             .map(|b| match b.kind() {
                 Kind::Title => html.body_title(b.first()),
-                Kind::PlainText => html.body_plain_text(b.lines()),
-                Kind::DividingLine => html.body_dividling(b.first()),
-                Kind::CodeBlock => html.body_code(b.lines()),
-                Kind::UnorderedList => html.body_unordered_list(b.lines()),
-                Kind::Blank => html.body_blank(b.lines()),
+                Kind::PlainText => html.body_plain_text(b.contains()),
+                Kind::Dividing => html.body_dividing(b.first()),
+                Kind::CodeBlock => html.body_code(b.contains()),
+                Kind::UnorderedList => html.body_unordered_list(b.contains()),
+                Kind::Blank => html.body_blank(b.contains()),
                 Kind::Quote => {
                     let s = b
-                        .ast_of_quote
+                        .quote_ast
                         .as_ref()
                         .map(|a| a.render_html_body(html))
                         .unwrap_or_else(|| "".to_string());
                     html.body_quote(&s)
                 }
-                Kind::OrderedList => html.body_ordered_list(b.lines()),
+                Kind::OrderedList => html.body_ordered_list(b.contains()),
                 _ => "".to_string(),
             })
             .join("\n")
@@ -628,7 +616,7 @@ mod tests {
                 (
                     x.kind(),
                     x.contains.len(),
-                    x.ast_of_quote
+                    x.quote_ast
                         .as_ref()
                         .map(|a| Some(a.count_lines()))
                         .unwrap_or(None),

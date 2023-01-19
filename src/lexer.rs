@@ -365,23 +365,18 @@ impl<'lexer> Lexer<'lexer> {
                 }
                 (InlineState::Location(b1, b2, b3, b4), _) => {
                     if curr == ')' {
-                        // when found ')', this means that we found a valid image or link.
                         let begin = b1.unwrap_or(b2);
-                        // the part of text before '![]()' or '[]()' mark
                         // cursor -> begin
                         cursor.consume_to(begin, |s| {
                             buff.push(Token::new(s.to_string(), TokenKind::Text));
                         });
-                        // '![]()' or '[]()' mark
                         // begin -> next
                         cursor.consume_to(curr_ix + 1, |s| {
                             let s1 = utf8_slice::slice(content, b2 + 1, b3); // s1 in []
                             let s2 = utf8_slice::slice(content, b4 + 1, curr_ix); // s2 in ()
                             let t = if b1.is_some() {
-                                // image
                                 Self::split_generic_link(s, s1, s2, TokenKind::Image)
                             } else {
-                                // link
                                 Self::split_generic_link(s, s1, s2, TokenKind::Link)
                             };
                             buff.push(t);
@@ -415,11 +410,8 @@ impl<'lexer> Lexer<'lexer> {
                                     Self::split_generic_link(s, link, link, TokenKind::QuickLink);
                                 buff.push(t);
                             });
-
-                            state = InlineState::Plain;
-                        } else {
-                            state = InlineState::Plain;
                         }
+                        state = InlineState::Plain;
                     } else {
                         // determine whether the next charater is '\n'
                         if cnt_iter.peek().filter(|(_, v)| *v == '\n').is_some() {
@@ -440,7 +432,6 @@ impl<'lexer> Lexer<'lexer> {
                             };
                             buff.push(Token::new(s.to_string(), k));
                         });
-
                         state = InlineState::Plain;
                     }
                 }

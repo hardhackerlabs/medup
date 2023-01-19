@@ -178,7 +178,7 @@ impl Ast {
         buff.join("\n")
     }
 
-    fn render_html_body(&self, html: &impl HtmlGenerate) -> String {
+    pub(crate) fn render_html_body(&self, html: &impl HtmlGenerate) -> String {
         self.blocks()
             .iter()
             .filter(|b| b.kind() != Kind::Meta__ && b.kind() != Kind::ListNesting__)

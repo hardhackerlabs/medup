@@ -35,7 +35,7 @@ fn main() {
                 .expect("required");
 
             // start to parse the markdown file into html
-            let html = markdown::file_to_html(&cfg, md_path).unwrap();
+            let html = markdown::Markdown::new(&cfg).file_to_html(md_path).unwrap();
 
             // output the html
             if let Some(mut out) = out_file {

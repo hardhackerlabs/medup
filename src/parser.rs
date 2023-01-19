@@ -6,25 +6,11 @@ use std::io::{BufRead, BufReader};
 use std::rc::Rc;
 use std::{fmt, io};
 
+use super::SharedLine;
+use crate::html_generate::HtmlGenerate;
 use crate::lexer::{Lexer, Token, TokenKind};
 
 use itertools::Itertools;
-
-pub(crate) type SharedLine = Rc<RefCell<Line>>;
-
-pub(crate) trait HtmlGenerate {
-    fn head(&self) -> String;
-    fn body_begin(&self) -> String;
-    fn body_end(&self) -> String;
-    fn body_title(&self, l: &SharedLine) -> String;
-    fn body_dividling(&self, l: &SharedLine) -> String;
-    fn body_plain_text(&self, ls: &[SharedLine]) -> String;
-    fn body_blank(&self, ls: &[SharedLine]) -> String;
-    fn body_ordered_list(&self, ls: &[SharedLine]) -> String;
-    fn body_unordered_list(&self, ls: &[SharedLine]) -> String;
-    fn body_quote(&self, s: &str) -> String;
-    fn body_code(&self, ls: &[SharedLine]) -> String;
-}
 
 // Ast represents the abstract syntax tree of the markdown file, it structurally represents the entire file.
 pub(crate) struct Ast {
@@ -46,10 +32,13 @@ impl Ast {
         }
     }
 
+    // TODO:
     pub(crate) fn _insert_line(&mut self, _ln: usize, _s: &str) {}
 
+    // TODO:
     pub(crate) fn _update_line(&mut self, _ln: usize, _s: &str) {}
 
+    // TODO:
     pub(crate) fn _delete_line(&mut self, _ln: usize) {}
 
     // Parse markdown document from a file, the 'path' argument is the file path.

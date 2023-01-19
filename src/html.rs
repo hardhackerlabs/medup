@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 use std::error::Error;
 
+use super::SharedLine;
 use crate::config::Config;
+use crate::html_generate::HtmlGenerate;
 use crate::lexer::{Token, TokenKind};
-use crate::parser::{HtmlGenerate, SharedLine};
 use crate::stack;
 
 use serde::Serialize;

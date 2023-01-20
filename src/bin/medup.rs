@@ -1,50 +1,13 @@
-use std::fs::File;
-use std::io::Write;
-
-use medup::config::{self, Config};
-use medup::markdown;
+use crate::gen::proc_gen;
+use crate::serve::proc_serve;
 
 use clap::{arg, Command};
 
 fn main() {
     let matches = cli().get_matches();
-
     match matches.subcommand() {
-        Some(("gen", sub_matches)) => {
-            // read config path from cli
-            let cfg = match sub_matches.get_one::<String>("config-path") {
-                None => Config::default(),
-                Some(path) => config::read_config(path).unwrap(),
-            };
-
-            // read output file path from cli
-            let out_file = match sub_matches.get_one::<String>("output") {
-                None => None,
-                Some(path) => File::options()
-                    .write(true)
-                    .truncate(true)
-                    .create(true)
-                    .open(path)
-                    .map(|f| Some(f))
-                    .unwrap(),
-            };
-
-            // read markdown file path from cli
-            let md_path = sub_matches
-                .get_one::<String>("MARKDOWN_FILE_PATH")
-                .expect("required");
-
-            // start to parse the markdown file into html
-            let html = markdown::Markdown::new(&cfg).file_to_html(md_path).unwrap();
-
-            // output the html
-            if let Some(mut out) = out_file {
-                // out.write(html.as_bytes()).unwrap();
-                Write::write_all(&mut out, html.as_bytes()).unwrap();
-            } else {
-                println!("{}", html);
-            }
-        }
+        Some(("gen", sub_matches)) => proc_gen(sub_matches),
+        Some(("serve", sub_matches)) => proc_serve(sub_matches),
         _ => unreachable!(),
     }
 }
@@ -56,9 +19,149 @@ fn cli() -> Command {
         .subcommand_required(true)
         .subcommand(
             Command::new("gen")
-                .about("generate HTML based on Markdown")
+                .about("generate HTML based on Markdown!")
                 .arg(arg!(-c --"config-path" [CONFIG_PATH] "Specify path of the config file, it's optional."))
                 .arg(arg!(-o --output [OUTPUT_HTML_PATH] "Specify a html output path, it's optional."))
                 .arg(arg!(<MARKDOWN_FILE_PATH>)),
         )
+        .subcommand(
+            Command::new("serve")
+                .about("Provide an http service for markdown parsing!")
+                .arg(arg!(-l --"listen-addr" [LISTEN_ADDR] r#"Specify the listening address of the http server, default ":8181"."#))
+                .arg(arg!(-c --"config-path" [CONFIG_PATH] "Specify path of the config file, it's optional."))
+                .arg(arg!(-d --dir [DIR] "Specify the directory where markdown files are stored."))
+        )
+}
+
+mod gen {
+    use std::fs::File;
+    use std::io::Write;
+
+    use medup::config::{self, Config};
+    use medup::markdown;
+
+    use clap::ArgMatches;
+
+    pub fn proc_gen(sub_matches: &ArgMatches) {
+        // read config path from cli
+        let cfg = match sub_matches.get_one::<String>("config-path") {
+            None => Config::default(),
+            Some(path) => config::read_config(path).unwrap(),
+        };
+
+        // read output file path from cli
+        let out_file = match sub_matches.get_one::<String>("output") {
+            None => None,
+            Some(path) => File::options()
+                .write(true)
+                .truncate(true)
+                .create(true)
+                .open(path)
+                .map(|f| Some(f))
+                .unwrap(),
+        };
+
+        // read markdown file path from cli
+        let md_path = sub_matches
+            .get_one::<String>("MARKDOWN_FILE_PATH")
+            .expect("required");
+
+        // start to parse the markdown file into html
+        let html = markdown::Markdown::new(cfg).file_to_html(md_path).unwrap();
+
+        // output the html
+        if let Some(mut out) = out_file {
+            Write::write_all(&mut out, html.as_bytes()).unwrap();
+        } else {
+            println!("{}", html);
+        }
+    }
+}
+
+mod serve {
+    use std::error::Error;
+    use std::net::Ipv4Addr;
+    use std::path::Path;
+
+    use medup::config::{self, Config};
+    use medup::markdown::Markdown;
+
+    use clap::ArgMatches;
+    use warp::filters::BoxedFilter;
+    use warp::{Filter, Reply};
+
+    #[tokio::main]
+    pub async fn proc_serve(matches: &ArgMatches) {
+        let (addr, port) = parse_ip_port(matches).unwrap();
+        let cfg: Config = load_config(matches).unwrap();
+        let dir = get_dir(matches);
+
+        println!("---> start to listen on address: \"{}:{}\"", addr, port);
+        warp::serve(filters(cfg, dir)).run((addr, port)).await
+    }
+
+    // All filters are used to match requests
+    fn filters(cfg: Config, dir: &str) -> BoxedFilter<(impl Reply,)> {
+        articles_filter(cfg.clone(), dir.to_string())
+    }
+
+    // Get /articles/:name (/articles/demo.md)
+    fn articles_filter(cfg: Config, dir: String) -> BoxedFilter<(impl Reply,)> {
+        warp::get()
+            .and(warp::path("articles"))
+            .and(warp::path::param::<String>())
+            .and(warp::any().map(move || cfg.clone()))
+            .and(warp::any().map(move || dir.to_string()))
+            .map(|name: String, cfg: Config, dir: String| {
+                let body = Markdown::new(cfg)
+                    .file_to_html(Path::new(&dir).join(&name).to_str().unwrap_or(&name)) // FIXME: unwrap_or
+                    .unwrap_or_else(|x| x.to_string());
+
+                warp::reply::html(body)
+            })
+            .with(warp::cors().allow_any_origin())
+            .boxed()
+    }
+
+    fn get_dir(matches: &ArgMatches) -> &str {
+        let dir = match matches.get_one::<String>("dir") {
+            None => ".",
+            Some(path) => path,
+        };
+        println!(
+            "---> the directory where markdown files are stored: \"{}\"",
+            dir
+        );
+        dir
+    }
+
+    fn load_config(matches: &ArgMatches) -> Result<Config, Box<dyn Error>> {
+        // read config path from cli
+        let cfg = match matches.get_one::<String>("config-path") {
+            None => Config::default(),
+            Some(path) => config::read_config(path)?,
+        };
+        Ok(cfg)
+    }
+
+    fn parse_ip_port(matches: &ArgMatches) -> Result<(Ipv4Addr, u16), Box<dyn Error>> {
+        // read listen addr from the args of command line
+        let s = match matches.get_one::<String>("listen-addr") {
+            None => ":8181",
+            Some(s) => s,
+        };
+
+        let fields: Vec<&str> = s.split(':').collect();
+        if fields.len() != 2 {
+            panic!("invalid address format: {}", s);
+        }
+        let ipaddr: Ipv4Addr = if fields[0].is_empty() {
+            "0.0.0.0".parse()?
+        } else {
+            fields[0].parse()?
+        };
+        let port: u16 = fields[1].parse()?;
+
+        Ok((ipaddr, port))
+    }
 }

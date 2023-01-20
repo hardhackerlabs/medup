@@ -1,25 +1,29 @@
 pub(crate) struct Stack<T> {
-    buff: Vec<T>,
+    queue: Vec<T>,
 }
 
 impl<T> Stack<T> {
     pub(crate) fn new() -> Self {
-        Stack { buff: vec![] }
+        Stack { queue: vec![] }
     }
 
+    // Insert a new element at the top of the stack
     pub(crate) fn push(&mut self, e: T) {
-        self.buff.push(e)
+        self.queue.push(e)
     }
 
+    // Remove the element from the top of the stack and return it
     pub(crate) fn pop(&mut self) -> Option<T> {
-        self.buff.pop()
+        self.queue.pop()
     }
 
+    // Remove the element from the top of the stack, if 'f' return true. Otherwise insert the
+    // argument 'e' at the top of the stack.
     pub(crate) fn pop_or_push<F>(&mut self, e: T, f: F) -> Option<T>
     where
         F: Fn(&T) -> bool,
     {
-        if let Some(e) = self.buff.last() {
+        if let Some(e) = self.queue.last() {
             if f(e) {
                 return self.pop();
             }
@@ -28,6 +32,7 @@ impl<T> Stack<T> {
         None
     }
 
+    // Remove and return all elements of a range from 'f' being true to the top of the stack.
     pub(crate) fn pop_range<F>(&mut self, f: F) -> Vec<T>
     where
         F: Fn(&T) -> bool,
@@ -35,9 +40,9 @@ impl<T> Stack<T> {
         let mut pops: Vec<T> = vec![];
         let mut position: Option<usize> = None;
 
-        for (ix, e) in self.buff.iter().rev().enumerate() {
+        for (ix, e) in self.queue.iter().rev().enumerate() {
             if f(e) {
-                position = Some(self.buff.len() - 1 - ix);
+                position = Some(self.queue.len() - 1 - ix);
                 break;
             }
         }
@@ -45,7 +50,7 @@ impl<T> Stack<T> {
             loop {
                 if let Some(pop) = self.pop() {
                     pops.push(pop);
-                    if self.buff.len() == position {
+                    if self.queue.len() == position {
                         break;
                     }
                 }
@@ -57,6 +62,6 @@ impl<T> Stack<T> {
     }
 
     pub(crate) fn all_mut(&mut self) -> &mut Vec<T> {
-        &mut self.buff
+        &mut self.queue
     }
 }

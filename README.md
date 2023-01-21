@@ -2,17 +2,29 @@
 Medup is a markdown parsing toolkit! Currently, still under development.
 
 ## Features
-* Supports the richest markdown syntax, including extended syntax.
-* Parse markdown and generate html.
-* Provide css style templates.
-* Support for extended tag syntax.
-* Generate a static documentation site.
-* Provide markdown editor.
+* [x] Support all standard syntax of markdown
+* [ ] Supports all major extension syntaxes
+* [ ] Provide library parsing markdown to html or free custom development based on AST directly
+* [x] Provide CLI tools to parse markdown to html
+* [x] Provide web service to host and parse markdown files, and create private document system or blog
+* [x] Support css theme selection
+* [ ] Support git as storage backend
+* [ ] Provide markdown editor
 
 ## Usage
-### Generate HTML
 ```
-medup gen exmaple.md
+A markdown parsing toolkit
+
+Usage: medup <COMMAND>
+
+Commands:
+  gen    generate HTML based on Markdown!
+  serve  Provide an http service for markdown parsing!
+  help   Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help     Print help information
+  -V, --version  Print version information
 ```
 
 ## Demo

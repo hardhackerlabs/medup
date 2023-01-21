@@ -26,7 +26,8 @@ impl<'generator> Generator<'generator> {
             cfg,
             ref_link_tags,
         };
-        g.init()?;
+        g.init()
+            .map_err(|e| format!("failed to init the html generator: {}", e))?;
         Ok(g)
     }
 

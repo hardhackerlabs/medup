@@ -30,6 +30,7 @@ fn cli() -> Command {
                 .arg(arg!(-l --"listen-addr" [LISTEN_ADDR] r#"Specify the listening address of the http server, default ":8181"."#))
                 .arg(arg!(-c --"config-path" [CONFIG_PATH] "Specify path of the config file, it's optional."))
                 .arg(arg!(-d --dir [DIR] "Specify the directory where markdown files are stored."))
+                .arg(arg!(-s --"static-dir" [STATIC_DIR] "Specify the directory where static resources are stored."))
         )
 }
 
@@ -46,7 +47,9 @@ mod gen {
         // read config path from cli
         let cfg = match sub_matches.get_one::<String>("config-path") {
             None => Config::default(),
-            Some(path) => config::read_config(path).unwrap(),
+            Some(path) => config::read_config(path)
+                .map_err(|e| format!("failed to read config \"{}\": {}", path, e))
+                .unwrap(),
         };
 
         // read output file path from cli
@@ -83,26 +86,54 @@ mod serve {
     use std::net::Ipv4Addr;
     use std::path::Path;
 
+    use medup;
     use medup::config::{self, Config};
     use medup::markdown::Markdown;
 
     use clap::ArgMatches;
     use warp::filters::BoxedFilter;
-    use warp::{Filter, Reply};
+    use warp::{http::Response, Filter, Reply};
 
     #[tokio::main]
     pub async fn proc_serve(matches: &ArgMatches) {
         let (addr, port) = parse_ip_port(matches).unwrap();
         let cfg: Config = load_config(matches).unwrap();
-        let dir = get_dir(matches);
+        let dir = get_dir(matches, "dir");
+        let sdir = get_dir(matches, "static-dir");
+
+        println!(
+            "---> the directory where markdown files are stored: \"{}\"",
+            dir
+        );
+        println!(
+            "---> the directory where static resources are stored: \"{}\"",
+            sdir
+        );
+
+        // All filters are used to match requests
+        let filters = articles_filter(cfg, dir.to_string())
+            .or(static_filter(sdir.to_string()))
+            .or(index_filter());
 
         println!("---> start to listen on address: \"{}:{}\"", addr, port);
-        warp::serve(filters(cfg, dir)).run((addr, port)).await
+        warp::serve(filters).run((addr, port)).await
     }
 
-    // All filters are used to match requests
-    fn filters(cfg: Config, dir: &str) -> BoxedFilter<(impl Reply,)> {
-        articles_filter(cfg.clone(), dir.to_string())
+    // TODO:
+    fn index_filter() -> BoxedFilter<(impl Reply,)> {
+        warp::get()
+            .and(warp::path("index.html"))
+            .map(|| Response::builder().body("Hello, Medup!").into_response())
+            .with(warp::cors().allow_any_origin())
+            .boxed()
+    }
+
+    fn static_filter(dir: String) -> BoxedFilter<(impl Reply,)> {
+        warp::get()
+            .and(warp::path("static"))
+            .and(warp::fs::dir(dir))
+            .with(warp::cors().allow_any_origin())
+            .boxed()
     }
 
     // Get /articles/:name (/articles/demo.md)
@@ -113,34 +144,55 @@ mod serve {
             .and(warp::any().map(move || cfg.clone()))
             .and(warp::any().map(move || dir.to_string()))
             .map(|name: String, cfg: Config, dir: String| {
-                let body = Markdown::new(cfg)
-                    .file_to_html(Path::new(&dir).join(&name).to_str().unwrap_or(&name)) // FIXME: unwrap_or
-                    .unwrap_or_else(|x| x.to_string());
-
-                warp::reply::html(body)
+                let buf = Path::new(&dir).join(&name);
+                let s = buf.to_str();
+                match s {
+                    None => Response::builder()
+                        .header("X-Powered-By", "Medup")
+                        .status(400)
+                        .body(format!(
+                            "failed to join the path: \"{}\", \"{}\"",
+                            dir, name
+                        ))
+                        .into_response(),
+                    Some(path) => match Markdown::new(cfg).file_to_html(path) {
+                        Err(e) => Response::builder()
+                            .header("X-Powered-By", "Medup")
+                            .status(500)
+                            .body(format!("failed to generate html from markdown: {}", e))
+                            .into_response(),
+                        Ok(v) => warp::reply::html(v).into_response(),
+                    },
+                }
             })
             .with(warp::cors().allow_any_origin())
             .boxed()
     }
 
-    fn get_dir(matches: &ArgMatches) -> &str {
-        let dir = match matches.get_one::<String>("dir") {
+    fn get_dir<'get_dir>(matches: &'get_dir ArgMatches, name: &str) -> &'get_dir str {
+        match matches.get_one::<String>(name) {
             None => ".",
             Some(path) => path,
-        };
-        println!(
-            "---> the directory where markdown files are stored: \"{}\"",
-            dir
-        );
-        dir
+        }
     }
 
     fn load_config(matches: &ArgMatches) -> Result<Config, Box<dyn Error>> {
         // read config path from cli
-        let cfg = match matches.get_one::<String>("config-path") {
+        let mut cfg = match matches.get_one::<String>("config-path") {
             None => Config::default(),
-            Some(path) => config::read_config(path)?,
+            Some(path) => config::read_config(path)
+                .map_err(|e| (format!("failed to read config \"{}\": {}", path, e)))?,
         };
+        if !medup::is_url(&cfg.css_href) {
+            // add the static resource dir to css_href
+            if let Some(href) = Path::new("/static")
+                .join(&cfg.css_href)
+                .to_str()
+                .map(|s| s.to_string())
+            {
+                cfg.css_href = href;
+            }
+        }
         Ok(cfg)
     }
 
@@ -153,14 +205,20 @@ mod serve {
 
         let fields: Vec<&str> = s.split(':').collect();
         if fields.len() != 2 {
-            panic!("invalid address format: {}", s);
+            return Err(format!("invalid address format: {}", s).into());
         }
         let ipaddr: Ipv4Addr = if fields[0].is_empty() {
-            "0.0.0.0".parse()?
+            "0.0.0.0"
+                .parse()
+                .map_err(|e| format!("failed to parse ip addr 0.0.0.0: {}", e))?
         } else {
-            fields[0].parse()?
+            fields[0]
+                .parse()
+                .map_err(|e| format!(r#"failed to parse ip addr "{}": {}"#, fields[0], e))?
         };
-        let port: u16 = fields[1].parse()?;
+        let port: u16 = fields[1]
+            .parse()
+            .map_err(|e| format!("failed to parse port: {}: {}", fields[1], e))?;
 
         Ok((ipaddr, port))
     }

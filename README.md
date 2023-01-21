@@ -1,5 +1,5 @@
 # Medup
-Medup is a markdown parsing toolkit! Currently, still under development.
+Medup is a markdown parsing and editing toolkit! Currently, still under development.
 
 ## Features
 * [x] Support all standard syntax of markdown

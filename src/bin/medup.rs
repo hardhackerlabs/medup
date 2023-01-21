@@ -39,7 +39,7 @@ mod gen {
     use std::io::Write;
 
     use medup::config::{self, Config};
-    use medup::markdown;
+    use medup::markdown::{self, Markdown};
 
     use clap::ArgMatches;
 
@@ -70,7 +70,11 @@ mod gen {
             .expect("required");
 
         // start to parse the markdown file into html
-        let html = markdown::Markdown::new(cfg).file_to_html(md_path).unwrap();
+        let html = Markdown::new()
+            .config(cfg)
+            .path(md_path)
+            .map_mut(markdown::to_html)
+            .unwrap();
 
         // output the html
         if let Some(mut out) = out_file {
@@ -86,9 +90,8 @@ mod serve {
     use std::net::Ipv4Addr;
     use std::path::Path;
 
-    use medup;
     use medup::config::{self, Config};
-    use medup::markdown::Markdown;
+    use medup::markdown::{self, Markdown};
 
     use clap::ArgMatches;
     use warp::filters::BoxedFilter;
@@ -155,7 +158,11 @@ mod serve {
                             dir, name
                         ))
                         .into_response(),
-                    Some(path) => match Markdown::new(cfg).file_to_html(path) {
+                    Some(path) => match Markdown::new()
+                        .config(cfg)
+                        .path(path)
+                        .map_mut(markdown::to_html)
+                    {
                         Err(e) => Response::builder()
                             .header("X-Powered-By", "Medup")
                             .status(500)

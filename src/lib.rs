@@ -9,13 +9,13 @@ use url::Url;
 pub mod config;
 mod cursor;
 mod html;
-mod html_generate;
+pub mod html_generate;
 mod lexer;
 pub mod markdown;
 mod parser;
 mod stack;
 
-type SharedLine = Rc<RefCell<parser::Line>>;
+pub type SharedLine = Rc<RefCell<parser::Line>>;
 
 // This regex is used to match a string with double quotes("") or single quotes('')
 lazy_static! {

@@ -2,7 +2,7 @@ use std::{error::Error, fs::File, io::Read};
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Config {
     pub css_href: String,
     pub custom_html_head: String,

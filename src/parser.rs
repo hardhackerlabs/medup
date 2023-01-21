@@ -13,7 +13,7 @@ use crate::lexer::{Lexer, Token, TokenKind};
 use itertools::Itertools;
 
 // Ast represents the abstract syntax tree of the markdown file, it structurally represents the entire file.
-pub(crate) struct Ast {
+pub struct Ast {
     // Store all parsed line structs in order
     document: Vec<SharedLine>,
     // Related lines are compressed into the same block
@@ -420,7 +420,7 @@ impl Block {
 
 // Line is a line of the markdown file, it be parsed into some tokens.
 #[derive(Debug)]
-pub(crate) struct Line {
+pub struct Line {
     buff: Vec<Token>,
     kind: Kind,
     num: usize,

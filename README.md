@@ -1,10 +1,15 @@
 # Medup
 Medup is a markdown parsing and editing toolkit! Currently, still under development.
 
+## Toolkit
+* **Library API**
+* **CLI**
+* **Web Service**
+
 ## Features
 * [x] Support all standard syntax of markdown
 * [ ] Supports all major extension syntaxes
-* [ ] Provide library parsing markdown to html or free custom development based on AST directly
+* [x] Provide library parsing markdown to html or free custom development based on AST directly
 * [x] Provide CLI tools to parse markdown to html
 * [x] Provide web service to host and parse markdown files, and create private document system or blog
 * [x] Support css theme selection
@@ -27,4 +32,24 @@ Options:
   -V, --version  Print version information
 ```
 
+### CLI
+
+Use the following command to generate a html file from your markdown file.
+```
+medup gen -c themes/github/config.json -o example.html example.md
+```
+
+### Library
+todo
+
+### Web Service
+
+Use the following command to start an http service on port 8181.
+```
+cargo run -- serve --config-path themes/github/config.json --dir examples --static-dir themes
+```
+
+Open `http://localhost:8181/articles/example.md` with your browser.
+
 ## Demo
+todo

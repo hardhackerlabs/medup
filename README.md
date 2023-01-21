@@ -1,17 +1,12 @@
 # Medup
 Medup is a markdown parsing and editing toolkit! Currently, still under development.
 
-## Toolkit
-* **Library API**
-* **CLI**
-* **Web Service**
-
 ## Features
 * [x] Support all standard syntax of markdown
 * [ ] Supports all major extension syntaxes
-* [x] Provide library parsing markdown to html or free custom development based on AST directly
-* [x] Provide CLI tools to parse markdown to html
-* [x] Provide web service to host and parse markdown files, and create private document system or blog
+* [x] Provide **library** parsing markdown to html or free custom development based on AST directly
+* [x] Provide **CLI** tools to parse markdown to html
+* [x] Provide **web service** to host and parse markdown files, and create private document system or blog
 * [x] Support css theme selection
 * [ ] Support git as storage backend
 * [ ] Provide markdown editor

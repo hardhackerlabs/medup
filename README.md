@@ -36,7 +36,7 @@ Options:
 
 Use the following command to generate a html file from your markdown file.
 ```
-medup gen -c themes/github/config.json -o example.html example.md
+medup gen --config-path themes/github/config.json --output example.html example.md
 ```
 
 ### Library
@@ -46,7 +46,7 @@ todo
 
 Use the following command to start an http service on port 8181.
 ```
-cargo run -- serve --config-path themes/github/config.json --dir examples --static-dir themes
+medup serve --config-path themes/github/config.json --dir examples --static-dir themes
 ```
 
 Open `http://localhost:8181/articles/example.md` with your browser.

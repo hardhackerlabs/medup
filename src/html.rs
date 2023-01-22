@@ -189,6 +189,8 @@ impl<'generator> HtmlGenerate for Generator<'generator> {
             is_l2: level == 2,
             is_l3: level == 3,
             is_l4: level == 4,
+            is_l5: level == 5,
+            is_l6: level == 6,
             text: value,
         };
 
@@ -327,7 +329,9 @@ const TITLE_TEMPLATE: &str = "\
 {{ if is_l1 }}<h1>{text}</h1>{{ endif }}\
 {{ if is_l2 }}<h2>{text}</h2>{{ endif }}\
 {{ if is_l3 }}<h3>{text}</h3>{{ endif }}\
-{{ if is_l4 }}<h4>{text}</h4>{{ endif }}";
+{{ if is_l4 }}<h4>{text}</h4>{{ endif }}\
+{{ if is_l5 }}<h5>{text}</h5>{{ endif }}\
+{{ if is_l6 }}<h6>{text}</h6>{{ endif }}";
 
 #[derive(Serialize)]
 struct TitleContext {
@@ -335,6 +339,8 @@ struct TitleContext {
     is_l2: bool,
     is_l3: bool,
     is_l4: bool,
+    is_l5: bool,
+    is_l6: bool,
     text: String,
 }
 

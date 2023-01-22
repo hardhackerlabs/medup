@@ -147,7 +147,12 @@ impl<'lexer> Lexer<'lexer> {
 
         match first_word_chars[..] {
             // Title
-            ['#'] | ['#', '#'] | ['#', '#', '#'] | ['#', '#', '#', '#'] => {
+            ['#']
+            | ['#', '#']
+            | ['#', '#', '#']
+            | ['#', '#', '#', '#']
+            | ['#', '#', '#', '#', '#']
+            | ['#', '#', '#', '#', '#', '#'] => {
                 Some(Token::new(first_word.to_string(), TokenKind::TitleMark))
             }
 

@@ -11,6 +11,7 @@ use crate::html_generate::HtmlGenerate;
 use crate::lexer::{Lexer, Token, TokenKind};
 
 use itertools::Itertools;
+use v_htmlescape as htmlescape;
 
 // Ast represents the abstract syntax tree of the markdown file, it structurally represents the entire file.
 pub struct Ast {
@@ -592,6 +593,10 @@ impl Line {
     // Get the line text
     pub(crate) fn text(&self) -> &str {
         &self.text
+    }
+
+    pub(crate) fn html_escaped_text(&self) -> String {
+        htmlescape::escape(self.text()).to_string()
     }
 }
 

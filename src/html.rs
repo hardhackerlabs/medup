@@ -58,7 +58,9 @@ impl<'generator> Generator<'generator> {
 
         for t in tokens {
             match t.kind() {
-                TokenKind::Text | TokenKind::LineBreak => buff.push_str(t.value()),
+                TokenKind::Text | TokenKind::LineBreak => {
+                    buff.push_str(t.html_escaped_value().as_str())
+                }
                 TokenKind::CodeMark => {
                     let matched = stack.pop_or_push((t.kind(), t.value()), |e| {
                         e.0 == t.kind() && e.1 == t.value()
@@ -267,7 +269,7 @@ impl<'generator> HtmlGenerate for Generator<'generator> {
         let first = &ls[0];
         let text: String = ls[1..ls.len() - 1] // skip the first and last elements
             .iter()
-            .map(|l| l.borrow().text().to_string())
+            .map(|l| l.borrow().html_escaped_text())
             .collect();
 
         self.tt
@@ -292,7 +294,7 @@ const HEAD_TEMPLATE: &str = r#"
         body\{
                 box-sizing: border-box;
                 min-width: 200px;
-                max-width: 980px;
+                max-width: 900px;
                 margin: 0 auto;
                 padding: 45px;
         }
@@ -394,7 +396,7 @@ struct ImageContext<'image_context> {
 
 // code block
 const CODE_TEMPLATE_NAME: &str = "code_block";
-const CODE_TEMPLATE: &str = "<pre><code class=\"language-{name}\">\
+const CODE_TEMPLATE: &str = "<pre><code>\
 {text}\
 </code></pre>";
 

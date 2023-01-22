@@ -6,6 +6,7 @@ use std::{
 use crate::{cursor, stack};
 
 use itertools::Itertools;
+use v_htmlescape as htmlescape;
 
 const ESCAPE_CHARS: &str = ":*_`#+-.![]()<>\\";
 
@@ -210,7 +211,6 @@ impl<'lexer> Lexer<'lexer> {
                 }
             }
 
-            // normal (as no mark)
             _ => {
                 // don't change the unparsed pointer, because the first word is not a mark.
                 None
@@ -649,6 +649,10 @@ impl Token {
     // Get value of the token
     pub(crate) fn value(&self) -> &str {
         &self.value
+    }
+
+    pub(crate) fn html_escaped_value(&self) -> String {
+        htmlescape::escape(self.value()).to_string()
     }
 
     // Get the value length of the token

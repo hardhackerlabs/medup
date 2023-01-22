@@ -957,6 +957,17 @@ mod tests {
                     ("___", TokenKind::ItalicBoldMark),
                 ],
             ),
+            (
+                "*and_and**",
+                vec![
+                    ("*", TokenKind::ItalicMark),
+                    ("and", TokenKind::Text),
+                    ("_", TokenKind::Text),
+                    ("and", TokenKind::Text),
+                    ("*", TokenKind::ItalicMark),
+                    ("*", TokenKind::Text),
+                ],
+            ),
         ];
 
         exec_cases(cases);

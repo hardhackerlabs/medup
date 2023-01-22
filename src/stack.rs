@@ -1,8 +1,13 @@
+use std::fmt::Debug;
+
 pub(crate) struct Stack<T> {
     queue: Vec<T>,
 }
 
-impl<T> Stack<T> {
+impl<T> Stack<T>
+where
+    T: Debug,
+{
     pub(crate) fn new() -> Self {
         Stack { queue: vec![] }
     }
@@ -46,15 +51,16 @@ impl<T> Stack<T> {
                 break;
             }
         }
-        if let Some(position) = position {
+        if let Some(p) = position {
             loop {
                 if let Some(pop) = self.pop() {
                     pops.push(pop);
-                    if self.queue.len() == position {
+                    if self.queue.len() == p {
                         break;
                     }
+                } else {
+                    unreachable!()
                 }
-                unreachable!()
             }
             pops.reverse();
         }

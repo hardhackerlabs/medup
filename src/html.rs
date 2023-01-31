@@ -101,6 +101,16 @@ impl<'generator> Generator<'generator> {
                         buff.push_str("<strong><em>");
                     }
                 }
+                TokenKind::DeleteMark => {
+                    let matched = stack.pop_or_push((t.kind(), t.value()), |e| {
+                        e.0 == t.kind() && e.1 == t.value()
+                    });
+                    if matched.is_some() {
+                        buff.push_str("</del>");
+                    } else {
+                        buff.push_str("<del>");
+                    }
+                }
                 TokenKind::Link | TokenKind::QuickLink | TokenKind::Image => {
                     let gl = t.as_generic_link();
                     let (name, location) = (gl.name(), gl.location());

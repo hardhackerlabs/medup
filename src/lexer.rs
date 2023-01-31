@@ -8,7 +8,7 @@ use crate::{cursor, stack};
 use itertools::Itertools;
 use v_htmlescape as htmlescape;
 
-const ESCAPE_CHARS: &str = ":*_`#+-.![]()<>\\";
+const ESCAPE_CHARS: &str = "~:*_`#+-.![]()<>\\";
 
 #[derive(PartialEq, Debug)]
 enum State {
@@ -183,18 +183,18 @@ impl<'lexer> Lexer<'lexer> {
             //      ``` rust
             ['`', '`', '`', ..] => Some(Token::new("```".to_string(), TokenKind::CodeBlockMark)),
 
-            // Unordered List
-            ['+'] => Some(Token::new(first_word.to_string(), TokenKind::UnorderedMark)),
-
             // Unordered List or Dividing Line
-            ['*'] | ['-'] => {
+            ['*'] | ['-'] | ['+'] => {
+                // Here is a dividing line
                 if Self::is_dividing(line_text) {
-                    // Here is a dividing line, not list
                     return Some(Token::new(
                         line_text.trim_end_matches('\n').to_string(),
                         TokenKind::DividingMark,
                     ));
                 }
+                // Here is a todo list
+                // TODO:
+
                 // Here is a unordered list
                 Some(Token::new(first_word.to_string(), TokenKind::UnorderedMark))
             }
@@ -269,7 +269,7 @@ impl<'lexer> Lexer<'lexer> {
                     }
                 }
                 (InlineState::Plain, _) => match curr {
-                    '*' | '_' | '`' => {
+                    '*' | '_' | '`' | '~' => {
                         // cursor -> current
                         cursor.consume_to(curr_ix, |s| {
                             buff.push(Token::new(s.to_string(), TokenKind::Text))
@@ -284,6 +284,7 @@ impl<'lexer> Lexer<'lexer> {
                                     '*' => TokenKind::Star,
                                     '_' => TokenKind::UnderLine,
                                     '`' => TokenKind::BackTick,
+                                    '~' => TokenKind::Tilde,
                                     _ => unreachable!(),
                                 };
                                 buff.push(Token::new(s.to_string(), k));
@@ -423,6 +424,7 @@ impl<'lexer> Lexer<'lexer> {
                                 '*' => TokenKind::Star,
                                 '_' => TokenKind::UnderLine,
                                 '`' => TokenKind::BackTick,
+                                '~' => TokenKind::Tilde,
                                 _ => unreachable!(),
                             };
                             buff.push(Token::new(s.to_string(), k));
@@ -488,6 +490,7 @@ impl<'lexer> Lexer<'lexer> {
             t.kind() == TokenKind::Star
                 || t.kind() == TokenKind::UnderLine
                 || t.kind() == TokenKind::BackTick
+                || t.kind() == TokenKind::Tilde
         });
 
         for t in buff_iter {
@@ -508,6 +511,9 @@ impl<'lexer> Lexer<'lexer> {
                     }
                     "`" | "``" | "```" => {
                         (matched.kind, t.kind) = (TokenKind::CodeMark, TokenKind::CodeMark);
+                    }
+                    "~~" => {
+                        (matched.kind, t.kind) = (TokenKind::DeleteMark, TokenKind::DeleteMark);
                     }
                     _ => unreachable!(),
                 }
@@ -622,10 +628,12 @@ pub(crate) enum TokenKind {
     QuickLink,      // <url or email>
     RefLink,        // [name][tag]
     RefLinkDef,     // [tag]: link "title"
+    DeleteMark,     // ~~
     Text,           //
     Star,           // *
     UnderLine,      // _
     BackTick,       // `
+    Tilde,          // ~
     WhiteSpace,     //
 }
 
@@ -876,6 +884,37 @@ mod tests {
             ),
         ];
 
+        exec_cases(cases);
+    }
+
+    #[test]
+    fn test_delete_line() {
+        let cases = vec![
+            (
+                "~~delete~~",
+                vec![
+                    ("~~", TokenKind::DeleteMark),
+                    ("delete", TokenKind::Text),
+                    ("~~", TokenKind::DeleteMark),
+                ],
+            ),
+            (
+                "~delete~~",
+                vec![
+                    ("~", TokenKind::Text),
+                    ("delete", TokenKind::Text),
+                    ("~~", TokenKind::Text),
+                ],
+            ),
+            (
+                "~~delete~~~",
+                vec![
+                    ("~~", TokenKind::Text),
+                    ("delete", TokenKind::Text),
+                    ("~~~", TokenKind::Text),
+                ],
+            ),
+        ];
         exec_cases(cases);
     }
 

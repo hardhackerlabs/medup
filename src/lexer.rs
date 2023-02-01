@@ -13,7 +13,8 @@ const ESCAPE_CHARS: &str = "~:*_`#+-.![]()<>\\";
 #[derive(PartialEq, Debug)]
 enum State {
     Begin,
-    Mark(usize),
+    Word(usize),
+    Mark(usize, usize),
     Inline(usize),
     Stop(usize),
     Finished,
@@ -63,8 +64,8 @@ impl<'lexer> Lexer<'lexer> {
     pub(crate) fn split(mut self) -> Vec<Token> {
         let mut buff = vec![];
 
-        let iter = self.line_text.chars().enumerate().peekable();
-        for (ix, curr) in iter {
+        let mut iter = self.line_text.chars().enumerate().peekable();
+        while let Some((ix, curr)) = iter.next() {
             match self.state {
                 State::Begin => {
                     if !curr.is_whitespace() {
@@ -72,32 +73,37 @@ impl<'lexer> Lexer<'lexer> {
                         if !s.is_empty() {
                             buff.push(Token::new(s, TokenKind::WhiteSpace));
                         }
-                        self.goto(State::Mark(ix));
+                        self.goto(State::Word(ix));
                     } else {
                         // the end of iterator
                         if curr == '\n' {
                             buff.push(Token::new(self.slice(0, ix), TokenKind::BlankLine));
-                        } else {
-                            // keep this state
                         }
                     }
                 }
-                State::Mark(begin) => {
-                    // find the first word
-                    let first_word = if curr.is_whitespace() {
-                        // the current character is white space
-                        self.slice_str(begin, ix)
+                State::Word(begin) => {
+                    if curr.is_whitespace() {
+                        self.goto(State::Mark(begin, ix));
                     } else {
-                        continue;
-                    };
-
-                    match Self::split_mark(self.line_text, first_word) {
+                        // here is the second last character
+                        if let Some((i, n)) = iter.peek() {
+                            if n == &'\n' {
+                                self.goto(State::Mark(begin, *i));
+                            }
+                        } else {
+                            unreachable!()
+                        }
+                    }
+                }
+                State::Mark(begin, end) => {
+                    let word = self.slice_str(begin, end);
+                    match Self::split_mark(self.line_text, word) {
                         None => self.goto(State::Inline(begin)),
                         Some(m) => {
                             match m.kind() {
                                 TokenKind::QuoteMark => {
-                                    let pos = if first_word.len() == m.len() {
-                                        ix + 1
+                                    let pos = if word == m.value() {
+                                        end + 1
                                     } else {
                                         begin + 1
                                     };
@@ -105,7 +111,7 @@ impl<'lexer> Lexer<'lexer> {
                                 }
                                 TokenKind::CodeBlockMark => self.goto(State::Inline(begin + 3)),
                                 TokenKind::DividingMark => self.goto(State::Finished),
-                                _ => self.goto(State::Inline(ix + 1)),
+                                _ => self.goto(State::Inline(end + 1)),
                             }
                             buff.push(m)
                         }
@@ -183,7 +189,9 @@ impl<'lexer> Lexer<'lexer> {
             //      ``` rust
             ['`', '`', '`', ..] => Some(Token::new("```".to_string(), TokenKind::CodeBlockMark)),
 
-            // Unordered List or Dividing Line
+            // Dividing Line
+            // Todo List
+            // Unordered List
             ['*'] | ['-'] | ['+'] => {
                 // Here is a dividing line
                 if Self::is_dividing(line_text) {

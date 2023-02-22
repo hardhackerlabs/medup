@@ -96,6 +96,8 @@ impl<'lexer> Lexer<'lexer> {
                     }
                 }
                 State::Mark(begin, end) => {
+                    // Note: the end position is a white space, so the 'end + 1' is the start
+                    // of inline content.
                     let word = self.slice_str(begin, end);
                     match Self::split_mark(self.line_text, word) {
                         None => self.goto(State::Inline(begin)),
@@ -111,6 +113,13 @@ impl<'lexer> Lexer<'lexer> {
                                 }
                                 TokenKind::CodeBlockMark => self.goto(State::Inline(begin + 3)),
                                 TokenKind::DividingMark => self.goto(State::Finished),
+                                TokenKind::UnorderedMark => match m.second_kind() {
+                                    None => self.goto(State::Inline(end + 1)),
+                                    Some(_) => {
+                                        let end = begin + m.len();
+                                        self.goto(State::Inline(end + 1));
+                                    }
+                                },
                                 _ => self.goto(State::Inline(end + 1)),
                             }
                             buff.push(m)
@@ -190,7 +199,6 @@ impl<'lexer> Lexer<'lexer> {
             ['`', '`', '`', ..] => Some(Token::new("```".to_string(), TokenKind::CodeBlockMark)),
 
             // Dividing Line
-            // Todo List
             // Unordered List
             ['*'] | ['-'] | ['+'] => {
                 // Here is a dividing line
@@ -200,8 +208,13 @@ impl<'lexer> Lexer<'lexer> {
                         TokenKind::DividingMark,
                     ));
                 }
+
                 // Here is a todo list
-                // TODO:
+                if let Some((s, k)) = Self::is_todolist(line_text) {
+                    let mut t = Token::new(s.to_string(), TokenKind::UnorderedMark);
+                    t.second_kind = Some(k);
+                    return Some(t);
+                }
 
                 // Here is a unordered list
                 Some(Token::new(first_word.to_string(), TokenKind::UnorderedMark))
@@ -615,13 +628,37 @@ impl<'lexer> Lexer<'lexer> {
                 .unwrap_or(0)
                 >= 3
     }
+
+    fn is_todolist(s: &str) -> Option<(&str, TokenKind)> {
+        let s = s.trim_start();
+        match s.find("] ").or_else(|| s.find("]\t")) {
+            None => None,
+            Some(p) => {
+                let end = p + 1; // not contains the whitespace character.
+                let prefix = utf8_slice::till(s, end);
+                let trimmed: String = prefix
+                    .chars()
+                    .filter(|c| !c.is_whitespace())
+                    .skip(1) // skip the first character, it's '*' or '-' or '+'.
+                    .collect();
+                match trimmed.as_str() {
+                    "[]" => Some((prefix, TokenKind::TodoUndoneMark)),
+                    "[x]" => Some((prefix, TokenKind::TodoDoneMark)),
+                    "[X]" => Some((prefix, TokenKind::TodoDoneMark)),
+                    _ => None,
+                }
+            }
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub(crate) enum TokenKind {
     TitleMark,      // #, ##, ###, ####
-    UnorderedMark,  // *
-    OrderedMark,    // 1.
+    UnorderedMark,  // *, -, +
+    OrderedMark,    // 1. 2. 3. ...
+    TodoDoneMark,   // * [x], - [x], + [x]
+    TodoUndoneMark, // * [ ], - [ ], + [ ]
     DividingMark,   // ---, ***, ___
     QuoteMark,      // >
     BoldMark,       // ** **
@@ -650,6 +687,7 @@ pub(crate) enum TokenKind {
 pub(crate) struct Token {
     value: String,
     kind: TokenKind,
+    second_kind: Option<TokenKind>,
     pub(crate) details: Option<HashMap<String, String>>,
 }
 
@@ -658,6 +696,7 @@ impl Token {
         Token {
             value,
             kind,
+            second_kind: None,
             details: None,
         }
     }
@@ -679,6 +718,11 @@ impl Token {
     // Get kind of the token
     pub(crate) fn kind(&self) -> TokenKind {
         self.kind
+    }
+
+    //  Get the second kind of the token
+    pub(crate) fn second_kind(&self) -> Option<TokenKind> {
+        self.second_kind
     }
 
     // Check if the token is empty
@@ -821,6 +865,29 @@ mod tests {
                 Lexer::new(s.as_str()).split(),
                 c.1.iter()
                     .map(|(v, k)| { Token::new(v.to_string(), *k) })
+                    .collect::<Vec<Token>>()
+            );
+        }
+    }
+
+    fn exec_cases_with_second_kind(cases: Vec<(&str, Vec<(&str, TokenKind, Option<TokenKind>)>)>) {
+        for c in cases.iter() {
+            let s = if c.0.ends_with('\n') {
+                c.0.to_string()
+            } else {
+                let mut s1 = c.0.to_string();
+                s1.push('\n');
+                s1
+            };
+
+            assert_eq!(
+                Lexer::new(s.as_str()).split(),
+                c.1.iter()
+                    .map(|(v, k, k2)| {
+                        let mut t = Token::new(v.to_string(), *k);
+                        t.second_kind = *k2;
+                        t
+                    })
                     .collect::<Vec<Token>>()
             );
         }
@@ -1561,5 +1628,102 @@ mod tests {
             ),
         ];
         exec_cases(cases);
+    }
+
+    #[test]
+    fn test_todolist() {
+        let cases = vec![
+            (
+                "* [] rust",
+                vec![
+                    (
+                        "* []",
+                        TokenKind::UnorderedMark,
+                        Some(TokenKind::TodoUndoneMark),
+                    ),
+                    ("rust", TokenKind::Text, None),
+                ],
+            ),
+            (
+                "* [ ] rust",
+                vec![
+                    (
+                        "* [ ]",
+                        TokenKind::UnorderedMark,
+                        Some(TokenKind::TodoUndoneMark),
+                    ),
+                    ("rust", TokenKind::Text, None),
+                ],
+            ),
+            (
+                "* [ ]\trust",
+                vec![
+                    (
+                        "* [ ]",
+                        TokenKind::UnorderedMark,
+                        Some(TokenKind::TodoUndoneMark),
+                    ),
+                    ("rust", TokenKind::Text, None),
+                ],
+            ),
+            (
+                " \t* [] rust",
+                vec![
+                    (" \t", TokenKind::WhiteSpace, None),
+                    (
+                        "* []",
+                        TokenKind::UnorderedMark,
+                        Some(TokenKind::TodoUndoneMark),
+                    ),
+                    ("rust", TokenKind::Text, None),
+                ],
+            ),
+            (
+                "* [x] rust",
+                vec![
+                    (
+                        "* [x]",
+                        TokenKind::UnorderedMark,
+                        Some(TokenKind::TodoDoneMark),
+                    ),
+                    ("rust", TokenKind::Text, None),
+                ],
+            ),
+            (
+                "* [X] rust",
+                vec![
+                    (
+                        "* [X]",
+                        TokenKind::UnorderedMark,
+                        Some(TokenKind::TodoDoneMark),
+                    ),
+                    ("rust", TokenKind::Text, None),
+                ],
+            ),
+            (
+                "* [x]\trust",
+                vec![
+                    (
+                        "* [x]",
+                        TokenKind::UnorderedMark,
+                        Some(TokenKind::TodoDoneMark),
+                    ),
+                    ("rust", TokenKind::Text, None),
+                ],
+            ),
+            (
+                " \t* [X] rust",
+                vec![
+                    (" \t", TokenKind::WhiteSpace, None),
+                    (
+                        "* [X]",
+                        TokenKind::UnorderedMark,
+                        Some(TokenKind::TodoDoneMark),
+                    ),
+                    ("rust", TokenKind::Text, None),
+                ],
+            ),
+        ];
+        exec_cases_with_second_kind(cases);
     }
 }

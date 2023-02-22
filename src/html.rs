@@ -135,6 +135,15 @@ impl<'generator> Generator<'generator> {
                         buff.push_str(&s);
                     }
                 }
+                TokenKind::UnorderedMark => match t.second_kind() {
+                    Some(TokenKind::TodoDoneMark) => {
+                        buff.push_str(r#"<input type="checkbox" disabled checked> "#);
+                    }
+                    Some(TokenKind::TodoUndoneMark) => {
+                        buff.push_str(r#"<input type="checkbox" disabled> "#);
+                    }
+                    _ => (),
+                },
                 _ => (),
             }
         }

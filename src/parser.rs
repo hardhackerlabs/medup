@@ -230,9 +230,9 @@ impl Ast {
                         Self::insert_block(&mut blocks, Block::new(Rc::clone(l), curr_line.kind));
                     }
 
-                    // Determine whether the next line is a list nesting
+                    // determine whether the next line is a list nesting
                     if let Some(next) = iter.peek() {
-                        if next.borrow().is_nested(&curr_line) == 1 {
+                        if next.borrow().is_nested(&curr_line) > 0 {
                             state = Some(Kind::ListNesting__);
                             leader = Some(l); // save the previous line object as leader
                         }
@@ -247,7 +247,7 @@ impl Ast {
                         ld.nested_lines.push(Rc::clone(l));
 
                         if let Some(next) = iter.peek() {
-                            if next.borrow().is_nested(&ld) < 1 {
+                            if next.borrow().is_nested(&ld) <= 0 {
                                 (state, leader) = (None, None);
                             }
                         }
@@ -480,12 +480,12 @@ impl Line {
     }
 
     // Get number of the indent, two white space(' ') or one '\t' is a indent
-    fn indents(&self) -> usize {
+    fn indents(&self) -> isize {
         let first = self.first_token();
         if first.kind() != TokenKind::WhiteSpace {
             return 0;
         }
-        let sum: usize = first
+        let sum: isize = first
             .value()
             .chars()
             .map(|c| if c == '\t' { 2 } else { 1 })
@@ -495,7 +495,7 @@ impl Line {
 
     // Determine whether the current line is a nested line of 'parent'
     // The return value is the number of nested indents, it's not a nested if less than or equal to 0.
-    fn is_nested(&self, parent: &Line) -> usize {
+    fn is_nested(&self, parent: &Line) -> isize {
         if self.kind == Kind::Blank
             || self.kind == Kind::Title
             || self.kind == Kind::Dividing
@@ -708,7 +708,7 @@ mod tests {
     fn test_nested_list() {
         let md = r#"## 无序列表
 - 列表项 1
-  嵌入文本 1
+    嵌入文本 1
   - 嵌入项 1
   - 嵌入项 2
 - 列表项 2

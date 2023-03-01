@@ -60,7 +60,7 @@ mod gen {
                 .truncate(true)
                 .create(true)
                 .open(path)
-                .map(|f| Some(f))
+                .map(Some)
                 .unwrap(),
         };
 

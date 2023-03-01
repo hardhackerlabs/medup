@@ -219,10 +219,8 @@ impl<'generator> HtmlGenerate for Generator<'generator> {
             .iter()
             .map(|l| {
                 let mut s = self.render_inline(l.borrow().all());
-                if self.cfg.enable_newline_to_br {
-                    if !s.ends_with("<br>") {
-                        s.push_str("<br>");
-                    }
+                if self.cfg.enable_newline_to_br && !s.ends_with("<br>") {
+                    s.push_str("<br>");
                 }
                 s
             })

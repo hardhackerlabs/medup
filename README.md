@@ -41,10 +41,10 @@ todo
 
 Use the following command to start an http service on port 8181.
 ```
-medup serve --config-path themes/github/config.json --dir examples --static-dir themes
+cargo run -- serve --config-path themes/notion/config.json --dir docs --static-dir themes
 ```
 
-Open `http://localhost:8181/articles/example.md` with your browser.
+Open `http://localhost:8181/articles/markdown-intro.md` with your browser.
 
 ## Demo
 todo

@@ -52,7 +52,7 @@ impl<'generator> Generator<'generator> {
         Ok(())
     }
 
-    fn render_inline(&self, tokens: &Vec<Token>, cfg: &Config) -> String {
+    fn render_inline(&self, tokens: &Vec<Token>) -> String {
         let mut stack: stack::Stack<(TokenKind, &str)> = stack::Stack::new();
         let mut buff = String::new();
 
@@ -148,14 +148,6 @@ impl<'generator> Generator<'generator> {
             }
         }
 
-        if cfg.enable_newline_to_br
-            && tokens
-                .last()
-                .filter(|v| v.kind() == TokenKind::LineBreak)
-                .is_none()
-        {
-            buff.push_str("<br>")
-        }
         buff
     }
 
@@ -203,7 +195,7 @@ impl<'generator> HtmlGenerate for Generator<'generator> {
     fn body_title(&self, l: &SharedLine) -> String {
         let l = l.borrow();
         let level = l.mark_token().len();
-        let value = self.render_inline(l.all(), self.cfg);
+        let value = self.render_inline(l.all());
 
         let ctx = TitleContext {
             is_l1: level == 1,
@@ -225,7 +217,15 @@ impl<'generator> HtmlGenerate for Generator<'generator> {
     fn body_plain_text(&self, ls: &[SharedLine]) -> String {
         let lines: Vec<String> = ls
             .iter()
-            .map(|l| self.render_inline(l.borrow().all(), self.cfg))
+            .map(|l| {
+                let mut s = self.render_inline(l.borrow().all());
+                if self.cfg.enable_newline_to_br {
+                    if !s.ends_with("<br>") {
+                        s.push_str("<br>");
+                    }
+                }
+                s
+            })
             .collect();
         self.tt
             .render(PLAIN_TEXT_TEMPLATE_NAME, &PlainTextContext { lines })
@@ -240,7 +240,7 @@ impl<'generator> HtmlGenerate for Generator<'generator> {
         let list: Vec<String> = ls
             .iter()
             .map(|l| {
-                let leader = self.render_inline(l.borrow().all(), self.cfg);
+                let leader = self.render_inline(l.borrow().all());
                 let nesting = l
                     .borrow()
                     .enter_nested_blocks(&Generator::new(self.cfg, self.ref_link_tags).unwrap());
@@ -260,7 +260,7 @@ impl<'generator> HtmlGenerate for Generator<'generator> {
         let list = ls
             .iter()
             .map(|l| {
-                let leader = self.render_inline(l.borrow().all(), self.cfg);
+                let leader = self.render_inline(l.borrow().all());
                 let nesting = l
                     .borrow()
                     .enter_nested_blocks(&Generator::new(self.cfg, self.ref_link_tags).unwrap());

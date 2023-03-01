@@ -44,7 +44,7 @@ Use the following command to start an http service on port 8181.
 cargo run -- serve --config-path themes/notion/config.json --dir docs --static-dir themes
 ```
 
-Open `http://localhost:8181/articles/markdown-intro.md` with your browser.
+Open `http://localhost:8181/markdown-intro.md` with your browser.
 
 ## Demo
 todo

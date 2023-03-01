@@ -125,12 +125,13 @@ mod serve {
     // TODO:
     fn index_filter() -> BoxedFilter<(impl Reply,)> {
         warp::get()
-            .and(warp::path("index.html"))
+            .and(warp::path::end())
             .map(|| Response::builder().body("Hello, Medup!").into_response())
             .with(warp::cors().allow_any_origin())
             .boxed()
     }
 
+    // Get /static/*
     fn static_filter(dir: String) -> BoxedFilter<(impl Reply,)> {
         warp::get()
             .and(warp::path("static"))
@@ -139,10 +140,9 @@ mod serve {
             .boxed()
     }
 
-    // Get /articles/:name (/articles/demo.md)
+    // Get /:name (.e.g /demo.md)
     fn articles_filter(cfg: Config, dir: String) -> BoxedFilter<(impl Reply,)> {
         warp::get()
-            .and(warp::path("articles"))
             .and(warp::path::param::<String>())
             .and(warp::any().map(move || cfg.clone()))
             .and(warp::any().map(move || dir.to_string()))

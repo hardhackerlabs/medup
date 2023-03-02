@@ -58,7 +58,10 @@ fn articles_filter(cfg: Config, dir: String) -> BoxedFilter<(impl Reply,)> {
         .and(warp::path::param::<String>())
         .and(warp::any().map(move || cfg.clone()))
         .and(warp::any().map(move || dir.to_string()))
-        .map(|name: String, cfg: Config, dir: String| {
+        .map(|mut name: String, cfg: Config, dir: String| {
+            if !name.ends_with(".md") {
+                name.push_str(".md");
+            }
             let buf = Path::new(&dir).join(&name);
             let s = buf.to_str();
             match s {

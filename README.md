@@ -43,8 +43,15 @@ Use the following command to start an http service on port 8181.
 ```
 cargo run -- serve --config-path themes/notion/config.json --dir docs --static-dir themes
 ```
+or 
+
+```
+docker run -d -p 8181:8181 --rm skoowoo/medup:20230302-0
+```
 
 Open `http://localhost:8181/markdown-intro.md` with your browser.
+
+
 
 ## Demo
 todo

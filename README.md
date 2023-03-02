@@ -1,5 +1,4 @@
-# Medup
-Medup is a markdown parsing and editing toolkit!
+# Medup is a markdown parsing toolkit!
 
 ## Features
 * [x] Support all standard syntax of markdown
@@ -9,7 +8,6 @@ Medup is a markdown parsing and editing toolkit!
 * [x] Provide **web service** to host and parse markdown files, and create private document system or blog
 * [x] Support css theme selection
 * [ ] Support git as storage backend
-* [ ] Provide markdown editor
 
 ## Demo
 todo

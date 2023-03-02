@@ -1,15 +1,18 @@
 # Medup
-Medup is a markdown parsing and editing toolkit! Currently, still under development.
+Medup is a markdown parsing and editing toolkit!
 
 ## Features
 * [x] Support all standard syntax of markdown
-* [ ] Supports all major extension syntaxes
+* [x] Supports all major extension syntaxes
 * [x] Provide **library** parsing markdown to html or free custom development based on AST directly
 * [x] Provide **CLI** tools to parse markdown to html
 * [x] Provide **web service** to host and parse markdown files, and create private document system or blog
 * [x] Support css theme selection
 * [ ] Support git as storage backend
 * [ ] Provide markdown editor
+
+## Demo
+todo
 
 ## Usage
 ```
@@ -34,10 +37,7 @@ Use the following command to generate a html file from your markdown file.
 medup gen --config-path themes/github/config.json --output example.html example.md
 ```
 
-### Library
-todo
-
-### Web Service
+### Web 
 
 Use the following command to start an http service on port 8181.
 ```
@@ -50,8 +50,3 @@ docker run -d -p 8181:8181 --rm skoowoo/medup:20230302-0
 ```
 
 Open `http://localhost:8181/markdown-intro.md` with your browser.
-
-
-
-## Demo
-todo

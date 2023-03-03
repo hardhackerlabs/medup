@@ -44,7 +44,7 @@ cargo run -- serve --config-path themes/notion/config.json --dir docs --static-d
 or 
 
 ```
-docker run -d -p 8181:8181 --rm skoowoo/medup:20230302-0
+docker run -d --rm -p 8181:8181 skoowoo/medup:0.1
 ```
 
 Open `http://localhost:8181` with your browser.

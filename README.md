@@ -32,7 +32,7 @@ Options:
 
 Use the following command to generate a html file from your markdown file.
 ```
-medup gen --config-path themes/github/config.json --output example.html example.md
+cargo run -- gen --config-path themes/notion/config.json --output markdown-guide.html docs/markdown-guide.md
 ```
 
 ### Web 

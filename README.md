@@ -19,8 +19,8 @@ A markdown parsing toolkit
 Usage: medup <COMMAND>
 
 Commands:
-  gen    generate HTML based on Markdown!
-  serve  Provide an http service for markdown parsing!
+  gen    Generate html from markdown
+  serve  Provide an http service for markdown parsing
   help   Print this message or the help of the given subcommand(s)
 
 Options:
@@ -47,4 +47,4 @@ or
 docker run -d -p 8181:8181 --rm skoowoo/medup:20230302-0
 ```
 
-Open `http://localhost:8181/markdown-guide.md` with your browser.
+Open `http://localhost:8181` with your browser.

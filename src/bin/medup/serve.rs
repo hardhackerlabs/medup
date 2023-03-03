@@ -7,7 +7,8 @@ use medup::markdown::{self, Markdown};
 
 use clap::ArgMatches;
 use warp::filters::BoxedFilter;
-use warp::{http::Response, Filter, Reply};
+use warp::hyper::StatusCode;
+use warp::{Filter, Reply};
 
 #[tokio::main]
 pub async fn proc_serve(matches: &ArgMatches) {
@@ -27,20 +28,11 @@ pub async fn proc_serve(matches: &ArgMatches) {
 
     // All filters are used to match requests
     let filters = static_filter(sdir.to_string())
-        .or(articles_filter(cfg, dir.to_string()))
-        .or(index_filter());
+        .or(articles_filter(cfg.clone(), dir.to_string()))
+        .or(index_filter(cfg.clone(), dir.to_string()));
 
     println!("---> start to listen on address: \"{}:{}\"", addr, port);
     warp::serve(filters).run((addr, port)).await
-}
-
-// TODO:
-fn index_filter() -> BoxedFilter<(impl Reply,)> {
-    warp::get()
-        .and(warp::path::end())
-        .map(|| Response::builder().body("Hello, Medup!").into_response())
-        .with(warp::cors().allow_any_origin())
-        .boxed()
 }
 
 // Get /static/*
@@ -62,31 +54,53 @@ fn articles_filter(cfg: Config, dir: String) -> BoxedFilter<(impl Reply,)> {
             if !name.ends_with(".md") {
                 name.push_str(".md");
             }
-            let buf = Path::new(&dir).join(&name);
-            let s = buf.to_str();
-            match s {
-                None => Response::builder()
-                    .header("X-Powered-By", "Medup")
-                    .status(400)
-                    .body(format!(
-                        "failed to join the path: \"{}\", \"{}\"",
-                        dir, name
-                    ))
-                    .into_response(),
+            match Path::new(&dir).join(&name).to_str() {
+                None => error_repsonse(
+                    StatusCode::BAD_REQUEST,
+                    format!(r#"failed to join the path: {}, {}"#, dir, name),
+                ),
                 Some(path) => match Markdown::new()
                     .config(cfg)
                     .path(path)
                     .map_mut(markdown::to_html)
                 {
-                    Err(e) => Response::builder()
-                        .header("X-Powered-By", "Medup")
-                        .status(500)
-                        .body(format!("failed to generate html from markdown: {}", e))
-                        .into_response(),
+                    Err(e) => error_repsonse(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        format!("failed to generate html from markdown: {}", e),
+                    ),
                     Ok(v) => warp::reply::html(v).into_response(),
                 },
             }
         })
+        .with(warp::cors().allow_any_origin())
+        .boxed()
+}
+
+// Get /, then read the index.md file
+fn index_filter(cfg: Config, dir: String) -> BoxedFilter<(impl Reply,)> {
+    warp::get()
+        .and(warp::path::end())
+        .and(warp::any().map(move || cfg.clone()))
+        .and(warp::any().map(move || dir.to_string()))
+        .map(
+            |cfg: Config, dir: String| match Path::new(&dir).join("index.md").to_str() {
+                None => error_repsonse(
+                    StatusCode::BAD_REQUEST,
+                    format!(r#"failed to join the path: {}, index.md"#, dir),
+                ),
+                Some(path) => match Markdown::new()
+                    .config(cfg)
+                    .path(path)
+                    .map_mut(markdown::to_html)
+                {
+                    Err(e) => error_repsonse(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        format!("failed to generate html from markdown: {}", e),
+                    ),
+                    Ok(v) => warp::reply::html(v).into_response(),
+                },
+            },
+        )
         .with(warp::cors().allow_any_origin())
         .boxed()
 }
@@ -143,4 +157,12 @@ fn parse_ip_port(matches: &ArgMatches) -> Result<(Ipv4Addr, u16), Box<dyn Error>
         .map_err(|e| format!("failed to parse port: {}: {}", fields[1], e))?;
 
     Ok((ipaddr, port))
+}
+
+fn error_repsonse(status_code: StatusCode, err_msg: String) -> warp::reply::Response {
+    warp::http::Response::builder()
+        .header("X-Powered-By", "Medup")
+        .status(status_code)
+        .body(err_msg)
+        .into_response()
 }

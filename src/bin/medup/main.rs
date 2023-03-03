@@ -22,14 +22,14 @@ fn cli() -> Command {
         .subcommand_required(true)
         .subcommand(
             Command::new("gen")
-                .about("generate HTML based on Markdown!")
+                .about("Generate html from markdown")
                 .arg(arg!(-c --"config-path" [CONFIG_PATH] "Specify path of the config file, it's optional."))
                 .arg(arg!(-o --output [OUTPUT_HTML_PATH] "Specify a html output path, it's optional."))
                 .arg(arg!(<MARKDOWN_FILE_PATH>)),
         )
         .subcommand(
             Command::new("serve")
-                .about("Provide an http service for markdown parsing!")
+                .about("Provide an http service for markdown parsing")
                 .arg(arg!(-l --"listen-addr" [LISTEN_ADDR] r#"Specify the listening address of the http server, default ":8181"."#))
                 .arg(arg!(-c --"config-path" [CONFIG_PATH] "Specify path of the config file, it's optional."))
                 .arg(arg!(-d --dir [DIR] "Specify the directory where markdown files are stored."))

@@ -32,7 +32,7 @@ Options:
 
 Use the following command to generate a html file from your markdown file.
 ```
-cargo run -- gen --config-path themes/notion/config.json --output markdown-guide.html docs/markdown-guide.md
+cargo run -- gen --output markdown-guide.html docs/markdown-guide.md
 ```
 
 ### Web 

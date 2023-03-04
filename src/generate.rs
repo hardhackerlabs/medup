@@ -1,6 +1,6 @@
 use super::SharedLine;
 
-pub trait HtmlGenerate {
+pub trait Generate {
     fn head(&self) -> String;
     fn body_begin(&self) -> String;
     fn body_end(&self) -> String;

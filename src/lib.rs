@@ -7,13 +7,12 @@ use regex::Regex;
 use url::Url;
 
 pub mod config;
-mod cursor;
+pub mod generate;
 mod html;
-pub mod html_generate;
 mod lexer;
 pub mod markdown;
 mod parser;
-mod stack;
+mod utils;
 
 pub type SharedLine = Rc<RefCell<parser::Line>>;
 

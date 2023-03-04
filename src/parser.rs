@@ -7,7 +7,7 @@ use std::rc::Rc;
 use std::{fmt, io};
 
 use super::SharedLine;
-use crate::html_generate::HtmlGenerate;
+use crate::generate::Generate;
 use crate::lexer::{Lexer, Token, TokenKind};
 
 use itertools::Itertools;
@@ -153,42 +153,43 @@ impl Ast {
         }
     }
 
-    // Iterate through each block of the Ast and process the block into a 'html' string
-    pub(crate) fn render_html(&self, html: &impl HtmlGenerate) -> String {
+    // TODO: optimize
+    pub(crate) fn generate(&self, gen: &impl Generate) -> String {
         let mut buff: Vec<String> = vec![];
-        let body = self.render_html_body(html);
+        let body = self.generate_body(gen);
 
         buff.push(String::from("<!doctype html><html>"));
-        buff.push(html.head());
-        buff.push(html.body_begin());
+        buff.push(gen.head());
+        buff.push(gen.body_begin());
         buff.push(body);
-        buff.push(html.body_end());
+        buff.push(gen.body_end());
         buff.push(String::from("</html>"));
 
         buff.join("\n")
     }
 
-    pub(crate) fn render_html_body(&self, html: &impl HtmlGenerate) -> String {
+    // Iterate through each block of the Ast and process the block into a 'html' string
+    pub(crate) fn generate_body(&self, gen: &impl Generate) -> String {
         self.blocks()
             .iter()
             .filter(|b| b.kind() != Kind::Meta__ && b.kind() != Kind::ListNesting__)
             .map(|b| match b.kind() {
-                Kind::Title => html.body_title(b.first()),
-                Kind::PlainText => html.body_plain_text(b.contains()),
-                Kind::Dividing => html.body_dividing(b.first()),
-                Kind::CodeBlock => html.body_code(b.contains()),
-                Kind::UnorderedList => html.body_unordered_list(b.contains()),
-                Kind::Blank => html.body_blank(b.contains()),
+                Kind::Title => gen.body_title(b.first()),
+                Kind::PlainText => gen.body_plain_text(b.contains()),
+                Kind::Dividing => gen.body_dividing(b.first()),
+                Kind::CodeBlock => gen.body_code(b.contains()),
+                Kind::UnorderedList => gen.body_unordered_list(b.contains()),
+                Kind::Blank => gen.body_blank(b.contains()),
                 Kind::Quote => {
                     let s = b
                         .quote_ast
                         .as_ref()
-                        .map(|a| a.render_html_body(html))
+                        .map(|a| a.generate_body(gen))
                         .unwrap_or_else(|| "".to_string());
-                    html.body_quote(&s)
+                    gen.body_quote(&s)
                 }
-                Kind::OrderedList => html.body_ordered_list(b.contains()),
-                Kind::CodeBlockMark => html.body_plain_text(b.contains()), // treat code block mark as plain text
+                Kind::OrderedList => gen.body_ordered_list(b.contains()),
+                Kind::CodeBlockMark => gen.body_plain_text(b.contains()), // treat code block mark as plain text
                 _ => unreachable!(),
             })
             .filter(|s| !s.is_empty())
@@ -536,7 +537,7 @@ impl Line {
         l
     }
 
-    pub(crate) fn enter_nested_blocks(&self, html: &impl HtmlGenerate) -> String {
+    pub(crate) fn enter_nested_blocks(&self, gen: &impl Generate) -> String {
         self.nested_blocks
             .iter()
             .filter(|b| {
@@ -549,21 +550,21 @@ impl Line {
                     && b.kind() != Kind::CodeBlock
             })
             .map(|b| match b.kind() {
-                Kind::Title => html.body_title(b.first()),
-                Kind::PlainText => html.body_plain_text(b.contains()),
-                Kind::Dividing => html.body_dividing(b.first()),
-                Kind::CodeBlock => html.body_code(b.contains()),
-                Kind::UnorderedList => html.body_unordered_list(b.contains()),
-                Kind::Blank => html.body_blank(b.contains()),
+                Kind::Title => gen.body_title(b.first()),
+                Kind::PlainText => gen.body_plain_text(b.contains()),
+                Kind::Dividing => gen.body_dividing(b.first()),
+                Kind::CodeBlock => gen.body_code(b.contains()),
+                Kind::UnorderedList => gen.body_unordered_list(b.contains()),
+                Kind::Blank => gen.body_blank(b.contains()),
                 Kind::Quote => {
                     let s = b
                         .quote_ast
                         .as_ref()
-                        .map(|a| a.render_html_body(html))
+                        .map(|a| a.generate_body(gen))
                         .unwrap_or_else(|| "".to_string());
-                    html.body_quote(&s)
+                    gen.body_quote(&s)
                 }
-                Kind::OrderedList => html.body_ordered_list(b.contains()),
+                Kind::OrderedList => gen.body_ordered_list(b.contains()),
                 _ => "".to_string(),
             })
             .join("\n")

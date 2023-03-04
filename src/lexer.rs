@@ -3,7 +3,7 @@ use std::{
     collections::{HashMap, VecDeque},
 };
 
-use crate::{cursor, stack};
+use crate::utils::{cursor, stack};
 
 use itertools::Itertools;
 use v_htmlescape as htmlescape;

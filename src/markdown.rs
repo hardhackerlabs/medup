@@ -68,14 +68,12 @@ impl<'markdown> Markdown<'markdown> {
     }
 }
 
-// Render markdown ast into html
+// Convert markdown ast into html
 pub fn to_html(ast: &Ast, cfg: &Config) -> Result<String, Box<dyn Error>> {
-    let gen = html::Generator::new(cfg, ast.ref_link_tags())?;
-    Ok(ast.render_html(&gen))
+    Ok(ast.generate(&html::Generator::new(cfg, ast.ref_link_tags())?))
 }
 
-// Render markdown ast into raw html body
-pub fn to_raw(ast: &Ast, cfg: &Config) -> Result<String, Box<dyn Error>> {
-    let gen = html::Generator::new(cfg, ast.ref_link_tags())?;
-    Ok(ast.render_html_body(&gen))
+// Convert markdown ast into body part of the html
+pub fn to_html_body(ast: &Ast, cfg: &Config) -> Result<String, Box<dyn Error>> {
+    Ok(ast.generate_body(&html::Generator::new(cfg, ast.ref_link_tags())?))
 }

@@ -1,4 +1,4 @@
 
-# Welcome to Medup !
+# Welcome to Medup!
 
 * [markdown-guide](./markdown-guide.md)

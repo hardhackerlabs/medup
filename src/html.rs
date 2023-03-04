@@ -3,9 +3,9 @@ use std::error::Error;
 
 use super::SharedLine;
 use crate::config::Config;
-use crate::html_generate::HtmlGenerate;
+use crate::generate::Generate;
 use crate::lexer::{Token, TokenKind};
-use crate::stack;
+use crate::utils::stack;
 
 use serde::Serialize;
 use tinytemplate::TinyTemplate;
@@ -170,7 +170,7 @@ impl<'generator> Generator<'generator> {
     }
 }
 
-impl<'generator> HtmlGenerate for Generator<'generator> {
+impl<'generator> Generate for Generator<'generator> {
     fn head(&self) -> String {
         if !self.cfg.custom_html_head.is_empty() {
             return self.cfg.custom_html_head.clone();

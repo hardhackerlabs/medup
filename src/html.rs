@@ -11,7 +11,7 @@ use serde::Serialize;
 use tinytemplate::TinyTemplate;
 
 pub(crate) struct Generator<'generator> {
-    tt: TinyTemplate<'generator>,
+    template: TinyTemplate<'generator>,
     cfg: &'generator Config,
     ref_link_tags: &'generator HashMap<String, (String, String)>,
 }
@@ -22,7 +22,7 @@ impl<'generator> Generator<'generator> {
         ref_link_tags: &'generator HashMap<String, (String, String)>,
     ) -> Result<Self, Box<dyn Error>> {
         let mut g = Generator {
-            tt: TinyTemplate::new(),
+            template: TinyTemplate::new(),
             cfg,
             ref_link_tags,
         };
@@ -33,21 +33,21 @@ impl<'generator> Generator<'generator> {
 
     fn init(&mut self) -> Result<(), Box<dyn Error>> {
         let templates = vec![
-            (LINK_TEMPLATE_NAME, LINK_TEMPLATE),
-            (ORDERED_LIST_TEMPLATE_NAME, ORDERED_LIST_TEMPLATE),
-            (UNORDERED_LIST_TEMPLATE_NAME, UNORDERED_LIST_TEMPLATE),
-            (TITLE_TEMPLATE_NAME, TITLE_TEMPLATE),
-            (QUOTE_TEMPLATE_NAME, QUOTE_TEMPLATE),
-            (IMG_TEMPLATE_NAME, IMG_TEMPLATE),
-            (CODE_TEMPLATE_NAME, CODE_TEMPLATE),
-            (PLAIN_TEXT_TEMPLATE_NAME, PLAIN_TEXT_TEMPLATE),
-            (HEAD_TEMPLATE_NAME, HEAD_TEMPLATE),
-            (BODY_BEGIN_TEMPLATE_NAME, BODY_BEGIN_TEMPLATE),
+            (TP_ORDERED_LIST_NAME, TP_ORDERED_LIST),
+            (TP_UNORDERED_LIST_NAME, TP_UNORDERED_LIST),
+            (TP_TITLE_NAME, TP_TITLE),
+            (TP_QUOTE_NAME, TP_QUOTE),
+            (TP_IMG_NAME, TP_IMG),
+            (TP_LINK_NAME, TP_LINK),
+            (TP_CODE_NAME, TP_CODE),
+            (TP_PLAIN_TEXT_NAME, TP_PLAIN_TEXT),
+            (TP_HEAD_NAME, TP_HEAD),
+            (TP_BODY_BEGIN_NAME, TP_BODY_BEGIN),
         ];
-        for (name, tpl) in templates {
-            self.tt.add_template(name, tpl)?;
+        for (name, tp) in templates {
+            self.template.add_template(name, tp)?;
         }
-        self.tt
+        self.template
             .set_default_formatter(&tinytemplate::format_unescaped);
         Ok(())
     }
@@ -112,8 +112,8 @@ impl<'generator> Generator<'generator> {
                     }
                 }
                 TokenKind::Link | TokenKind::QuickLink | TokenKind::Image => {
-                    let gl = t.as_generic_link();
-                    let (name, location) = (gl.name(), gl.location());
+                    let link = t.as_generic_link();
+                    let (name, location) = (link.name(), link.location());
 
                     if !name.is_empty() && !location.is_empty() {
                         let s = if t.kind() == TokenKind::Image {
@@ -125,8 +125,8 @@ impl<'generator> Generator<'generator> {
                     }
                 }
                 TokenKind::RefLink => {
-                    let gl = t.as_generic_link();
-                    let (name, tag) = (gl.name(), gl.tag());
+                    let link = t.as_generic_link();
+                    let (name, tag) = (link.name(), link.tag());
 
                     let default = (String::from(""), String::from(""));
                     let (location, _title) = self.ref_link_tags.get(tag).unwrap_or(&default);
@@ -152,9 +152,9 @@ impl<'generator> Generator<'generator> {
     }
 
     fn render_link(&self, show_name: &str, location: &str) -> String {
-        self.tt
+        self.template
             .render(
-                LINK_TEMPLATE_NAME,
+                TP_LINK_NAME,
                 &LinkContext {
                     show_name,
                     location,
@@ -164,8 +164,8 @@ impl<'generator> Generator<'generator> {
     }
 
     fn render_image(&self, alt: &str, location: &str) -> String {
-        self.tt
-            .render(IMG_TEMPLATE_NAME, &ImageContext { alt, location })
+        self.template
+            .render(TP_IMG_NAME, &ImageContext { alt, location })
             .unwrap()
     }
 }
@@ -178,14 +178,14 @@ impl<'generator> HtmlGenerate for Generator<'generator> {
         let ctx = HeadContext {
             css_href: &self.cfg.css_href,
         };
-        self.tt.render(HEAD_TEMPLATE_NAME, &ctx).unwrap()
+        self.template.render(TP_HEAD_NAME, &ctx).unwrap()
     }
 
     fn body_begin(&self) -> String {
         let ctx = BodyBeginContext {
             article_class: &self.cfg.add_class_on_article,
         };
-        self.tt.render(BODY_BEGIN_TEMPLATE_NAME, &ctx).unwrap()
+        self.template.render(TP_BODY_BEGIN_NAME, &ctx).unwrap()
     }
 
     fn body_end(&self) -> String {
@@ -207,7 +207,7 @@ impl<'generator> HtmlGenerate for Generator<'generator> {
             text: value,
         };
 
-        self.tt.render(TITLE_TEMPLATE_NAME, &ctx).unwrap()
+        self.template.render(TP_TITLE_NAME, &ctx).unwrap()
     }
 
     fn body_dividing(&self, _l: &SharedLine) -> String {
@@ -215,7 +215,7 @@ impl<'generator> HtmlGenerate for Generator<'generator> {
     }
 
     fn body_plain_text(&self, ls: &[SharedLine]) -> String {
-        let lines: Vec<String> = ls
+        let mut lines: Vec<String> = ls
             .iter()
             .map(|l| {
                 let mut s = self.render_inline(l.borrow().all());
@@ -225,8 +225,15 @@ impl<'generator> HtmlGenerate for Generator<'generator> {
                 s
             })
             .collect();
-        self.tt
-            .render(PLAIN_TEXT_TEMPLATE_NAME, &PlainTextContext { lines })
+
+        // remove the trailing '<br>' of the last element
+        // TODO: optimize
+        if let Some(last) = lines.pop() {
+            lines.push(last.trim_end_matches("<br>").to_string());
+        }
+
+        self.template
+            .render(TP_PLAIN_TEXT_NAME, &PlainTextContext { lines })
             .unwrap()
     }
 
@@ -249,8 +256,8 @@ impl<'generator> HtmlGenerate for Generator<'generator> {
                 }
             })
             .collect();
-        self.tt
-            .render(ORDERED_LIST_TEMPLATE_NAME, &OrderedListContext { list })
+        self.template
+            .render(TP_ORDERED_LIST_NAME, &OrderedListContext { list })
             .unwrap()
     }
 
@@ -269,14 +276,14 @@ impl<'generator> HtmlGenerate for Generator<'generator> {
                 }
             })
             .collect();
-        self.tt
-            .render(UNORDERED_LIST_TEMPLATE_NAME, &UnorderedListContext { list })
+        self.template
+            .render(TP_UNORDERED_LIST_NAME, &UnorderedListContext { list })
             .unwrap()
     }
 
     fn body_quote(&self, s: &str) -> String {
-        self.tt
-            .render(QUOTE_TEMPLATE_NAME, &QuoteContext { text: s })
+        self.template
+            .render(TP_QUOTE_NAME, &QuoteContext { text: s })
             .unwrap()
     }
 
@@ -289,9 +296,9 @@ impl<'generator> HtmlGenerate for Generator<'generator> {
             .map(|l| l.borrow().html_escaped_text())
             .collect();
 
-        self.tt
+        self.template
             .render(
-                CODE_TEMPLATE_NAME,
+                TP_CODE_NAME,
                 &CodeBlockContext {
                     name: first.borrow().get(1).map(|t| t.value()).unwrap_or(""),
                     text: &text,
@@ -302,8 +309,8 @@ impl<'generator> HtmlGenerate for Generator<'generator> {
 }
 
 // header
-const HEAD_TEMPLATE_NAME: &str = "header";
-const HEAD_TEMPLATE: &str = r#"
+const TP_HEAD_NAME: &str = "header";
+const TP_HEAD: &str = r#"
 <head>
 <meta charset='UTF-8'><meta name='viewport' content='width=device-width initial-scale=1'>
 {{ if css_href }} <link rel="stylesheet" type="text/css" href="{ css_href }"> {{ endif }}
@@ -331,8 +338,8 @@ struct HeadContext<'head_context> {
     css_href: &'head_context str,
 }
 
-const BODY_BEGIN_TEMPLATE_NAME: &str = "body_begin";
-const BODY_BEGIN_TEMPLATE: &str = r#"
+const TP_BODY_BEGIN_NAME: &str = "body_begin";
+const TP_BODY_BEGIN: &str = r#"
 <body>
 <article{{ if article_class }} class={article_class}{{ endif }}>
 "#;
@@ -343,8 +350,8 @@ struct BodyBeginContext<'body_begin_context> {
 }
 
 // title
-const TITLE_TEMPLATE_NAME: &str = "title";
-const TITLE_TEMPLATE: &str = "\
+const TP_TITLE_NAME: &str = "title";
+const TP_TITLE: &str = "\
 {{ if is_l1 }}<h1>{text}</h1>{{ endif }}\
 {{ if is_l2 }}<h2>{text}</h2>{{ endif }}\
 {{ if is_l3 }}<h3>{text}</h3>{{ endif }}\
@@ -364,8 +371,8 @@ struct TitleContext {
 }
 
 // ordered list
-const ORDERED_LIST_TEMPLATE_NAME: &str = "ordered_list";
-const ORDERED_LIST_TEMPLATE: &str = "\
+const TP_ORDERED_LIST_NAME: &str = "ordered_list";
+const TP_ORDERED_LIST: &str = "\
 <ol>\
 {{ for item in list }}
     <li>{item}</li>\
@@ -378,8 +385,8 @@ struct OrderedListContext {
 }
 
 // unordered list
-const UNORDERED_LIST_TEMPLATE_NAME: &str = "unordered_list";
-const UNORDERED_LIST_TEMPLATE: &str = "\
+const TP_UNORDERED_LIST_NAME: &str = "unordered_list";
+const TP_UNORDERED_LIST: &str = "\
 <ul>\
 {{ for item in list }} 
     <li>{item}</li>\
@@ -392,8 +399,8 @@ struct UnorderedListContext {
 }
 
 // link
-const LINK_TEMPLATE_NAME: &str = "link";
-const LINK_TEMPLATE: &str = r#"<a href="{location}">{show_name}</a>"#;
+const TP_LINK_NAME: &str = "link";
+const TP_LINK: &str = r#"<a href="{location}">{show_name}</a>"#;
 
 #[derive(Serialize)]
 struct LinkContext<'link_context> {
@@ -402,8 +409,8 @@ struct LinkContext<'link_context> {
 }
 
 // image
-const IMG_TEMPLATE_NAME: &str = "img";
-const IMG_TEMPLATE: &str = r#"<img src="{location}" alt="{alt}">"#;
+const TP_IMG_NAME: &str = "img";
+const TP_IMG: &str = r#"<img src="{location}" alt="{alt}">"#;
 
 #[derive(Serialize)]
 struct ImageContext<'image_context> {
@@ -412,8 +419,8 @@ struct ImageContext<'image_context> {
 }
 
 // code block
-const CODE_TEMPLATE_NAME: &str = "code_block";
-const CODE_TEMPLATE: &str = "<pre><code>\
+const TP_CODE_NAME: &str = "code_block";
+const TP_CODE: &str = "<pre><code>\
 {text}\
 </code></pre>";
 
@@ -424,8 +431,8 @@ struct CodeBlockContext<'code_block_context> {
 }
 
 // plain text
-const PLAIN_TEXT_TEMPLATE_NAME: &str = "plain_text";
-const PLAIN_TEXT_TEMPLATE: &str = "\
+const TP_PLAIN_TEXT_NAME: &str = "plain_text";
+const TP_PLAIN_TEXT: &str = "\
 <p>\
 {{ for text in lines}}\
 {text}\
@@ -438,8 +445,8 @@ struct PlainTextContext {
 }
 
 // quote block
-const QUOTE_TEMPLATE_NAME: &str = "quote";
-const QUOTE_TEMPLATE: &str = "\
+const TP_QUOTE_NAME: &str = "quote";
+const TP_QUOTE: &str = "\
 <blockquote><p>
     {text}
 </p></blockquote>";

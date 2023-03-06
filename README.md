@@ -1,5 +1,7 @@
 # Medup is a markdown parsing toolkit!
 
+![](./docs/assets/demo.png)
+
 ## Features
 * [x] Support all standard syntax of markdown
 * [x] Supports all major extension syntaxes
@@ -8,9 +10,6 @@
 * [x] Provide **web service** to host and parse markdown files, and create private document system or blog
 * [x] Support css theme selection
 * [ ] Support git as storage backend
-
-## Demo
-todo
 
 ## Usage
 ```

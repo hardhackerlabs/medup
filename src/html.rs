@@ -420,7 +420,7 @@ struct ImageContext<'image_context> {
 
 // code block
 const TP_CODE_NAME: &str = "code_block";
-const TP_CODE: &str = "<pre><code>\
+const TP_CODE: &str = "<pre><code>
 {text}\
 </code></pre>";
 

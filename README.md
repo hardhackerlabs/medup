@@ -6,11 +6,13 @@
 ## Features
 * [x] Support all standard syntax of markdown
 * [x] Supports all major extension syntaxes
-* [x] Provide **library** parsing markdown to html or free custom development based on AST directly
-* [x] Provide **CLI** tools to parse markdown to html
+* [x] Provide **library** to convert markdown to html or Custom development based on AST directly
+* [x] Provide **CLI** tool to convert markdown to html
 * [x] Provide **web service** to host and parse markdown files, and create private document system or blog
 * [x] Support css theme selection
+* [ ] Custom new grammar so that the content can be layout horizontally
 * [ ] Support git as storage backend
+* [ ] There may be an editor, supporting VIM mode
 
 ## Demo
 

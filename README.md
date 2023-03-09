@@ -1,4 +1,4 @@
-# Medup is a markdown parsing toolkit!
+# Medup is a markdown parser and reader!
 
 ![](./docs/assets/logo.png)
 
@@ -18,7 +18,7 @@
 
 ## Usage
 ```
-A markdown parsing toolkit
+A markdown parser and reader
 
 Usage: medup <COMMAND>
 

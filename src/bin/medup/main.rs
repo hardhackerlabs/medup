@@ -18,7 +18,7 @@ fn main() {
 fn cli() -> Command {
     Command::new("medup")
         .version("0.1")
-        .about("A markdown parsing toolkit")
+        .about("A markdown parser and reader")
         .subcommand_required(true)
         .subcommand(
             Command::new("gen")

@@ -198,12 +198,17 @@ impl Ast {
             .join("\n\n")
     }
 
+    // Generate the table of contents based on the title blocks and we skipped the level 1 title
     pub(crate) fn generate_toc(&self, gen: &impl Generate) -> String {
         let mut stack: Stack<usize> = Stack::new();
         let mut buff: Vec<String> = vec![];
 
         for b in self.blocks().iter().filter(|b| b.kind() == Kind::Title) {
-            for l in b.contains() {
+            for l in b
+                .contains()
+                .iter()
+                .filter(|l| l.borrow().mark_token().len() > 1)
+            {
                 let level = l.borrow().mark_token().len();
                 loop {
                     match stack.top() {
@@ -804,8 +809,6 @@ mod tests {
 "#;
 
         let dest = r#"<ul>
-<li># header1</li>
-<ul>
 <li>## header2</li>
 <li>## header2</li>
 <ul>
@@ -815,7 +818,6 @@ mod tests {
 </ul>
 </ul>
 <li>## header2</li>
-</ul>
 </ul>"#;
         let mut ast = Ast::new();
         ast.parse_string(md).unwrap();

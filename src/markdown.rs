@@ -77,3 +77,8 @@ pub fn to_html(ast: &Ast, cfg: &Config) -> Result<String, Box<dyn Error>> {
 pub fn to_html_body(ast: &Ast, cfg: &Config) -> Result<String, Box<dyn Error>> {
     Ok(ast.generate_body(&html::Generator::new(cfg, ast.ref_link_tags())?))
 }
+
+// Generate the toc part of the html from markdown ast
+pub fn to_toc(ast: &Ast, cfg: &Config) -> Result<String, Box<dyn Error>> {
+    Ok(ast.generate_toc(&html::Generator::new(cfg, ast.ref_link_tags())?))
+}

@@ -376,7 +376,7 @@ const TP_ORDERED_LIST: &str = "\
 <ol>\
 {{ for item in list }}
     <li>{item}</li>\
-{{ endfor }} 
+{{ endfor }}
 </ol>";
 
 #[derive(Serialize)]
@@ -388,9 +388,9 @@ struct OrderedListContext {
 const TP_UNORDERED_LIST_NAME: &str = "unordered_list";
 const TP_UNORDERED_LIST: &str = "\
 <ul>\
-{{ for item in list }} 
+{{ for item in list }}
     <li>{item}</li>\
-{{ endfor }} 
+{{ endfor }}
 </ul>";
 
 #[derive(Serialize)]

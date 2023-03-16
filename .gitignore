@@ -1,4 +1,6 @@
 /target
 .DS_Store
-themes/_*
 .VSCodeCounter
+
+crdt.md
+themes/_*

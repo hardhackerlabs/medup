@@ -22,6 +22,16 @@ where
         self.queue.pop()
     }
 
+    // Get the element at the top of the stack
+    pub(crate) fn top(&self) -> Option<&T> {
+        self.queue.last()
+    }
+
+    // Get the element number in the stack
+    pub(crate) fn len(&self) -> usize {
+        self.queue.len()
+    }
+
     // Remove the element from the top of the stack, if 'f' return true. Otherwise insert the
     // argument 'e' at the top of the stack.
     pub(crate) fn pop_or_push<F>(&mut self, e: T, f: F) -> Option<T>

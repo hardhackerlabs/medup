@@ -41,13 +41,13 @@ Use the following command to generate a html file from your markdown file.
 cargo run -- gen --output markdown-guide.html docs/markdown-guide.md
 ```
 
-### Web 
+### Web
 
 Use the following command to start an http service on port 8181.
 ```
 cargo run -- serve --config-path themes/notion/config.json --dir docs --static-dir themes
 ```
-or 
+or
 
 ```
 docker run -d --rm -p 8181:8181 skoowoo/medup:0.1

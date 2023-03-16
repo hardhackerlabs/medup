@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::fs::File;
@@ -9,6 +10,7 @@ use std::{fmt, io};
 use super::SharedLine;
 use crate::generate::Generate;
 use crate::lexer::{Lexer, Token, TokenKind};
+use crate::utils::stack::Stack;
 
 use itertools::Itertools;
 use v_htmlescape as htmlescape;
@@ -194,6 +196,45 @@ impl Ast {
             })
             .filter(|s| !s.is_empty())
             .join("\n\n")
+    }
+
+    pub(crate) fn generate_toc(&self, gen: &impl Generate) -> String {
+        let mut stack: Stack<usize> = Stack::new();
+        let mut buff: Vec<String> = vec![];
+
+        for b in self.blocks().iter().filter(|b| b.kind() == Kind::Title) {
+            for l in b.contains() {
+                let level = l.borrow().mark_token().len();
+                loop {
+                    match stack.top() {
+                        None => {
+                            stack.push(level);
+                            buff.push(String::from("<ul>"));
+                            break;
+                        }
+                        Some(top_level) => match top_level.cmp(&level) {
+                            Ordering::Greater => {
+                                stack.pop();
+                                buff.push(String::from("</ul>"));
+                            }
+                            Ordering::Less => {
+                                stack.push(level);
+                                buff.push(String::from("<ul>"));
+                                break;
+                            }
+                            Ordering::Equal => {
+                                break;
+                            }
+                        },
+                    }
+                }
+                buff.push(format!("<li>{}</li>", gen.body_title(l)));
+            }
+        }
+        for _ in 0..stack.len() {
+            buff.push(String::from("</ul>"));
+        }
+        buff.join("\n")
     }
 
     // Count the lines in ast
@@ -605,6 +646,9 @@ impl Line {
 mod tests {
     use super::*;
 
+    struct MockGenerator {}
+    impl Generate for MockGenerator {}
+
     fn exec_document_cases(doc: &Vec<SharedLine>) -> Vec<(Kind, usize, usize, usize)> {
         doc.iter()
             .skip(1)
@@ -746,5 +790,37 @@ mod tests {
             ast.ref_link_tags().get("link"),
             Some(&("https://www.example.com".to_string(), "example".to_string()))
         );
+    }
+
+    #[test]
+    fn test_generate_toc() {
+        let md = r#"
+# header1
+## header2
+## header2
+### header3
+#### header4
+## header2
+"#;
+
+        let dest = r#"<ul>
+<li># header1</li>
+<ul>
+<li>## header2</li>
+<li>## header2</li>
+<ul>
+<li>### header3</li>
+<ul>
+<li>#### header4</li>
+</ul>
+</ul>
+<li>## header2</li>
+</ul>
+</ul>"#;
+        let mut ast = Ast::new();
+        ast.parse_string(md).unwrap();
+
+        let s = ast.generate_toc(&MockGenerator {});
+        assert_eq!(s, dest);
     }
 }

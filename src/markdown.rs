@@ -1,13 +1,11 @@
 use std::error::Error;
 
-use crate::config::Config;
 use crate::html;
 use crate::parser::Ast;
 
 #[derive(Debug)]
 pub struct Markdown<'markdown> {
     ast: Ast,
-    config: Config,
     path: Option<&'markdown str>,
     text: Option<&'markdown str>,
 }
@@ -22,16 +20,9 @@ impl<'markdown> Markdown<'markdown> {
     pub fn new() -> Self {
         Markdown {
             ast: Ast::new(),
-            config: Config::default(),
             path: None,
             text: None,
         }
-    }
-
-    // Setup the custom configure info
-    pub fn config(&mut self, config: Config) -> &mut Self {
-        self.config = config;
-        self
     }
 
     // Specify the path of a markdown file, then read the file and parse it
@@ -49,10 +40,10 @@ impl<'markdown> Markdown<'markdown> {
     // Use 'f' function to convert markdown ast into a string, .e.g html document
     pub fn map_mut<F>(&mut self, f: F) -> Result<String, Box<dyn Error>>
     where
-        F: Fn(&Ast, &Config) -> Result<String, Box<dyn Error>>,
+        F: Fn(&Ast) -> Result<String, Box<dyn Error>>,
     {
         self.parse()?;
-        let s = f(&self.ast, &self.config)?;
+        let s = f(&self.ast)?;
         Ok(s)
     }
 
@@ -68,17 +59,12 @@ impl<'markdown> Markdown<'markdown> {
     }
 }
 
-// Convert markdown ast into html
-pub fn to_html(ast: &Ast, cfg: &Config) -> Result<String, Box<dyn Error>> {
-    Ok(ast.generate_html(&html::Generator::new(cfg, ast.ref_link_tags())?))
-}
-
 // Convert markdown ast into body part of the html
-pub fn to_html_body(ast: &Ast, cfg: &Config) -> Result<String, Box<dyn Error>> {
-    Ok(ast.generate_body(&html::Generator::new(cfg, ast.ref_link_tags())?))
+pub fn to_html_body(ast: &Ast) -> Result<String, Box<dyn Error>> {
+    Ok(ast.generate_body(&html::Generator::new(ast.ref_link_tags())?))
 }
 
 // Generate the toc part of the html from markdown ast
-pub fn to_toc(ast: &Ast, cfg: &Config) -> Result<String, Box<dyn Error>> {
-    Ok(ast.generate_toc(&html::Generator::new(cfg, ast.ref_link_tags())?))
+pub fn to_toc(ast: &Ast) -> Result<String, Box<dyn Error>> {
+    Ok(ast.generate_toc(&html::Generator::new(ast.ref_link_tags())?))
 }

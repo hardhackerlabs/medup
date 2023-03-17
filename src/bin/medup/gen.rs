@@ -1,20 +1,12 @@
 use std::fs::File;
 use std::io::Write;
 
-use medup::config::{self, Config};
+use crate::{config::Config, render_html::RenderHtml};
 use medup::markdown::{self, Markdown};
 
 use clap::ArgMatches;
 
 pub fn proc_gen(sub_matches: &ArgMatches) {
-    // read config path from cli
-    let cfg = match sub_matches.get_one::<String>("config-path") {
-        None => Config::default(),
-        Some(path) => config::read_config(path)
-            .map_err(|e| format!("failed to read config \"{}\": {}", path, e))
-            .unwrap(),
-    };
-
     // read output file path from cli
     let out_file = match sub_matches.get_one::<String>("output") {
         None => None,
@@ -33,11 +25,12 @@ pub fn proc_gen(sub_matches: &ArgMatches) {
         .expect("required");
 
     // start to parse the markdown file into html
-    let html = Markdown::new()
-        .config(cfg)
+    let s = Markdown::new()
         .path(md_path)
-        .map_mut(markdown::to_html)
+        .map_mut(markdown::to_html_body)
         .unwrap();
+    let render: RenderHtml = RenderHtml::new().expect("failed to add html template");
+    let html = render.exec(&Config::default(), &s).unwrap();
 
     // output the html
     if let Some(mut out) = out_file {

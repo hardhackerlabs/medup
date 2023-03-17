@@ -2,7 +2,8 @@ use std::error::Error;
 use std::net::Ipv4Addr;
 use std::path::Path;
 
-use medup::config::{self, Config};
+use crate::config::Config;
+use crate::render_html::RenderHtml;
 use medup::markdown::{self, Markdown};
 
 use clap::ArgMatches;
@@ -12,15 +13,15 @@ use warp::{Filter, Reply};
 
 #[tokio::main]
 pub async fn proc_serve(matches: &ArgMatches) {
-    let (addr, port) = parse_ip_port(matches).unwrap();
-    let cfg: Config = load_config(matches).unwrap();
-    let dir = get_dir(matches, "dir");
-    let sdir = get_dir(matches, "static-dir");
+    let cfg: Config = load_config(matches).expect("failed to load config");
 
+    let dir = get_dir(matches, "dir");
     println!(
         "---> the directory where markdown files are stored: \"{}\"",
         dir
     );
+
+    let sdir = get_dir(matches, "static-dir");
     println!(
         "---> the directory where static resources are stored: \"{}\"",
         sdir
@@ -31,7 +32,9 @@ pub async fn proc_serve(matches: &ArgMatches) {
         .or(articles_filter(cfg.clone(), dir.to_string()))
         .or(index_filter(cfg.clone(), dir.to_string()));
 
+    let (addr, port) = parse_ip_port(matches).unwrap();
     println!("---> start to listen on address: \"{}:{}\"", addr, port);
+
     warp::serve(filters).run((addr, port)).await
 }
 
@@ -54,21 +57,21 @@ fn articles_filter(cfg: Config, dir: String) -> BoxedFilter<(impl Reply,)> {
             if !name.ends_with(".md") {
                 name.push_str(".md");
             }
+            let render: RenderHtml = RenderHtml::new().expect("failed to add html template");
             match Path::new(&dir).join(&name).to_str() {
                 None => error_repsonse(
                     StatusCode::BAD_REQUEST,
                     format!(r#"failed to join the path: {}, {}"#, dir, name),
                 ),
-                Some(path) => match Markdown::new()
-                    .config(cfg)
-                    .path(path)
-                    .map_mut(markdown::to_html)
-                {
+                Some(path) => match Markdown::new().path(path).map_mut(markdown::to_html_body) {
                     Err(e) => error_repsonse(
                         StatusCode::INTERNAL_SERVER_ERROR,
                         format!("failed to generate html from markdown: {}", e),
                     ),
-                    Ok(v) => warp::reply::html(v).into_response(),
+                    Ok(v) => {
+                        let v = render.exec(&cfg, &v).unwrap();
+                        warp::reply::html(v).into_response()
+                    }
                 },
             }
         })
@@ -82,25 +85,25 @@ fn index_filter(cfg: Config, dir: String) -> BoxedFilter<(impl Reply,)> {
         .and(warp::path::end())
         .and(warp::any().map(move || cfg.clone()))
         .and(warp::any().map(move || dir.to_string()))
-        .map(
-            |cfg: Config, dir: String| match Path::new(&dir).join("index.md").to_str() {
+        .map(|cfg: Config, dir: String| {
+            let render: RenderHtml = RenderHtml::new().expect("failed to add html template");
+            match Path::new(&dir).join("index.md").to_str() {
                 None => error_repsonse(
                     StatusCode::BAD_REQUEST,
                     format!(r#"failed to join the path: {}, index.md"#, dir),
                 ),
-                Some(path) => match Markdown::new()
-                    .config(cfg)
-                    .path(path)
-                    .map_mut(markdown::to_html)
-                {
+                Some(path) => match Markdown::new().path(path).map_mut(markdown::to_html_body) {
                     Err(e) => error_repsonse(
                         StatusCode::INTERNAL_SERVER_ERROR,
                         format!("failed to generate html from markdown: {}", e),
                     ),
-                    Ok(v) => warp::reply::html(v).into_response(),
+                    Ok(v) => {
+                        let v = render.exec(&cfg, &v).unwrap();
+                        warp::reply::html(v).into_response()
+                    }
                 },
-            },
-        )
+            }
+        })
         .with(warp::cors().allow_any_origin())
         .boxed()
 }
@@ -116,7 +119,7 @@ fn load_config(matches: &ArgMatches) -> Result<Config, Box<dyn Error>> {
     // read config path from cli
     let mut cfg = match matches.get_one::<String>("config-path") {
         None => Config::default(),
-        Some(path) => config::read_config(path)
+        Some(path) => Config::read(path)
             .map_err(|e| (format!("failed to read config \"{}\": {}", path, e)))?,
     };
     if !medup::is_url(&cfg.css_href) {

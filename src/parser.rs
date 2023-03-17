@@ -157,22 +157,6 @@ impl Ast {
         }
     }
 
-    // TODO: optimize
-    pub(crate) fn generate_html(&self, gen: &impl Generate) -> String {
-        let mut buff: Vec<String> = vec![];
-        let body = self.generate_body(gen);
-
-        buff.push(String::from("<!doctype html><html>"));
-        buff.push(gen.head());
-        buff.push(gen.body_begin());
-        buff.push(self.generate_toc(gen));
-        buff.push(body);
-        buff.push(gen.body_end());
-        buff.push(String::from("</html>"));
-
-        buff.join("\n")
-    }
-
     // Iterate through each block of the Ast and process the block into a 'html' string
     pub(crate) fn generate_body(&self, gen: &impl Generate) -> String {
         self.generate(self.blocks(), gen)
@@ -675,7 +659,7 @@ impl Line {
 
         let name = ss.join("");
         (
-            format!("{}-{}", &name.to_lowercase().replace(" ", "-"), self.num),
+            format!("{}-{}", &name.to_lowercase().replace(' ', "-"), self.num),
             name,
         )
     }

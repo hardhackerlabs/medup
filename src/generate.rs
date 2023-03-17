@@ -1,23 +1,6 @@
 use super::SharedLine;
 
 pub trait Generate {
-    fn head(&self) -> String {
-        String::from(
-            r#"<head>
-<meta charset='UTF-8'><meta name='viewport' content='width=device-width initial-scale=1'>
-<title></title>
-</head>"#,
-        )
-    }
-
-    fn body_begin(&self) -> String {
-        String::from("<body>")
-    }
-
-    fn body_end(&self) -> String {
-        String::from("</body>")
-    }
-
     fn body_title(&self, l: &SharedLine) -> String {
         l.borrow().text().trim().to_string()
     }

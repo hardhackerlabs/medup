@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::error::Error;
 
 use super::SharedLine;
-use crate::config::Config;
 use crate::generate::Generate;
 use crate::lexer::{Token, TokenKind};
 use crate::utils::stack;
@@ -12,18 +11,15 @@ use tinytemplate::TinyTemplate;
 
 pub(crate) struct Generator<'generator> {
     template: TinyTemplate<'generator>,
-    cfg: &'generator Config,
     ref_link_tags: &'generator HashMap<String, (String, String)>,
 }
 
 impl<'generator> Generator<'generator> {
     pub(crate) fn new(
-        cfg: &'generator Config,
         ref_link_tags: &'generator HashMap<String, (String, String)>,
     ) -> Result<Self, Box<dyn Error>> {
         let mut g = Generator {
             template: TinyTemplate::new(),
-            cfg,
             ref_link_tags,
         };
         g.init()
@@ -41,8 +37,6 @@ impl<'generator> Generator<'generator> {
             (TP_LINK_NAME, TP_LINK),
             (TP_CODE_NAME, TP_CODE),
             (TP_PLAIN_TEXT_NAME, TP_PLAIN_TEXT),
-            (TP_HEAD_NAME, TP_HEAD),
-            (TP_BODY_BEGIN_NAME, TP_BODY_BEGIN),
         ];
         for (name, tp) in templates {
             self.template.add_template(name, tp)?;
@@ -171,27 +165,6 @@ impl<'generator> Generator<'generator> {
 }
 
 impl<'generator> Generate for Generator<'generator> {
-    fn head(&self) -> String {
-        if !self.cfg.custom_html_head.is_empty() {
-            return self.cfg.custom_html_head.clone();
-        }
-        let ctx = HeadContext {
-            css_href: &self.cfg.css_href,
-        };
-        self.template.render(TP_HEAD_NAME, &ctx).unwrap()
-    }
-
-    fn body_begin(&self) -> String {
-        let ctx = BodyBeginContext {
-            article_class: &self.cfg.add_class_on_article,
-        };
-        self.template.render(TP_BODY_BEGIN_NAME, &ctx).unwrap()
-    }
-
-    fn body_end(&self) -> String {
-        String::from("</article></body>")
-    }
-
     fn body_title(&self, l: &SharedLine) -> String {
         let l = l.borrow();
         let level = l.mark_token().len();
@@ -220,7 +193,7 @@ impl<'generator> Generate for Generator<'generator> {
             .iter()
             .map(|l| {
                 let mut s = self.render_inline(l.borrow().all());
-                if self.cfg.enable_newline_to_br && !s.ends_with("<br>") {
+                if !s.ends_with("<br>") {
                     s.push_str("<br>");
                 }
                 s
@@ -249,7 +222,7 @@ impl<'generator> Generate for Generator<'generator> {
                 let leader = self.render_inline(l.borrow().all());
                 let nesting = l
                     .borrow()
-                    .enter_nested_blocks(&Generator::new(self.cfg, self.ref_link_tags).unwrap());
+                    .enter_nested_blocks(&Generator::new(self.ref_link_tags).unwrap());
                 if !nesting.is_empty() {
                     leader + "\n" + nesting.as_str()
                 } else {
@@ -269,7 +242,7 @@ impl<'generator> Generate for Generator<'generator> {
                 let leader = self.render_inline(l.borrow().all());
                 let nesting = l
                     .borrow()
-                    .enter_nested_blocks(&Generator::new(self.cfg, self.ref_link_tags).unwrap());
+                    .enter_nested_blocks(&Generator::new(self.ref_link_tags).unwrap());
                 if !nesting.is_empty() {
                     leader + "\n" + nesting.as_str()
                 } else {
@@ -307,47 +280,6 @@ impl<'generator> Generate for Generator<'generator> {
             )
             .unwrap()
     }
-}
-
-// header
-const TP_HEAD_NAME: &str = "header";
-const TP_HEAD: &str = r#"
-<head>
-<meta charset='UTF-8'><meta name='viewport' content='width=device-width initial-scale=1'>
-{{ if css_href }} <link rel="stylesheet" type="text/css" href="{ css_href }"> {{ endif }}
-<style>
-        body\{
-                box-sizing: border-box;
-                min-width: 200px;
-                max-width: 900px;
-                margin: 0 auto;
-                padding: 45px;
-        }
-
-        @media (max-width: 767px) \{
-                body\{
-                        padding: 15px;
-                }
-        }
-</style>
-<title></title>
-</head>
-"#;
-
-#[derive(Serialize)]
-struct HeadContext<'head_context> {
-    css_href: &'head_context str,
-}
-
-const TP_BODY_BEGIN_NAME: &str = "body_begin";
-const TP_BODY_BEGIN: &str = r#"
-<body>
-<article{{ if article_class }} class={article_class}{{ endif }}>
-"#;
-
-#[derive(Serialize)]
-struct BodyBeginContext<'body_begin_context> {
-    article_class: &'body_begin_context str,
 }
 
 // title

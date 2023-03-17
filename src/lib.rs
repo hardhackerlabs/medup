@@ -6,7 +6,6 @@ use lazy_static::lazy_static;
 use regex::Regex;
 use url::Url;
 
-pub mod config;
 pub mod generate;
 mod html;
 mod lexer;

@@ -1,4 +1,6 @@
+mod config;
 mod gen;
+mod render_html;
 mod serve;
 
 use crate::gen::proc_gen;

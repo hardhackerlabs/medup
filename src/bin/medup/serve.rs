@@ -13,8 +13,6 @@ use warp::{Filter, Reply};
 
 #[tokio::main]
 pub async fn proc_serve(matches: &ArgMatches) {
-    let cfg: Config = load_config(matches).expect("failed to load config");
-
     let dir = get_dir(matches, "dir");
     println!(
         "---> the directory where markdown files are stored: \"{}\"",
@@ -28,6 +26,7 @@ pub async fn proc_serve(matches: &ArgMatches) {
     );
 
     // All filters are used to match requests
+    let cfg: Config = load_config(matches).expect("failed to load config");
     let filters = static_filter(sdir.to_string())
         .or(articles_filter(cfg.clone(), dir.to_string()))
         .or(index_filter(cfg.clone(), dir.to_string()));
@@ -57,21 +56,29 @@ fn articles_filter(cfg: Config, dir: String) -> BoxedFilter<(impl Reply,)> {
             if !name.ends_with(".md") {
                 name.push_str(".md");
             }
-            let render: RenderHtml = RenderHtml::new().expect("failed to add html template");
-            match Path::new(&dir).join(&name).to_str() {
-                None => error_repsonse(
-                    StatusCode::BAD_REQUEST,
-                    format!(r#"failed to join the path: {}, {}"#, dir, name),
+            match RenderHtml::new() {
+                Err(e) => error_repsonse(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("failed to add html template: {}", e),
                 ),
-                Some(path) => match Markdown::new().path(path).map_mut(markdown::to_html_body) {
-                    Err(e) => error_repsonse(
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        format!("failed to generate html from markdown: {}", e),
+                Ok(render) => match Path::new(&dir).join(&name).to_str() {
+                    None => error_repsonse(
+                        StatusCode::BAD_REQUEST,
+                        format!(r#"failed to join the path: {}, {}"#, dir, name),
                     ),
-                    Ok(v) => {
-                        let v = render.exec(&cfg, &v).unwrap();
-                        warp::reply::html(v).into_response()
-                    }
+                    Some(path) => match Markdown::new().path(path).map_mut(markdown::to_body_toc) {
+                        Err(e) => error_repsonse(
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            format!("failed to generate body from markdown: {}", e),
+                        ),
+                        Ok(v) => match render.exec(&cfg, &v) {
+                            Err(e) => error_repsonse(
+                                StatusCode::INTERNAL_SERVER_ERROR,
+                                format!("failed to render html: {}", e),
+                            ),
+                            Ok(v) => warp::reply::html(v).into_response(),
+                        },
+                    },
                 },
             }
         })
@@ -85,24 +92,30 @@ fn index_filter(cfg: Config, dir: String) -> BoxedFilter<(impl Reply,)> {
         .and(warp::path::end())
         .and(warp::any().map(move || cfg.clone()))
         .and(warp::any().map(move || dir.to_string()))
-        .map(|cfg: Config, dir: String| {
-            let render: RenderHtml = RenderHtml::new().expect("failed to add html template");
-            match Path::new(&dir).join("index.md").to_str() {
+        .map(|cfg: Config, dir: String| match RenderHtml::new() {
+            Err(e) => error_repsonse(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("failed to add html template: {}", e),
+            ),
+            Ok(render) => match Path::new(&dir).join("index.md").to_str() {
                 None => error_repsonse(
                     StatusCode::BAD_REQUEST,
                     format!(r#"failed to join the path: {}, index.md"#, dir),
                 ),
-                Some(path) => match Markdown::new().path(path).map_mut(markdown::to_html_body) {
+                Some(path) => match Markdown::new().path(path).map_mut(markdown::to_body) {
                     Err(e) => error_repsonse(
                         StatusCode::INTERNAL_SERVER_ERROR,
-                        format!("failed to generate html from markdown: {}", e),
+                        format!("failed to generate body from markdown: {}", e),
                     ),
-                    Ok(v) => {
-                        let v = render.exec(&cfg, &v).unwrap();
-                        warp::reply::html(v).into_response()
-                    }
+                    Ok(v) => match render.exec(&cfg, &v) {
+                        Err(e) => error_repsonse(
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            format!("failed to render html: {}", e),
+                        ),
+                        Ok(v) => warp::reply::html(v).into_response(),
+                    },
                 },
-            }
+            },
         })
         .with(warp::cors().allow_any_origin())
         .boxed()

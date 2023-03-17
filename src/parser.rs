@@ -157,38 +157,39 @@ impl Ast {
         }
     }
 
-    // Iterate through each block of the Ast and process the block into a 'html' string
-    pub(crate) fn generate_body(&self, gen: &impl Generate) -> String {
-        self.generate(self.blocks(), gen)
+    // Generate the contents of the document
+    pub(crate) fn generate_content(&self, generator: &impl Generate) -> String {
+        self.generate(self.blocks(), generator)
     }
 
     // Generate the table of contents based on the title blocks and we skipped the level 1 title
-    pub(crate) fn generate_toc(&self, gen: &impl Generate) -> String {
+    pub(crate) fn generate_toc(&self, generator: &impl Generate) -> String {
         let blocks = Self::establish_blocks(&self.toc);
-        self.generate(&blocks, gen)
+        self.generate(&blocks, generator)
     }
 
-    fn generate(&self, blocks: &[Block], gen: &impl Generate) -> String {
+    // Iterate through each block of the Ast and process the block into a 'html' string
+    fn generate(&self, blocks: &[Block], generator: &impl Generate) -> String {
         blocks
             .iter()
             .filter(|b| b.kind() != Kind::Meta__ && b.kind() != Kind::ListNesting__)
             .map(|b| match b.kind() {
-                Kind::Title => gen.body_title(b.first()),
-                Kind::PlainText => gen.body_plain_text(b.contains()),
-                Kind::Dividing => gen.body_dividing(b.first()),
-                Kind::CodeBlock => gen.body_code(b.contains()),
-                Kind::UnorderedList => gen.body_unordered_list(b.contains()),
-                Kind::Blank => gen.body_blank(b.contains()),
+                Kind::Title => generator.render_title(b.first()),
+                Kind::PlainText => generator.render_plain_text(b.contains()),
+                Kind::Dividing => generator.render_dividing(b.first()),
+                Kind::CodeBlock => generator.render_code(b.contains()),
+                Kind::UnorderedList => generator.render_unordered_list(b.contains()),
+                Kind::Blank => generator.render_blank(b.contains()),
                 Kind::Quote => {
                     let s = b
                         .quote_ast
                         .as_ref()
-                        .map(|a| a.generate_body(gen))
+                        .map(|a| a.generate_content(generator))
                         .unwrap_or_else(|| "".to_string());
-                    gen.body_quote(&s)
+                    generator.render_quote(&s)
                 }
-                Kind::OrderedList => gen.body_ordered_list(b.contains()),
-                Kind::CodeBlockMark => gen.body_plain_text(b.contains()), // treat code block mark as plain text
+                Kind::OrderedList => generator.render_ordered_list(b.contains()),
+                Kind::CodeBlockMark => generator.render_plain_text(b.contains()), // treat code block mark as plain text
                 _ => unreachable!(),
             })
             .filter(|s| !s.is_empty())
@@ -582,7 +583,7 @@ impl Line {
         l
     }
 
-    pub(crate) fn enter_nested_blocks(&self, gen: &impl Generate) -> String {
+    pub(crate) fn enter_nested_blocks(&self, generator: &impl Generate) -> String {
         self.nested_blocks
             .iter()
             .filter(|b| {
@@ -595,21 +596,21 @@ impl Line {
                     && b.kind() != Kind::CodeBlock
             })
             .map(|b| match b.kind() {
-                Kind::Title => gen.body_title(b.first()),
-                Kind::PlainText => gen.body_plain_text(b.contains()),
-                Kind::Dividing => gen.body_dividing(b.first()),
-                Kind::CodeBlock => gen.body_code(b.contains()),
-                Kind::UnorderedList => gen.body_unordered_list(b.contains()),
-                Kind::Blank => gen.body_blank(b.contains()),
+                Kind::Title => generator.render_title(b.first()),
+                Kind::PlainText => generator.render_plain_text(b.contains()),
+                Kind::Dividing => generator.render_dividing(b.first()),
+                Kind::CodeBlock => generator.render_code(b.contains()),
+                Kind::UnorderedList => generator.render_unordered_list(b.contains()),
+                Kind::Blank => generator.render_blank(b.contains()),
                 Kind::Quote => {
                     let s = b
                         .quote_ast
                         .as_ref()
-                        .map(|a| a.generate_body(gen))
+                        .map(|a| a.generate_content(generator))
                         .unwrap_or_else(|| "".to_string());
-                    gen.body_quote(&s)
+                    generator.render_quote(&s)
                 }
-                Kind::OrderedList => gen.body_ordered_list(b.contains()),
+                Kind::OrderedList => generator.render_ordered_list(b.contains()),
                 _ => "".to_string(),
             })
             .join("\n")
@@ -671,7 +672,7 @@ mod tests {
 
     struct MockGenerator {}
     impl Generate for MockGenerator {
-        fn body_unordered_list(&self, ls: &[SharedLine]) -> String {
+        fn render_unordered_list(&self, ls: &[SharedLine]) -> String {
             let list: Vec<String> = ls
                 .iter()
                 .map(|l| {

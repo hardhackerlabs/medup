@@ -165,7 +165,7 @@ impl<'generator> Generator<'generator> {
 }
 
 impl<'generator> Generate for Generator<'generator> {
-    fn body_title(&self, l: &SharedLine) -> String {
+    fn render_title(&self, l: &SharedLine) -> String {
         let l = l.borrow();
         let level = l.mark_token().len();
         let value = self.render_inline(l.all());
@@ -184,11 +184,11 @@ impl<'generator> Generate for Generator<'generator> {
         self.template.render(TP_TITLE_NAME, &ctx).unwrap()
     }
 
-    fn body_dividing(&self, _l: &SharedLine) -> String {
+    fn render_dividing(&self, _l: &SharedLine) -> String {
         String::from("<hr>")
     }
 
-    fn body_plain_text(&self, ls: &[SharedLine]) -> String {
+    fn render_plain_text(&self, ls: &[SharedLine]) -> String {
         let mut lines: Vec<String> = ls
             .iter()
             .map(|l| {
@@ -211,11 +211,11 @@ impl<'generator> Generate for Generator<'generator> {
             .unwrap()
     }
 
-    fn body_blank(&self, _ls: &[SharedLine]) -> String {
+    fn render_blank(&self, _ls: &[SharedLine]) -> String {
         String::from("")
     }
 
-    fn body_ordered_list(&self, ls: &[SharedLine]) -> String {
+    fn render_ordered_list(&self, ls: &[SharedLine]) -> String {
         let list: Vec<String> = ls
             .iter()
             .map(|l| {
@@ -235,7 +235,7 @@ impl<'generator> Generate for Generator<'generator> {
             .unwrap()
     }
 
-    fn body_unordered_list(&self, ls: &[SharedLine]) -> String {
+    fn render_unordered_list(&self, ls: &[SharedLine]) -> String {
         let list = ls
             .iter()
             .map(|l| {
@@ -255,13 +255,13 @@ impl<'generator> Generate for Generator<'generator> {
             .unwrap()
     }
 
-    fn body_quote(&self, s: &str) -> String {
+    fn render_quote(&self, s: &str) -> String {
         self.template
             .render(TP_QUOTE_NAME, &QuoteContext { text: s })
             .unwrap()
     }
 
-    fn body_code(&self, ls: &[SharedLine]) -> String {
+    fn render_code(&self, ls: &[SharedLine]) -> String {
         debug_assert!(ls.len() >= 2);
 
         let first = &ls[0];

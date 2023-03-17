@@ -59,9 +59,16 @@ impl<'markdown> Markdown<'markdown> {
     }
 }
 
+// Convert markdown ast into body part of the html and it contains toc
+pub fn to_body_toc(ast: &Ast) -> Result<String, Box<dyn Error>> {
+    let body = ast.generate_content(&html::Generator::new(ast.ref_link_tags())?);
+    let toc = ast.generate_toc(&html::Generator::new(ast.ref_link_tags())?);
+    Ok(toc + &body)
+}
+
 // Convert markdown ast into body part of the html
-pub fn to_html_body(ast: &Ast) -> Result<String, Box<dyn Error>> {
-    Ok(ast.generate_body(&html::Generator::new(ast.ref_link_tags())?))
+pub fn to_body(ast: &Ast) -> Result<String, Box<dyn Error>> {
+    Ok(ast.generate_content(&html::Generator::new(ast.ref_link_tags())?))
 }
 
 // Generate the toc part of the html from markdown ast

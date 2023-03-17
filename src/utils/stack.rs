@@ -23,12 +23,12 @@ where
     }
 
     // Get the element at the top of the stack
-    pub(crate) fn top(&self) -> Option<&T> {
+    pub(crate) fn _top(&self) -> Option<&T> {
         self.queue.last()
     }
 
     // Get the element number in the stack
-    pub(crate) fn len(&self) -> usize {
+    pub(crate) fn _len(&self) -> usize {
         self.queue.len()
     }
 

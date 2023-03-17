@@ -70,7 +70,7 @@ impl<'markdown> Markdown<'markdown> {
 
 // Convert markdown ast into html
 pub fn to_html(ast: &Ast, cfg: &Config) -> Result<String, Box<dyn Error>> {
-    Ok(ast.generate(&html::Generator::new(cfg, ast.ref_link_tags())?))
+    Ok(ast.generate_html(&html::Generator::new(cfg, ast.ref_link_tags())?))
 }
 
 // Convert markdown ast into body part of the html

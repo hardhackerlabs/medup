@@ -683,7 +683,7 @@ pub(crate) enum TokenKind {
 }
 
 // Token is a part of the line, the parser will parse the line into some tokens.
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub(crate) struct Token {
     value: String,
     kind: TokenKind,
@@ -743,7 +743,7 @@ impl Token {
         GenericLinkToken(self)
     }
 
-    fn as_generic_link_mut(&mut self) -> GenericLinkTokenAsMut {
+    pub(crate) fn as_generic_link_mut(&mut self) -> GenericLinkTokenAsMut {
         if self.kind() != TokenKind::Link
             && self.kind() != TokenKind::Image
             && self.kind() != TokenKind::RefLink
@@ -818,19 +818,19 @@ pub(crate) struct GenericLinkTokenAsMut<'generic_link_token_as_mut>(
 );
 
 impl<'generic_link_token_as_mut> GenericLinkTokenAsMut<'generic_link_token_as_mut> {
-    fn insert_name(&mut self, v: &str) {
+    pub(crate) fn insert_name(&mut self, v: &str) {
         if !v.is_empty() {
             self.0.insert("name", v)
         }
     }
 
-    fn insert_location(&mut self, v: &str) {
+    pub(crate) fn insert_location(&mut self, v: &str) {
         if !v.is_empty() {
             self.0.insert("location", v)
         }
     }
 
-    fn insert_title(&mut self, v: &str) {
+    pub(crate) fn insert_title(&mut self, v: &str) {
         if !v.is_empty() {
             self.0.insert(
                 "title",
@@ -840,7 +840,7 @@ impl<'generic_link_token_as_mut> GenericLinkTokenAsMut<'generic_link_token_as_mu
         }
     }
 
-    fn insert_reflink_tag(&mut self, v: &str) {
+    pub(crate) fn insert_reflink_tag(&mut self, v: &str) {
         if !v.is_empty() {
             self.0.insert("tag", v)
         }

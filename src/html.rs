@@ -204,6 +204,7 @@ impl<'generator> Generate for Generator<'generator> {
             is_l4: level == 4,
             is_l5: level == 5,
             is_l6: level == 6,
+            id: l.anchor().0,
             text: value,
         };
 
@@ -352,12 +353,12 @@ struct BodyBeginContext<'body_begin_context> {
 // title
 const TP_TITLE_NAME: &str = "title";
 const TP_TITLE: &str = "\
-{{ if is_l1 }}<h1>{text}</h1>{{ endif }}\
-{{ if is_l2 }}<h2>{text}</h2>{{ endif }}\
-{{ if is_l3 }}<h3>{text}</h3>{{ endif }}\
-{{ if is_l4 }}<h4>{text}</h4>{{ endif }}\
-{{ if is_l5 }}<h5>{text}</h5>{{ endif }}\
-{{ if is_l6 }}<h6>{text}</h6>{{ endif }}";
+{{ if is_l1 }}<h1 id=\"{id}\">{text}</h1>{{ endif }}\
+{{ if is_l2 }}<h2 id=\"{id}\">{text}</h2>{{ endif }}\
+{{ if is_l3 }}<h3 id=\"{id}\">{text}</h3>{{ endif }}\
+{{ if is_l4 }}<h4 id=\"{id}\">{text}</h4>{{ endif }}\
+{{ if is_l5 }}<h5 id=\"{id}\">{text}</h5>{{ endif }}\
+{{ if is_l6 }}<h6 id=\"{id}\">{text}</h6>{{ endif }}";
 
 #[derive(Serialize)]
 struct TitleContext {
@@ -367,6 +368,7 @@ struct TitleContext {
     is_l4: bool,
     is_l5: bool,
     is_l6: bool,
+    id: String,
     text: String,
 }
 

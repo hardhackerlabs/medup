@@ -1,5 +1,4 @@
 use std::cell::RefCell;
-use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::fs::File;
@@ -10,7 +9,6 @@ use std::{fmt, io};
 use super::SharedLine;
 use crate::generate::Generate;
 use crate::lexer::{Lexer, Token, TokenKind};
-use crate::utils::stack::Stack;
 
 use itertools::Itertools;
 use v_htmlescape as htmlescape;
@@ -23,6 +21,8 @@ pub struct Ast {
     blocks: Vec<Block>,
     // Store all tags of the ref link, the map is "tag -> (location, title)"
     ref_link_tags: HashMap<String, (String, String)>,
+    // The lines of the table of contents, it's a unordered list
+    toc: Vec<SharedLine>,
 }
 
 impl Ast {
@@ -32,6 +32,7 @@ impl Ast {
             document: vec![Rc::new(RefCell::new(Line::meta()))],
             blocks: vec![],
             ref_link_tags: HashMap::new(),
+            toc: vec![],
         }
     }
 
@@ -113,6 +114,7 @@ impl Ast {
         lazy_queue.iter().for_each(|l| l.borrow_mut().parse());
         lazy_queue.clear();
         self.blocks = Self::establish_blocks(&self.document);
+        self.init_toc_lines();
 
         Ok(())
     }
@@ -156,13 +158,14 @@ impl Ast {
     }
 
     // TODO: optimize
-    pub(crate) fn generate(&self, gen: &impl Generate) -> String {
+    pub(crate) fn generate_html(&self, gen: &impl Generate) -> String {
         let mut buff: Vec<String> = vec![];
         let body = self.generate_body(gen);
 
         buff.push(String::from("<!doctype html><html>"));
         buff.push(gen.head());
         buff.push(gen.body_begin());
+        buff.push(self.generate_toc(gen));
         buff.push(body);
         buff.push(gen.body_end());
         buff.push(String::from("</html>"));
@@ -172,7 +175,17 @@ impl Ast {
 
     // Iterate through each block of the Ast and process the block into a 'html' string
     pub(crate) fn generate_body(&self, gen: &impl Generate) -> String {
-        self.blocks()
+        self.generate(self.blocks(), gen)
+    }
+
+    // Generate the table of contents based on the title blocks and we skipped the level 1 title
+    pub(crate) fn generate_toc(&self, gen: &impl Generate) -> String {
+        let blocks = Self::establish_blocks(&self.toc);
+        self.generate(&blocks, gen)
+    }
+
+    fn generate(&self, blocks: &[Block], gen: &impl Generate) -> String {
+        blocks
             .iter()
             .filter(|b| b.kind() != Kind::Meta__ && b.kind() != Kind::ListNesting__)
             .map(|b| match b.kind() {
@@ -198,50 +211,6 @@ impl Ast {
             .join("\n\n")
     }
 
-    // Generate the table of contents based on the title blocks and we skipped the level 1 title
-    pub(crate) fn generate_toc(&self, gen: &impl Generate) -> String {
-        let mut stack: Stack<usize> = Stack::new();
-        let mut buff: Vec<String> = vec![];
-
-        for b in self.blocks().iter().filter(|b| b.kind() == Kind::Title) {
-            for l in b
-                .contains()
-                .iter()
-                .filter(|l| l.borrow().mark_token().len() > 1)
-            {
-                let level = l.borrow().mark_token().len();
-                loop {
-                    match stack.top() {
-                        None => {
-                            stack.push(level);
-                            buff.push(String::from("<ul>"));
-                            break;
-                        }
-                        Some(top_level) => match top_level.cmp(&level) {
-                            Ordering::Greater => {
-                                stack.pop();
-                                buff.push(String::from("</ul>"));
-                            }
-                            Ordering::Less => {
-                                stack.push(level);
-                                buff.push(String::from("<ul>"));
-                                break;
-                            }
-                            Ordering::Equal => {
-                                break;
-                            }
-                        },
-                    }
-                }
-                buff.push(format!("<li>{}</li>", gen.body_title(l)));
-            }
-        }
-        for _ in 0..stack.len() {
-            buff.push(String::from("</ul>"));
-        }
-        buff.join("\n")
-    }
-
     // Count the lines in ast
     pub(crate) fn count_lines(&self) -> usize {
         self.document.len() - 1
@@ -253,6 +222,52 @@ impl Ast {
 
     fn blocks(&self) -> &Vec<Block> {
         &self.blocks
+    }
+
+    fn init_toc_lines(&mut self) {
+        const MIN_LEVEL: usize = 1;
+        const MAX_LEVEL: usize = 6;
+
+        for l in self.document.iter().filter(|l| {
+            l.borrow().kind == Kind::Title
+                && l.borrow().mark_token().len() >= MIN_LEVEL
+                && l.borrow().mark_token().len() <= MAX_LEVEL
+        }) {
+            let mut buff: Vec<Token> = vec![];
+
+            // create a new indent token with white space.
+            let level = l.borrow().mark_token().len();
+            if level > MIN_LEVEL {
+                buff.push(Token::new(
+                    "  ".repeat(level - MIN_LEVEL),
+                    TokenKind::WhiteSpace,
+                ));
+            }
+
+            // create a new unordered mark token
+            buff.push(Token::new("*".to_string(), TokenKind::UnorderedMark));
+
+            // create a new link token
+            let (id, name) = l.borrow().anchor();
+            let location = format!("#{}", id);
+
+            let mut t = Token::new(format!("[{}]({})", name, location), TokenKind::Link);
+            t.as_generic_link_mut().insert_name(&name);
+            t.as_generic_link_mut().insert_location(&location);
+            buff.push(t);
+
+            // create a new line for toc
+            let l2 = Line {
+                kind: Kind::UnorderedList,
+                buff,
+                num: 0,
+                text: name,
+                nested_lines: vec![],
+                nested_blocks: vec![],
+            };
+
+            self.toc.push(Rc::new(RefCell::new(l2)));
+        }
     }
 
     fn establish_blocks(all: &[SharedLine]) -> Vec<Block> {
@@ -645,6 +660,25 @@ impl Line {
     pub(crate) fn html_escaped_text(&self) -> String {
         htmlescape::escape(self.text()).to_string()
     }
+
+    // create a anchor name and id for the line
+    pub(crate) fn anchor(&self) -> (String, String) {
+        if self.kind != Kind::Title {
+            panic!("Only title line can create anchor");
+        }
+        let ss: Vec<String> = self
+            .all()
+            .iter()
+            .filter(|t| t.kind() != TokenKind::WhiteSpace && t.kind() != TokenKind::TitleMark)
+            .map(|t| t.html_escaped_value())
+            .collect();
+
+        let name = ss.join("");
+        (
+            format!("{}-{}", &name.to_lowercase().replace(" ", "-"), self.num),
+            name,
+        )
+    }
 }
 
 #[cfg(test)]
@@ -652,7 +686,24 @@ mod tests {
     use super::*;
 
     struct MockGenerator {}
-    impl Generate for MockGenerator {}
+    impl Generate for MockGenerator {
+        fn body_unordered_list(&self, ls: &[SharedLine]) -> String {
+            let list: Vec<String> = ls
+                .iter()
+                .map(|l| {
+                    let leader = l.borrow().text().trim().to_string();
+                    let nesting = l.borrow().enter_nested_blocks(&MockGenerator {});
+                    if !nesting.is_empty() {
+                        leader + nesting.as_str()
+                    } else {
+                        leader
+                    }
+                })
+                .map(|s| format!("<li>{}</li>", s))
+                .collect();
+            format!("<ul>{}</ul>", list.join(""))
+        }
+    }
 
     fn exec_document_cases(doc: &Vec<SharedLine>) -> Vec<(Kind, usize, usize, usize)> {
         doc.iter()
@@ -808,19 +859,27 @@ mod tests {
 ## header2
 "#;
 
-        let dest = r#"<ul>
-<li>## header2</li>
-<li>## header2</li>
-<ul>
-<li>### header3</li>
-<ul>
-<li>#### header4</li>
-</ul>
-</ul>
-<li>## header2</li>
-</ul>"#;
+        let dest = "<ul>\
+<li>header1\
+<ul>\
+<li>header2</li>\
+<li>header2\
+<ul>\
+<li>header3\
+<ul>\
+<li>header4</li>\
+</ul>\
+</li>\
+</ul>\
+</li>\
+<li>header2</li>\
+</ul>\
+</li>\
+</ul>";
         let mut ast = Ast::new();
         ast.parse_string(md).unwrap();
+
+        assert_eq!(ast.toc.len(), 6);
 
         let s = ast.generate_toc(&MockGenerator {});
         assert_eq!(s, dest);

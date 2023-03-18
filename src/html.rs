@@ -53,7 +53,8 @@ impl<'generator> Generator<'generator> {
         for t in tokens {
             match t.kind() {
                 TokenKind::Text | TokenKind::LineBreak => {
-                    buff.push_str(t.html_escaped_value().as_str())
+                    // buff.push_str(t.html_escaped_value().as_str())
+                    buff.push_str(t.value());
                 }
                 TokenKind::CodeMark => {
                     let matched = stack.pop_or_push((t.kind(), t.value()), |e| {

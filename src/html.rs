@@ -46,15 +46,18 @@ impl<'generator> Generator<'generator> {
         Ok(())
     }
 
-    fn render_inline(&self, tokens: &Vec<Token>) -> String {
+    fn render_inline(&self, tokens: &Vec<Token>, escape_text: bool) -> String {
         let mut stack: stack::Stack<(TokenKind, &str)> = stack::Stack::new();
         let mut buff = String::new();
 
         for t in tokens {
             match t.kind() {
                 TokenKind::Text | TokenKind::LineBreak => {
-                    // buff.push_str(t.html_escaped_value().as_str())
-                    buff.push_str(t.value());
+                    if escape_text {
+                        buff.push_str(t.html_escaped_value().as_str())
+                    } else {
+                        buff.push_str(t.value());
+                    }
                 }
                 TokenKind::CodeMark => {
                     let matched = stack.pop_or_push((t.kind(), t.value()), |e| {
@@ -169,7 +172,7 @@ impl<'generator> Generate for Generator<'generator> {
     fn render_title(&self, l: &SharedLine) -> String {
         let l = l.borrow();
         let level = l.mark_token().len();
-        let value = self.render_inline(l.all());
+        let value = self.render_inline(l.all(), true);
 
         let ctx = TitleContext {
             is_l1: level == 1,
@@ -193,7 +196,7 @@ impl<'generator> Generate for Generator<'generator> {
         let mut lines: Vec<String> = ls
             .iter()
             .map(|l| {
-                let mut s = self.render_inline(l.borrow().all());
+                let mut s = self.render_inline(l.borrow().all(), false);
                 if !s.ends_with("<br>") {
                     s.push_str("<br>");
                 }
@@ -220,7 +223,7 @@ impl<'generator> Generate for Generator<'generator> {
         let list: Vec<String> = ls
             .iter()
             .map(|l| {
-                let leader = self.render_inline(l.borrow().all());
+                let leader = self.render_inline(l.borrow().all(), true);
                 let nesting = l
                     .borrow()
                     .enter_nested_blocks(&Generator::new(self.ref_link_tags).unwrap());
@@ -240,7 +243,7 @@ impl<'generator> Generate for Generator<'generator> {
         let list = ls
             .iter()
             .map(|l| {
-                let leader = self.render_inline(l.borrow().all());
+                let leader = self.render_inline(l.borrow().all(), true);
                 let nesting = l
                     .borrow()
                     .enter_nested_blocks(&Generator::new(self.ref_link_tags).unwrap());

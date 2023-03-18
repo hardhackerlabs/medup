@@ -113,8 +113,8 @@ impl Ast {
 
         lazy_queue.iter().for_each(|l| l.borrow_mut().parse());
         lazy_queue.clear();
-        self.blocks = Self::establish_blocks(&self.document);
-        self.init_toc_lines();
+        self.init_block();
+        self.init_toc();
 
         Ok(())
     }
@@ -209,7 +209,7 @@ impl Ast {
         &self.blocks
     }
 
-    fn init_toc_lines(&mut self) {
+    fn init_toc(&mut self) {
         const MIN_LEVEL: usize = 1;
         const MAX_LEVEL: usize = 6;
 
@@ -253,6 +253,10 @@ impl Ast {
 
             self.toc.push(Rc::new(RefCell::new(l2)));
         }
+    }
+
+    fn init_block(&mut self) {
+        self.blocks = Self::establish_blocks(&self.document);
     }
 
     fn establish_blocks(all: &[SharedLine]) -> Vec<Block> {

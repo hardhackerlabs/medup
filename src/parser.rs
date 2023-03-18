@@ -6,9 +6,9 @@ use std::io::{BufRead, BufReader};
 use std::rc::Rc;
 use std::{fmt, io};
 
-use super::SharedLine;
-use crate::generate::Generate;
 use crate::lexer::{Lexer, Token, TokenKind};
+use crate::Generate;
+use crate::SharedLine;
 
 use itertools::Itertools;
 use v_htmlescape as htmlescape;

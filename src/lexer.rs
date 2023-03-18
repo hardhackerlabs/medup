@@ -1,9 +1,7 @@
-use std::{
-    cmp::Ordering,
-    collections::{HashMap, VecDeque},
-};
+use std::cmp::Ordering;
+use std::collections::{HashMap, VecDeque};
 
-use crate::utils::{cursor, stack};
+use crate::utils::{self, cursor, stack};
 
 use itertools::Itertools;
 use v_htmlescape as htmlescape;
@@ -410,13 +408,13 @@ impl<'lexer> Lexer<'lexer> {
                 (InlineState::QuickLink(begin), _) => {
                     if curr.is_whitespace() {
                         let s = utf8_slice::slice(content, begin + 1, curr_ix).trim();
-                        if !s.is_empty() && !super::is_url(s) && !super::is_email(s) {
+                        if !s.is_empty() && !utils::is_url(s) && !utils::is_email(s) {
                             state = InlineState::Plain;
                         }
                     }
                     if curr == '>' {
                         let link = utf8_slice::slice(content, begin + 1, curr_ix).trim();
-                        if super::is_url(link) || super::is_email(link) {
+                        if utils::is_url(link) || utils::is_email(link) {
                             // cursor -> begin
                             cursor.consume_to(begin, |s| {
                                 buff.push(Token::new(s.to_string(), TokenKind::Text));
@@ -465,7 +463,7 @@ impl<'lexer> Lexer<'lexer> {
         let (kind, location, title) = match fields.len().cmp(&2) {
             Ordering::Less => (kind, s2, ""),
             Ordering::Equal => {
-                if super::is_quoted_string(fields[1]) {
+                if utils::is_quoted_string(fields[1]) {
                     (kind, fields[0], fields[1])
                 } else {
                     (TokenKind::Text, "", "")

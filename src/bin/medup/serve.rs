@@ -135,7 +135,7 @@ fn load_config(matches: &ArgMatches) -> Result<Config, Box<dyn Error>> {
         Some(path) => Config::read(path)
             .map_err(|e| (format!("failed to read config \"{}\": {}", path, e)))?,
     };
-    if !medup::is_url(&cfg.css_href) {
+    if !medup::utils::is_url(&cfg.css_href) {
         // add the static resource dir to css_href
         if let Some(href) = Path::new("/static")
             .join(&cfg.css_href)

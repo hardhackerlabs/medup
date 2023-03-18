@@ -1,34 +1,44 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use email_address::EmailAddress;
-use lazy_static::lazy_static;
-use regex::Regex;
-use url::Url;
-
-pub mod generate;
 mod html;
 mod lexer;
 pub mod markdown;
 mod parser;
-mod utils;
+pub mod utils;
 
 pub type SharedLine = Rc<RefCell<parser::Line>>;
 
-// This regex is used to match a string with double quotes("") or single quotes('')
-lazy_static! {
-    static ref D_QUOTED_STRING_RE: Regex = Regex::new("^\"([^\"\\\\]|\\\\.)*\"$").unwrap();
-    static ref S_QUOTED_STRING_RE: Regex = Regex::new("^\'([^\'\\\\]|\\\\.)*\'$").unwrap();
-}
+pub trait Generate {
+    fn render_title(&self, l: &SharedLine) -> String {
+        l.borrow().text().trim().to_string()
+    }
 
-pub fn is_quoted_string(s: &str) -> bool {
-    D_QUOTED_STRING_RE.is_match(s) || S_QUOTED_STRING_RE.is_match(s)
-}
+    fn render_dividing(&self, _l: &SharedLine) -> String {
+        "".to_string()
+    }
 
-pub fn is_url(s: &str) -> bool {
-    Url::try_from(s).is_ok()
-}
+    fn render_plain_text(&self, _ls: &[SharedLine]) -> String {
+        "".to_string()
+    }
 
-pub fn is_email(s: &str) -> bool {
-    EmailAddress::is_valid(s)
+    fn render_blank(&self, _ls: &[SharedLine]) -> String {
+        "".to_string()
+    }
+
+    fn render_ordered_list(&self, _ls: &[SharedLine]) -> String {
+        "".to_string()
+    }
+
+    fn render_unordered_list(&self, _ls: &[SharedLine]) -> String {
+        "".to_string()
+    }
+
+    fn render_quote(&self, _s: &str) -> String {
+        "".to_string()
+    }
+
+    fn render_code(&self, _ls: &[SharedLine]) -> String {
+        "".to_string()
+    }
 }

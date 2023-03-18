@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 use std::error::Error;
 
-use super::SharedLine;
-use crate::generate::Generate;
 use crate::lexer::{Token, TokenKind};
 use crate::utils::stack;
+use crate::Generate;
+use crate::SharedLine;
 
 use serde::Serialize;
 use tinytemplate::TinyTemplate;

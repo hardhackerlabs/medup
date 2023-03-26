@@ -21,8 +21,8 @@ pub struct Ast {
     blocks: Vec<Block>,
     // Store all tags of the ref link, the map is "tag -> (location, title)"
     ref_link_tags: HashMap<String, (String, String)>,
-    // The lines of the table of contents, it's a unordered list
-    toc: Vec<SharedLine>,
+    // The block of the table of contents, it's a unordered list
+    toc: Vec<Block>,
 }
 
 impl Ast {
@@ -71,41 +71,37 @@ impl Ast {
             ln += 1;
 
             let l = Line::new(ln, buf);
-            let lrc = Rc::new(RefCell::new(l));
+            let lref = Rc::new(RefCell::new(l));
 
             // add the scope block to reduce the lifecycle of the 'l' (l = lrc.borrow_mut())
             {
-                let mut l = lrc.borrow_mut();
+                let mut l = lref.borrow_mut();
 
-                match (l.weak_parse(), is_lazy) {
-                    (Kind::CodeBlockMark, true) => {
-                        // need to close the lazy parsing
-                        is_lazy = false;
-                        lazy_queue.clear();
-                        // parse it really
+                match l.weak_parse() {
+                    Kind::TocPosition => l.without_parse(Kind::TocPosition),
+                    Kind::CodeBlockMark => {
                         l.parse();
+                        if is_lazy {
+                            lazy_queue.clear();
+                        }
+                        is_lazy = !is_lazy;
                     }
-                    (Kind::CodeBlockMark, false) => {
-                        // need to open the lazy parsing
-                        is_lazy = true;
-                        // parse it really
-                        l.parse();
+                    Kind::PlainText => {
+                        if is_lazy {
+                            // lazy parsing
+                            lazy_queue.push(Rc::clone(&lref));
+                            l.without_parse(Kind::CodeBlock);
+                        } else {
+                            l.parse();
+                        }
                     }
-                    (_, true) => {
-                        // lazy parsing
-                        lazy_queue.push(Rc::clone(&lrc));
-                        l.without_parse(Kind::CodeBlock);
-                    }
-                    _ => {
-                        // parse it really
-                        l.parse();
-                    }
+                    _ => unreachable!(),
                 }
 
                 // postpone
                 l.pick_reflink_tags(&mut self.ref_link_tags);
             }
-            self.document.push(lrc);
+            self.document.push(lref);
 
             debug_assert_eq!(self.count_lines(), ln);
             debug_assert_eq!(self.document[ln].borrow().num, ln);
@@ -113,8 +109,8 @@ impl Ast {
 
         lazy_queue.iter().for_each(|l| l.borrow_mut().parse());
         lazy_queue.clear();
-        self.init_block();
-        self.init_toc();
+        self.init_content_block();
+        self.init_toc_block();
 
         Ok(())
     }
@@ -131,41 +127,14 @@ impl Ast {
         Ok((num_bytes, buf))
     }
 
-    // Parse quote block into a new ast
-    fn parse_quote_block(blocks: &mut [Block]) {
-        for b in blocks.iter_mut().filter(|b| b.kind() == Kind::Quote) {
-            let mut ast = Ast::new();
-
-            // Since there is a newline(\n) character at the end of each line, so we use empty string ("") to join them
-            let text = b
-                .contains()
-                .iter()
-                .map(|e| {
-                    let e = e.borrow();
-                    let last = e.last_token();
-                    if last.kind() == TokenKind::Text {
-                        last.value().to_string()
-                    } else {
-                        "\n".to_string()
-                    }
-                })
-                .collect::<Vec<String>>()
-                .join("");
-
-            ast.parse_string(&text).unwrap_or_else(|_e| unreachable!());
-            b.quote_ast = Some(ast);
-        }
-    }
-
     // Generate the contents of the document
     pub(crate) fn generate_content(&self, generator: &impl Generate) -> String {
-        self.generate(self.blocks(), generator)
+        self.generate(self.content_blocks(), generator)
     }
 
     // Generate the table of contents based on the title blocks and we skipped the level 1 title
     pub(crate) fn generate_toc(&self, generator: &impl Generate) -> String {
-        let blocks = Self::establish_blocks(&self.toc);
-        self.generate(&blocks, generator)
+        self.generate(&self.toc, generator)
     }
 
     // Iterate through each block of the Ast and process the block into a 'html' string
@@ -190,6 +159,7 @@ impl Ast {
                 }
                 Kind::OrderedList => generator.render_ordered_list(b.contains()),
                 Kind::CodeBlockMark => generator.render_plain_text(b.contains()), // treat code block mark as plain text
+                Kind::TocPosition => self.generate_toc(generator), // Note: here is a toc position
                 _ => unreachable!(),
             })
             .filter(|s| !s.is_empty())
@@ -205,13 +175,15 @@ impl Ast {
         &self.ref_link_tags
     }
 
-    fn blocks(&self) -> &Vec<Block> {
+    fn content_blocks(&self) -> &Vec<Block> {
         &self.blocks
     }
 
-    fn init_toc(&mut self) {
+    fn init_toc_block(&mut self) {
         const MIN_LEVEL: usize = 1;
         const MAX_LEVEL: usize = 6;
+
+        let mut lines: Vec<SharedLine> = vec![];
 
         for l in self.document.iter().filter(|l| {
             l.borrow().kind == Kind::Title
@@ -245,35 +217,38 @@ impl Ast {
             let l2 = Line {
                 kind: Kind::UnorderedList,
                 buff,
-                num: 0,
+                num: l.borrow().num,
                 text: name,
                 nested_lines: vec![],
                 nested_blocks: vec![],
             };
 
-            self.toc.push(Rc::new(RefCell::new(l2)));
+            lines.push(Rc::new(RefCell::new(l2)));
         }
+
+        self.toc = Self::establish_blocks(&lines);
     }
 
-    fn init_block(&mut self) {
+    fn init_content_block(&mut self) {
         self.blocks = Self::establish_blocks(&self.document);
     }
 
-    fn establish_blocks(all: &[SharedLine]) -> Vec<Block> {
+    fn establish_blocks(lines: &[SharedLine]) -> Vec<Block> {
         let mut blocks: Vec<Block> = vec![];
 
         let mut leader: Option<&SharedLine> = None;
         let mut state: Option<Kind> = None;
 
-        let mut iter = all
+        let mut iter = lines
             .iter()
-            .filter(|x| x.borrow().kind != Kind::Meta__)
+            .filter(|l| l.borrow().kind != Kind::Meta__)
             .peekable();
+
         while let Some(l) = iter.next() {
             let mut curr_line = l.borrow_mut();
-            // Note: Don't use 'continue' statement in the match expression, because
-            // we will save the kind of the previous block after the 'match'.
-            match state.unwrap_or(curr_line.kind) {
+            let curr_state = state.unwrap_or(curr_line.kind);
+
+            match curr_state {
                 Kind::UnorderedList | Kind::OrderedList => {
                     if let Some(b) = blocks.last_mut().filter(|b| b.kind() == curr_line.kind) {
                         b.push(Rc::clone(l));
@@ -340,7 +315,7 @@ impl Ast {
                 }
                 Kind::Dividing => {
                     // get kind of the previous line
-                    let prev = all.get(curr_line.num - 1).map(|v| v.borrow().kind);
+                    let prev = lines.get(curr_line.num - 1).map(|v| v.borrow().kind);
                     // get kind of the next line
                     let next = iter.peek().map(|v| v.borrow().kind);
 
@@ -369,6 +344,9 @@ impl Ast {
                 Kind::Title => {
                     Self::insert_block(&mut blocks, Block::new(Rc::clone(l), Kind::Title));
                 }
+                Kind::TocPosition => {
+                    Self::insert_block(&mut blocks, Block::new(Rc::clone(l), Kind::TocPosition));
+                }
                 Kind::Meta__ => unreachable!(),
             } // end of match
         } // end of while
@@ -390,6 +368,32 @@ impl Ast {
 
         Self::parse_quote_block(&mut blocks);
         blocks
+    }
+
+    // Parse quote block into a new ast
+    fn parse_quote_block(blocks: &mut [Block]) {
+        for b in blocks.iter_mut().filter(|b| b.kind() == Kind::Quote) {
+            let mut ast = Ast::new();
+
+            // Since there is a newline(\n) character at the end of each line, so we use empty string ("") to join them
+            let text = b
+                .contains()
+                .iter()
+                .map(|e| {
+                    let e = e.borrow();
+                    let last = e.last_token();
+                    if last.kind() == TokenKind::Text {
+                        last.value().to_string()
+                    } else {
+                        "\n".to_string()
+                    }
+                })
+                .collect::<Vec<String>>()
+                .join("");
+
+            ast.parse_string(&text).unwrap_or_else(|_e| unreachable!());
+            b.quote_ast = Some(ast);
+        }
     }
 
     fn insert_block(blocks: &mut Vec<Block>, mut b: Block) {
@@ -430,6 +434,7 @@ enum Kind {
     Quote,
     CodeBlockMark,
     CodeBlock,
+    TocPosition,
     Meta__,
     ListNesting__,
 }
@@ -494,8 +499,8 @@ impl Line {
             text: line,
             kind: Kind::PlainText,
             buff: vec![],
-            nested_lines: vec![],
-            nested_blocks: vec![],
+            nested_lines: vec![], // Note: fill the nested lines when establish blocks
+            nested_blocks: vec![], // Note: fill the nested blocks when establish blocks
         }
     }
 
@@ -523,8 +528,18 @@ impl Line {
     }
 
     fn weak_parse(&self) -> Kind {
-        if self.text().trim_start().starts_with("```") {
+        let l = self.text().trim();
+        if l.starts_with("```") {
+            // To parse the line of code block mark
             Kind::CodeBlockMark
+        } else if l.starts_with("<!--") && l.ends_with("-->") {
+            // To parse the line of toc position (<!-- -->)
+            let x: &[_] = &['<', '>', '!', '-', ' '];
+            if l.trim_matches(x).eq_ignore_ascii_case("toc") {
+                Kind::TocPosition
+            } else {
+                Kind::PlainText
+            }
         } else {
             Kind::PlainText
         }
@@ -755,7 +770,7 @@ mod tests {
             (Kind::CodeBlockMark, 1, None),
             (Kind::PlainText, 3, None),
         ];
-        assert_eq!(exec_blocks_cases(ast.blocks()), blocks);
+        assert_eq!(exec_blocks_cases(ast.content_blocks()), blocks);
     }
 
     #[test]
@@ -790,7 +805,7 @@ mod tests {
                 (Kind::Blank, 1, None),
                 (Kind::PlainText, 1, None),
             ];
-            assert_eq!(exec_blocks_cases(ast.blocks()), blocks);
+            assert_eq!(exec_blocks_cases(ast.content_blocks()), blocks);
         }
     }
 
@@ -819,7 +834,7 @@ mod tests {
 
         // (block kind, line count in block, line count of quote ast)
         let blocks = vec![(Kind::Title, 1, None), (Kind::UnorderedList, 3, None)];
-        assert_eq!(exec_blocks_cases(ast.blocks()), blocks);
+        assert_eq!(exec_blocks_cases(ast.content_blocks()), blocks);
     }
 
     #[test]
@@ -867,8 +882,6 @@ mod tests {
 </ul>";
         let mut ast = Ast::new();
         ast.parse_string(md).unwrap();
-
-        assert_eq!(ast.toc.len(), 6);
 
         let s = ast.generate_toc(&MockGenerator {});
         assert_eq!(s, dest);

@@ -1,3 +1,5 @@
+<!-- toc -->
+
 # Medup Markdown 语法介绍
 
 Markdown 是一种纯文本格式的标记语言，它使用简单的标记语法来格式化文本。由 **Daring Fireball** 创建，markdown 原始语法在 [这里](https://daringfireball.net/projects/markdown/syntax)；多数 markdown parser 都兼容了标准语法，但也存在一些自定义的扩展语法。**Medup** 希望能够在保证常规标准语法的同时，能够实现掉所有主流的扩展语法。

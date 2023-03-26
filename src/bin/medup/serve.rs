@@ -66,7 +66,7 @@ fn articles_filter(cfg: Config, dir: String) -> BoxedFilter<(impl Reply,)> {
                         StatusCode::BAD_REQUEST,
                         format!(r#"failed to join the path: {}, {}"#, dir, name),
                     ),
-                    Some(path) => match Markdown::new().path(path).map_mut(markdown::to_body_toc) {
+                    Some(path) => match Markdown::new().path(path).map_mut(markdown::to_body) {
                         Err(e) => error_repsonse(
                             StatusCode::INTERNAL_SERVER_ERROR,
                             format!("failed to generate body from markdown: {}", e),

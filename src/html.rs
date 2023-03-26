@@ -8,6 +8,7 @@ use crate::SharedLine;
 
 use serde::Serialize;
 use tinytemplate::TinyTemplate;
+use v_htmlescape as htmlescape;
 
 pub(crate) struct Generator<'generator> {
     template: TinyTemplate<'generator>,
@@ -271,7 +272,7 @@ impl<'generator> Generate for Generator<'generator> {
         let first = &ls[0];
         let text: String = ls[1..ls.len() - 1] // skip the first and last elements
             .iter()
-            .map(|l| l.borrow().html_escaped_text())
+            .map(|l| htmlescape::escape(l.borrow().text()).to_string())
             .collect();
 
         self.template

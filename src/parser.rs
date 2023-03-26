@@ -77,10 +77,10 @@ impl Ast {
             {
                 let mut l = lref.borrow_mut();
 
-                match l.weak_parse() {
-                    Kind::TocPosition => l.without_parse(Kind::TocPosition),
+                match l.pre_parse() {
+                    Kind::TocPosition => l.weak_parse(Kind::TocPosition),
                     Kind::CodeBlockMark => {
-                        l.parse();
+                        l.strong_parse();
                         if is_lazy {
                             lazy_queue.clear();
                         }
@@ -90,9 +90,9 @@ impl Ast {
                         if is_lazy {
                             // lazy parsing
                             lazy_queue.push(Rc::clone(&lref));
-                            l.without_parse(Kind::CodeBlock);
+                            l.weak_parse(Kind::CodeBlock);
                         } else {
-                            l.parse();
+                            l.strong_parse();
                         }
                     }
                     _ => unreachable!(),
@@ -107,7 +107,9 @@ impl Ast {
             debug_assert_eq!(self.document[ln].borrow().num, ln);
         } // end of loop
 
-        lazy_queue.iter().for_each(|l| l.borrow_mut().parse());
+        lazy_queue
+            .iter()
+            .for_each(|l| l.borrow_mut().strong_parse());
         lazy_queue.clear();
         self.init_content_block();
         self.init_toc_block();
@@ -504,13 +506,14 @@ impl Line {
         }
     }
 
-    fn without_parse(&mut self, kind: Kind) {
+    // Not parse the line text into tokens, just set the kind of the line.
+    fn weak_parse(&mut self, kind: Kind) {
         self.kind = kind;
     }
 
     // Parse a line of text into 'Line' struct that contains multi tokens.
     // Line's kind is determinded by the mark token's kind.
-    fn parse(&mut self) {
+    fn strong_parse(&mut self) {
         self.buff = Lexer::new(&self.text).split();
 
         self.kind = match self.mark_token().kind() {
@@ -527,7 +530,8 @@ impl Line {
         debug_assert!(!self.all().is_empty());
     }
 
-    fn weak_parse(&self) -> Kind {
+    // Try to parse the line text simply
+    fn pre_parse(&self) -> Kind {
         let l = self.text().trim();
         if l.starts_with("```") {
             // To parse the line of code block mark
@@ -598,7 +602,7 @@ impl Line {
 
     fn meta() -> Self {
         let mut l = Self::new(0, "meta".to_string());
-        l.without_parse(Kind::Meta__);
+        l.weak_parse(Kind::Meta__);
         l
     }
 

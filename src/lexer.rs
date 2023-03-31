@@ -457,8 +457,16 @@ impl<'lexer> Lexer<'lexer> {
         buff
     }
 
+    // the argument `s` is the whole string of the link
+    // .e.g. `[s1](s2)`
+    // the argument `s1` is the name of the link
+    // the argument `s2` is the location of the link
     fn split_generic_link(s: &str, s1: &str, s2: &str, kind: TokenKind) -> Token {
         let s2 = s2.trim();
+
+        // split the location into two parts
+        // the first part is the link, the second part is the title
+        // .e.g. `https://example.com "title"`
         let fields: Vec<&str> = s2.splitn(2, [' ', '\t']).collect();
         let (kind, location, title) = match fields.len().cmp(&2) {
             Ordering::Less => (kind, s2, ""),
@@ -686,7 +694,7 @@ pub(crate) struct Token {
     value: String,
     kind: TokenKind,
     second_kind: Option<TokenKind>,
-    pub(crate) details: Option<HashMap<String, String>>,
+    fields: Option<HashMap<String, String>>,
 }
 
 impl Token {
@@ -695,7 +703,7 @@ impl Token {
             value,
             kind,
             second_kind: None,
-            details: None,
+            fields: None,
         }
     }
 
@@ -759,7 +767,7 @@ impl Token {
     }
 
     fn insert(&mut self, k: &str, v: &str) {
-        self.details
+        self.fields
             .get_or_insert(HashMap::new())
             .insert(k.to_string(), v.to_string());
     }
@@ -777,16 +785,22 @@ impl<'generic_link_token> GenericLinkToken<'generic_link_token> {
     // Get name of the link
     pub(crate) fn name(&self) -> &str {
         self.0
-            .details
+            .fields
             .as_ref()
             .and_then(|x| x.get("name").map(|x| &**x))
             .unwrap_or("")
     }
 
+    // Convert name to tokens
+    pub(crate) fn name_to_tokens(&self) -> Vec<Token> {
+        let name = self.name().to_string() + "\n";
+        Lexer::new(name.as_str()).split()
+    }
+
     // Get location of the link
     pub(crate) fn location(&self) -> &str {
         self.0
-            .details
+            .fields
             .as_ref()
             .and_then(|x| x.get("location").map(|x| &**x))
             .unwrap_or("")
@@ -795,7 +809,7 @@ impl<'generic_link_token> GenericLinkToken<'generic_link_token> {
     // Get title of the link
     pub(crate) fn title(&self) -> &str {
         self.0
-            .details
+            .fields
             .as_ref()
             .and_then(|x| x.get("title").map(|x| &**x))
             .unwrap_or("")
@@ -803,7 +817,7 @@ impl<'generic_link_token> GenericLinkToken<'generic_link_token> {
 
     pub(crate) fn tag(&self) -> &str {
         self.0
-            .details
+            .fields
             .as_ref()
             .and_then(|x| x.get("tag").map(|x| &**x))
             .unwrap_or("")

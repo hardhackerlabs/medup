@@ -138,6 +138,20 @@ impl Ast {
         self.generate(&self.toc, generator)
     }
 
+    // Generate the slice of the contents of the document based on the dividing blocks
+    pub(crate) fn generate_slice(&self, generator: &impl Generate) -> Vec<String> {
+        let mut v = vec![];
+        let mut start = 0;
+        for (i, b) in self.blocks.iter().enumerate() {
+            if b.kind() == Kind::Dividing {
+                v.push(self.generate(&self.blocks[start..i], generator));
+                start = i + 1;
+            }
+        }
+        v.push(self.generate(&self.blocks[start..], generator));
+        v
+    }
+
     // Iterate through each block of the Ast and process the block into a 'html' string
     fn generate(&self, blocks: &[Block], generator: &impl Generate) -> String {
         blocks

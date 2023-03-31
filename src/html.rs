@@ -112,7 +112,14 @@ impl<'generator> Generator<'generator> {
                 }
                 TokenKind::Link | TokenKind::QuickLink | TokenKind::Image => {
                     let link = t.as_generic_link();
-                    let (name, location) = (link.name(), link.location());
+
+                    let s = self.render_inline(&link.name_to_tokens(), false);
+                    let name = if s.is_empty() {
+                        link.name()
+                    } else {
+                        s.as_str()
+                    };
+                    let location = link.location();
 
                     if !name.is_empty() && !location.is_empty() {
                         let s = if t.kind() == TokenKind::Image {

@@ -66,19 +66,27 @@ fn articles_filter(cfg: Config, dir: String) -> BoxedFilter<(impl Reply,)> {
                         StatusCode::BAD_REQUEST,
                         format!(r#"failed to join the path: {}, {}"#, dir, name),
                     ),
-                    Some(path) => match Markdown::new().path(path).map_mut(markdown::to_body) {
-                        Err(e) => error_repsonse(
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                            format!("failed to generate body from markdown: {}", e),
-                        ),
-                        Ok(v) => match render.exec(&cfg, &v) {
+                    Some(path) => {
+                        let func = if cfg.use_slice_mode {
+                            markdown::to_slice
+                        } else {
+                            markdown::to_body
+                        };
+
+                        match Markdown::new().path(path).map_mut(func) {
                             Err(e) => error_repsonse(
                                 StatusCode::INTERNAL_SERVER_ERROR,
-                                format!("failed to render html: {}", e),
+                                format!("failed to generate body from markdown: {}", e),
                             ),
-                            Ok(v) => warp::reply::html(v).into_response(),
-                        },
-                    },
+                            Ok(v) => match render.exec(&cfg, &v) {
+                                Err(e) => error_repsonse(
+                                    StatusCode::INTERNAL_SERVER_ERROR,
+                                    format!("failed to render html: {}", e),
+                                ),
+                                Ok(s) => warp::reply::html(s).into_response(),
+                            },
+                        }
+                    }
                 },
             }
         })
@@ -112,7 +120,7 @@ fn index_filter(cfg: Config, dir: String) -> BoxedFilter<(impl Reply,)> {
                             StatusCode::INTERNAL_SERVER_ERROR,
                             format!("failed to render html: {}", e),
                         ),
-                        Ok(v) => warp::reply::html(v).into_response(),
+                        Ok(s) => warp::reply::html(s).into_response(),
                     },
                 },
             },

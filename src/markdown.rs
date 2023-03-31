@@ -38,9 +38,9 @@ impl<'markdown> Markdown<'markdown> {
     }
 
     // Use 'f' function to convert markdown ast into a string, .e.g html document
-    pub fn map_mut<F>(&mut self, f: F) -> Result<String, Box<dyn Error>>
+    pub fn map_mut<F>(&mut self, f: F) -> Result<Vec<String>, Box<dyn Error>>
     where
-        F: Fn(&Ast) -> Result<String, Box<dyn Error>>,
+        F: Fn(&Ast) -> Result<Vec<String>, Box<dyn Error>>,
     {
         self.parse()?;
         let s = f(&self.ast)?;
@@ -60,18 +60,28 @@ impl<'markdown> Markdown<'markdown> {
 }
 
 // Convert markdown ast into body part of the html and it contains toc
-pub fn to_body_toc(ast: &Ast) -> Result<String, Box<dyn Error>> {
+pub fn to_body_toc(ast: &Ast) -> Result<Vec<String>, Box<dyn Error>> {
     let body = ast.generate_content(&html::Generator::new(ast.ref_link_tags())?);
     let toc = ast.generate_toc(&html::Generator::new(ast.ref_link_tags())?);
-    Ok(toc + &body)
+    let v = vec![toc, body];
+    Ok(v)
 }
 
 // Convert markdown ast into body part of the html
-pub fn to_body(ast: &Ast) -> Result<String, Box<dyn Error>> {
-    Ok(ast.generate_content(&html::Generator::new(ast.ref_link_tags())?))
+pub fn to_body(ast: &Ast) -> Result<Vec<String>, Box<dyn Error>> {
+    let body = ast.generate_content(&html::Generator::new(ast.ref_link_tags())?);
+    let v = vec![body];
+    Ok(v)
 }
 
 // Generate the toc part of the html from markdown ast
-pub fn to_toc(ast: &Ast) -> Result<String, Box<dyn Error>> {
-    Ok(ast.generate_toc(&html::Generator::new(ast.ref_link_tags())?))
+pub fn to_toc(ast: &Ast) -> Result<Vec<String>, Box<dyn Error>> {
+    let toc = ast.generate_toc(&html::Generator::new(ast.ref_link_tags())?);
+    let v = vec![toc];
+    Ok(v)
+}
+
+// Generate the slice of markdown
+pub fn to_slice(ast: &Ast) -> Result<Vec<String>, Box<dyn Error>> {
+    Ok(ast.generate_slice(&html::Generator::new(ast.ref_link_tags())?))
 }

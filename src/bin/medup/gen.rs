@@ -25,12 +25,12 @@ pub fn proc_gen(sub_matches: &ArgMatches) {
         .expect("required");
 
     // start to parse the markdown file into html
-    let s = Markdown::new()
+    let v = Markdown::new()
         .path(md_path)
         .map_mut(markdown::to_body)
         .unwrap();
     let render: RenderHtml = RenderHtml::new().expect("failed to add html template");
-    let html = render.exec(&Config::default(), &s).unwrap();
+    let html = render.exec(&Config::default(), &v).unwrap();
 
     // output the html
     if let Some(mut out) = out_file {

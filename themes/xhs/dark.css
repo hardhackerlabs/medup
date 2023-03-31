@@ -1,6 +1,7 @@
 :root {
     /* Text editor */
-    --bg-color: #1D1D1C;
+    --bg-color: #2D2D2C;
+    --slice-bg-color: #1d1d1c;
     --text-color: #ffffff;
     --body-text-color: #ffffff;
     --text-cursor-color: var(--text-color);
@@ -98,14 +99,18 @@
     --cm-gutter: #f1f3f450;
 }
 
+.slice-container {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+}
+
 .slice-div {
     width: 410px;
     height: 560px;
-    border-style: solid;
-    border-width: 0 0 0.5px 0;
-    margin-bottom: 30px;
-    background-color: var(--bg-color);
-    padding: 20px;
+    background-color: var(--slice-bg-color);
+    margin: 0 10px 30px 10px;
+    padding: 20px 20px;
 }
 
 .slice-header {

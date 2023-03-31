@@ -25,8 +25,11 @@ const TP_HTML: &str = r#"
 <body>
 <div {{ if article_class }} class={ article_class }{{ endif }}>
     {{ if use_slice_mode }}
-        {{ for s in slices }}
-            <div class=slice-div> {s} </div>
+        {{ for slice_content in slices }}
+            <div class=slice-div>
+                {slice_header}
+                {slice_content}
+            </div>
         {{ endfor }}
     {{ else }}
         { content }
@@ -43,6 +46,7 @@ struct HtmlContext<'html_context> {
     body_min_width: i32,
     body_max_width: i32,
     use_slice_mode: bool,
+    slice_header: &'html_context str,
     content: &'html_context str,
     slices: &'html_context Vec<String>,
 }
@@ -73,6 +77,7 @@ impl<'render_html> RenderHtml<'render_html> {
             body_min_width: cfg.body_min_width,
             body_max_width: cfg.body_max_width,
             use_slice_mode: cfg.use_slice_mode,
+            slice_header: &cfg.slice_header,
             content: &content,
             slices: data,
         };

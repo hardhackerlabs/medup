@@ -3,5 +3,6 @@
     "css_href": "xhs/dark.css",
     "body_min_width": 0,
     "body_max_width": 0,
+    "slice_header": "<div style=\"display: flex; flex-direction: row; align-items: flex-end;\"> <img src=\"/static/xhs/logo.png\" width=\"40\" height=\"40\"> <span style=\"font-size: 24px; line-height: 1;\">&nbsp;&nbsp;硬地骇客</span></div>",
     "use_slice_mode": true
 }

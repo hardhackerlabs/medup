@@ -9,6 +9,7 @@ pub(crate) struct Config {
     pub body_min_width: i32,
     pub body_max_width: i32,
     pub use_slice_mode: bool,
+    pub slice_header: String,
 }
 
 impl Config {

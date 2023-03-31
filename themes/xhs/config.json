@@ -1,6 +1,6 @@
 {
     "body_min_width": 0,
     "body_max_width": 0,
-    "slice_header": "<img src=\"/static/xhs/logo.png\" width=\"40\" height=\"40\"> <span style=\"font-size: 24px; line-height: 1;\">&nbsp;&nbsp;硬地骇客</span>",
+    "slice_header": "<img class=\"slice-header-logo\" src=\"/static/xhs/logo.png\" width=\"40\" height=\"40\" /><div class=\"slice-header-title\"><span>硬地骇客</span><div class=\"slice-header-decorate\"></div></div>",
     "use_slice_mode": true
 }

@@ -106,6 +106,12 @@
     margin-bottom: 30px;
 }
 
+.slice-header {
+    display: flex;
+    flex-direction: row;
+    align-items: flex-end;
+}
+
 html {
     font-size: var(--font-size);
 }

@@ -27,7 +27,9 @@ const TP_HTML: &str = r#"
     {{ if use_slice_mode }}
         {{ for slice_content in slices }}
             <div class=slice-div>
+                <div class=slice-header>
                 {slice_header}
+                </div>
                 {slice_content}
             </div>
         {{ endfor }}

@@ -41,12 +41,12 @@
     <script>
         function convertDivToImage() \{
             const divs = document.querySelectorAll('.slice-div');
-            divs.forEach((div) => \{
+            divs.forEach((div, index) => \{
                 html2canvas(div).then(canvas => \{
                     // 将 Canvas 元素转换为图像并保存
                     const imgData = canvas.toDataURL('image/png');
                     const link = document.createElement('a');
-                    link.download = 'xhs_image.png';
+                    link.download = 'xhs_image_' + index + '.png';
                     link.href = imgData;
                     link.click();
                 });

@@ -99,7 +99,7 @@
     --cm-gutter: #f1f3f450;
 }
 
-.slice-container {
+.markdown-body {
     display: flex;
     flex-direction: row;
     flex-wrap: wrap;

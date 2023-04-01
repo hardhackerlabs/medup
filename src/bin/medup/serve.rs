@@ -56,7 +56,7 @@ fn articles_filter(cfg: Config, dir: String) -> BoxedFilter<(impl Reply,)> {
             if !name.ends_with(".md") {
                 name.push_str(".md");
             }
-            match RenderHtml::new(&cfg.template) {
+            match RenderHtml::new(cfg.template()) {
                 Err(e) => error_repsonse(
                     StatusCode::INTERNAL_SERVER_ERROR,
                     format!("failed to add html template: {}", e),
@@ -67,7 +67,7 @@ fn articles_filter(cfg: Config, dir: String) -> BoxedFilter<(impl Reply,)> {
                         format!(r#"failed to join the path: {}, {}"#, dir, name),
                     ),
                     Some(path) => {
-                        let func = if cfg.config_json.use_slice_mode {
+                        let func = if cfg.use_slice_mode() {
                             markdown::to_slice
                         } else {
                             markdown::to_body
@@ -101,7 +101,7 @@ fn index_filter(cfg: Config, dir: String) -> BoxedFilter<(impl Reply,)> {
         .and(warp::any().map(move || cfg.clone()))
         .and(warp::any().map(move || dir.to_string()))
         .map(
-            |cfg: Config, dir: String| match RenderHtml::new(&cfg.template) {
+            |cfg: Config, dir: String| match RenderHtml::new(cfg.template()) {
                 Err(e) => error_repsonse(
                     StatusCode::INTERNAL_SERVER_ERROR,
                     format!("failed to add html template: {}", e),

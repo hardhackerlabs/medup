@@ -5,8 +5,7 @@ use tinytemplate::TinyTemplate;
 
 use crate::config::Config;
 
-// html template
-const TP_HTML_NAME: &str = "template";
+const TPL_HTML_NAME: &str = "template";
 
 #[derive(Serialize)]
 struct HtmlContext<'html_context> {
@@ -26,13 +25,13 @@ pub(crate) struct RenderHtml<'render_html> {
 impl<'render_html> RenderHtml<'render_html> {
     pub(crate) fn new(template: &'render_html str) -> Result<Self, Box<dyn Error>> {
         let mut tt = TinyTemplate::new();
-        tt.add_template(TP_HTML_NAME, template)?;
+        tt.add_template(TPL_HTML_NAME, template)?;
         tt.set_default_formatter(&tinytemplate::format_unescaped);
         Ok(RenderHtml { tt })
     }
 
     pub(crate) fn exec(&self, cfg: &Config, data: &Vec<String>) -> Result<String, Box<dyn Error>> {
-        let content = if !cfg.config_json.use_slice_mode {
+        let content = if !cfg.use_slice_mode() {
             data.join("")
         } else {
             "".to_string()
@@ -40,15 +39,15 @@ impl<'render_html> RenderHtml<'render_html> {
 
         let ctx = HtmlContext {
             title: "medup",
-            body_min_width: cfg.config_json.body_min_width,
-            body_max_width: cfg.config_json.body_max_width,
-            use_slice_mode: cfg.config_json.use_slice_mode,
-            slice_header: &cfg.config_json.slice_header,
+            body_min_width: cfg.body_min_width(),
+            body_max_width: cfg.body_max_width(),
+            use_slice_mode: cfg.use_slice_mode(),
+            slice_header: &cfg.slice_header(),
             content: &content,
             slices: data,
         };
 
-        let s = self.tt.render(TP_HTML_NAME, &ctx)?;
+        let s = self.tt.render(TPL_HTML_NAME, &ctx)?;
         Ok(s)
     }
 }

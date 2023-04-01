@@ -6,8 +6,8 @@
 ## Features
 * [x] Support all standard syntax of markdown
 * [x] Supports all major extension syntaxes
-* [x] Provide **Crate** to convert markdown to html or Custom development based on AST directly
-* [x] Provide **Web Service** to host and parse markdown files, and create private document system or blog
+* [x] Provide **crate** to convert markdown to html or Custom development based on AST directly
+* [x] Provide **web service** to host and parse markdown files, and create private document system or blog
 * [x] Support **css theme** selection or custom 
 * [x] Support **slice mode** that you can convert a markdown file into multi slices, .e.g card, picture or slide ...
 * [ ] Custom new grammar so that the content can be layout horizontally
@@ -55,7 +55,7 @@ Open `http://localhost:8181` with your browser.
 
 ```Rust
 // Cargo.toml
-// medup = {git = "https://github.com/skoowoo/medup"}
+// medup = {git = "https://github.com/hardhackerlabs/medup"}
 
 use medup::{config, markdown};
 

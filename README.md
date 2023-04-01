@@ -15,7 +15,11 @@
 
 ## Demo
 
+##### Normal Document
 ![](./docs/assets/demo.png)
+
+##### XHS Picture (小红书)
+![](./docs/assets/xhs_demo.png)
 
 ## Usage
 ```

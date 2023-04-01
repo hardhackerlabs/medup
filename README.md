@@ -8,8 +8,8 @@
 * [x] Supports all major extension syntaxes
 * [x] Provide **Crate** to convert markdown to html or Custom development based on AST directly
 * [x] Provide **Web Service** to host and parse markdown files, and create private document system or blog
-* [x] Support css theme selection or custom 
-* [x] Support slice mode that you can convert a markdown file into multi slices, .e.g card, picture or slide ...
+* [x] Support **css theme** selection or custom 
+* [x] Support **slice mode** that you can convert a markdown file into multi slices, .e.g card, picture or slide ...
 * [ ] Custom new grammar so that the content can be layout horizontally
 * [ ] Support git as storage backend
 * [ ] There may be an editor, supporting VIM mode
@@ -19,7 +19,7 @@
 ##### Normal Document
 ![](./docs/assets/demo.png)
 
-##### XHS Picture (小红书)
+##### XHS (小红书) Picture based on "slice mode"
 ![](./docs/assets/xhs_demo.png)
 
 ## Usage

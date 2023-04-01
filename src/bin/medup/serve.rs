@@ -56,7 +56,7 @@ fn articles_filter(cfg: Config, dir: String) -> BoxedFilter<(impl Reply,)> {
             if !name.ends_with(".md") {
                 name.push_str(".md");
             }
-            match RenderHtml::new() {
+            match RenderHtml::new(&cfg.template) {
                 Err(e) => error_repsonse(
                     StatusCode::INTERNAL_SERVER_ERROR,
                     format!("failed to add html template: {}", e),
@@ -67,7 +67,7 @@ fn articles_filter(cfg: Config, dir: String) -> BoxedFilter<(impl Reply,)> {
                         format!(r#"failed to join the path: {}, {}"#, dir, name),
                     ),
                     Some(path) => {
-                        let func = if cfg.use_slice_mode {
+                        let func = if cfg.config_json.use_slice_mode {
                             markdown::to_slice
                         } else {
                             markdown::to_body
@@ -100,31 +100,33 @@ fn index_filter(cfg: Config, dir: String) -> BoxedFilter<(impl Reply,)> {
         .and(warp::path::end())
         .and(warp::any().map(move || cfg.clone()))
         .and(warp::any().map(move || dir.to_string()))
-        .map(|cfg: Config, dir: String| match RenderHtml::new() {
-            Err(e) => error_repsonse(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("failed to add html template: {}", e),
-            ),
-            Ok(render) => match Path::new(&dir).join("index.md").to_str() {
-                None => error_repsonse(
-                    StatusCode::BAD_REQUEST,
-                    format!(r#"failed to join the path: {}, index.md"#, dir),
+        .map(
+            |cfg: Config, dir: String| match RenderHtml::new(&cfg.template) {
+                Err(e) => error_repsonse(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("failed to add html template: {}", e),
                 ),
-                Some(path) => match Markdown::new().path(path).map_mut(markdown::to_body) {
-                    Err(e) => error_repsonse(
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        format!("failed to generate body from markdown: {}", e),
+                Ok(render) => match Path::new(&dir).join("index.md").to_str() {
+                    None => error_repsonse(
+                        StatusCode::BAD_REQUEST,
+                        format!(r#"failed to join the path: {}, index.md"#, dir),
                     ),
-                    Ok(v) => match render.exec(&cfg, &v) {
+                    Some(path) => match Markdown::new().path(path).map_mut(markdown::to_body) {
                         Err(e) => error_repsonse(
                             StatusCode::INTERNAL_SERVER_ERROR,
-                            format!("failed to render html: {}", e),
+                            format!("failed to generate body from markdown: {}", e),
                         ),
-                        Ok(s) => warp::reply::html(s).into_response(),
+                        Ok(v) => match render.exec(&cfg, &v) {
+                            Err(e) => error_repsonse(
+                                StatusCode::INTERNAL_SERVER_ERROR,
+                                format!("failed to render html: {}", e),
+                            ),
+                            Ok(s) => warp::reply::html(s).into_response(),
+                        },
                     },
                 },
             },
-        })
+        )
         .with(warp::cors().allow_any_origin())
         .boxed()
 }
@@ -138,21 +140,11 @@ fn get_dir<'get_dir>(matches: &'get_dir ArgMatches, name: &str) -> &'get_dir str
 
 fn load_config(matches: &ArgMatches) -> Result<Config, Box<dyn Error>> {
     // read config path from cli
-    let mut cfg = match matches.get_one::<String>("config-path") {
+    let cfg = match matches.get_one::<String>("config-path") {
         None => Config::default(),
         Some(path) => Config::read(path)
             .map_err(|e| (format!("failed to read config \"{}\": {}", path, e)))?,
     };
-    if !medup::utils::is_url(&cfg.css_href) {
-        // add the static resource dir to css_href
-        if let Some(href) = Path::new("/static")
-            .join(&cfg.css_href)
-            .to_str()
-            .map(|s| s.to_string())
-        {
-            cfg.css_href = href;
-        }
-    }
     Ok(cfg)
 }
 

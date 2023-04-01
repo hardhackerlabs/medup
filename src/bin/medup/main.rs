@@ -1,9 +1,7 @@
 mod config;
-mod gen;
 mod render_html;
 mod serve;
 
-use crate::gen::proc_gen;
 use crate::serve::proc_serve;
 
 use clap::{arg, Command};
@@ -11,7 +9,6 @@ use clap::{arg, Command};
 fn main() {
     let matches = cli().get_matches();
     match matches.subcommand() {
-        Some(("gen", sub_matches)) => proc_gen(sub_matches),
         Some(("serve", sub_matches)) => proc_serve(sub_matches),
         _ => unreachable!(),
     }
@@ -22,13 +19,6 @@ fn cli() -> Command {
         .version("0.1")
         .about("A markdown parser and reader")
         .subcommand_required(true)
-        .subcommand(
-            Command::new("gen")
-                .about("Generate html from markdown")
-                .arg(arg!(-c --"config-path" [CONFIG_PATH] "Specify path of the config file, it's optional."))
-                .arg(arg!(-o --output [OUTPUT_HTML_PATH] "Specify a html output path, it's optional."))
-                .arg(arg!(<MARKDOWN_FILE_PATH>)),
-        )
         .subcommand(
             Command::new("serve")
                 .about("Provide an http service for markdown parsing")

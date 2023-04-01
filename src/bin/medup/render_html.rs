@@ -6,45 +6,11 @@ use tinytemplate::TinyTemplate;
 use crate::config::Config;
 
 // html template
-const TP_HTML_NAME: &str = "header";
-const TP_HTML: &str = r#"
-<head>
-<meta charset='UTF-8'><meta name='viewport' content='width=device-width initial-scale=1'>
-{{ if css_href }} <link rel="stylesheet" type="text/css" href="{ css_href }"> {{ endif }}
-<style>
-    body\{
-        box-sizing: border-box;
-        min-width: {body_min_width}px;
-        max-width: {body_max_width}px;
-        margin: 0 auto;
-        padding: 45px;
-    }
-</style>
-<title>{title}</title>
-</head>
-<body>
-<div {{ if article_class }} class={ article_class }{{ endif }}>
-    {{ if use_slice_mode }}
-        {{ for slice_content in slices }}
-            <div class=slice-div>
-                <div class=slice-header>
-                {slice_header}
-                </div>
-                {slice_content}
-            </div>
-        {{ endfor }}
-    {{ else }}
-        { content }
-    {{ endif }}
-</div>
-</body>
-"#;
+const TP_HTML_NAME: &str = "template";
 
 #[derive(Serialize)]
 struct HtmlContext<'html_context> {
-    css_href: &'html_context str,
     title: &'html_context str,
-    article_class: &'html_context str,
     body_min_width: i32,
     body_max_width: i32,
     use_slice_mode: bool,
@@ -58,28 +24,26 @@ pub(crate) struct RenderHtml<'render_html> {
 }
 
 impl<'render_html> RenderHtml<'render_html> {
-    pub(crate) fn new() -> Result<Self, Box<dyn Error>> {
+    pub(crate) fn new(template: &'render_html str) -> Result<Self, Box<dyn Error>> {
         let mut tt = TinyTemplate::new();
-        tt.add_template(TP_HTML_NAME, TP_HTML)?;
+        tt.add_template(TP_HTML_NAME, template)?;
         tt.set_default_formatter(&tinytemplate::format_unescaped);
         Ok(RenderHtml { tt })
     }
 
     pub(crate) fn exec(&self, cfg: &Config, data: &Vec<String>) -> Result<String, Box<dyn Error>> {
-        let content = if !cfg.use_slice_mode {
+        let content = if !cfg.config_json.use_slice_mode {
             data.join("")
         } else {
             "".to_string()
         };
 
         let ctx = HtmlContext {
-            css_href: &cfg.css_href,
             title: "medup",
-            article_class: &cfg.add_class_on_article,
-            body_min_width: cfg.body_min_width,
-            body_max_width: cfg.body_max_width,
-            use_slice_mode: cfg.use_slice_mode,
-            slice_header: &cfg.slice_header,
+            body_min_width: cfg.config_json.body_min_width,
+            body_max_width: cfg.config_json.body_max_width,
+            use_slice_mode: cfg.config_json.use_slice_mode,
+            slice_header: &cfg.config_json.slice_header,
             content: &content,
             slices: data,
         };

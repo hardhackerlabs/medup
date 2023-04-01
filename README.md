@@ -7,7 +7,6 @@
 * [x] Support all standard syntax of markdown
 * [x] Supports all major extension syntaxes
 * [x] Provide **Crate** to convert markdown to html or Custom development based on AST directly
-* [x] Provide **CLI** tool to convert markdown to html
 * [x] Provide **Web Service** to host and parse markdown files, and create private document system or blog
 * [x] Support css theme selection
 * [ ] Custom new grammar so that the content can be layout horizontally
@@ -25,20 +24,12 @@ A markdown parser and reader
 Usage: medup <COMMAND>
 
 Commands:
-  gen    Generate html from markdown
   serve  Provide an http service for markdown parsing
   help   Print this message or the help of the given subcommand(s)
 
 Options:
   -h, --help     Print help information
   -V, --version  Print version information
-```
-
-### CLI
-
-Use the following command to generate a html file from your markdown file.
-```
-cargo run -- gen --output markdown-guide.html docs/markdown-guide.md
 ```
 
 ### Web

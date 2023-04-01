@@ -104,6 +104,8 @@
     border-style: solid;
     border-width: 0 0 0.5px 0;
     margin-bottom: 30px;
+    background-color: var(--bg-color);
+    padding: 20px;
 }
 
 .slice-header {
@@ -251,8 +253,6 @@ hr {
 a {
     color: var(--url-text-color);
     text-decoration: none;
-    border-bottom: 0.05em solid;
-    border-color: var(--url-underline-color);
     transition: all .1s ease-in;
 }
 

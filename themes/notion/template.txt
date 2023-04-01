@@ -1,0 +1,39 @@
+<head>
+    <meta charset='UTF-8'><meta name='viewport' content='width=device-width initial-scale=1'>
+    <title>{title}</title>
+
+    <!-- TODO: EDIT HERE, load the scripts -->
+    <script src=""></script>
+
+    <!-- TODO: EDIT HERE, load the css -->
+    <link rel="stylesheet" type="text/css" href="/static/notion/notion-light-enhanced.css">
+
+    <style>
+        body \{
+            box-sizing: border-box;
+            min-width: {body_min_width}px;
+            max-width: {body_max_width}px;
+            margin: 0 auto;
+            padding: 45px;
+        }
+    </style>
+</head>
+<body>
+    <!-- DON'T MODIFY THE FOLLOWING CONTENT -->
+    <div class=markdown-body>
+        {{ if use_slice_mode }}
+            <!-- slice mode -->
+            {{ for slice_content in slices }}
+                <div class=slice-div id=slice-{ @index }>
+                    <div class=slice-header>{slice_header}</div>
+                    <div class=slice-content>{slice_content}</div>
+                </div>
+            {{ endfor }}
+        {{ else }}
+            <!-- normal mode -->
+            { content }
+        {{ endif }}
+    </div>
+    <!-- DON'T MODIFY THE ABOVE CONTENT -->
+
+</body>

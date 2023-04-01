@@ -1,7 +1,6 @@
 {
-    "add_class_on_article": "",
-    "css_href": "notion/notion-light-enhanced.css",
     "body_min_width": 200,
     "body_max_width": 900,
+    "slice_header": "",
     "use_slice_mode": false
 }

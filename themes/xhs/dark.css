@@ -1,8 +1,9 @@
 :root {
     /* Text editor */
-    --bg-color: #2f3437;
-    --text-color: #ebebeb;
-    --body-text-color: #ebebeb;
+    --bg-color: #2D2D2C;
+    --slice-bg-color: #1d1d1c;
+    --text-color: #ffffff;
+    --body-text-color: #ffffff;
     --text-cursor-color: var(--text-color);
 
     --secondary-text-color: #73726e;
@@ -16,8 +17,8 @@
     --code-fence-bg-color: #3f4447;
 
     --blockquote-bg-color: #3c4144;
-    --blockquote-accent-color: #c425f4;
-    --blockquote-text-color: var(--text-color);
+    --blockquote-accent-color: #DC75FF;
+    --blockquote-text-color: #CBCBCB;
 
     --light-trait-100: #ebebeb;
     --light-trait-200: #ebebeb;
@@ -44,7 +45,7 @@
 
     --select-text-bg-color: #2e5767;
 
-    --code-color: #c425f4;
+    --code-color: #DC75FF;
     --code-cursor-color: var(--text-color);
 
     --kbd-text-color: #acaeaf;
@@ -65,9 +66,9 @@
     --control-text-color: #afb1b2;
 
     /* General */
-    --font-size: 16px;
-    --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, "Apple Color Emoji", Arial, sans-serif, "Segoe UI Emoji", "Segoe UI Symbol";
-    --monospace: 'SF Mono Medium', 'Fira Code', 'Cousine', 'Consolas', monospace;
+    --font-size: 18px;
+    --font-family: "LXGW WenKai Mono", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, "Apple Color Emoji", Arial, sans-serif, "Segoe UI Emoji", "Segoe UI Symbol";
+    --monospace: 'LXGW WenKai Mono', 'SF Mono Medium', 'Fira Code', 'Cousine', 'Consolas', monospace;
     --heading-char-color: var(--light-trait-400);
     --color-popover-bg-color: var(--text-color);
     --rawblock-edit-panel-bd: var(--bg-color-dark);
@@ -98,20 +99,43 @@
     --cm-gutter: #f1f3f450;
 }
 
+.markdown-body {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+}
+
 .slice-div {
-    width: 450px;
-    height: 600px;
-    border-style: solid;
-    border-width: 0 0 0.5px 0;
-    margin-bottom: 30px;
-    background-color: var(--bg-color);
-    padding: 20px;
+    width: 410px;
+    height: 560px;
+    background-color: var(--slice-bg-color);
+    margin: 0 10px 30px 10px;
+    padding: 20px 20px;
 }
 
 .slice-header {
     display: flex;
     flex-direction: row;
+    justify-content: space-between;
     align-items: flex-end;
+}
+
+.slice-header-title {
+    display: flex;
+    width: 360px;
+    height: 40px;
+    flex-flow: column;
+    justify-content: space-between;
+}
+
+.slice-header-title > span {
+    line-height: 1.2;
+    font-size: 22px;
+}
+
+.slice-header-decorate {
+    height: 6px;
+    background: linear-gradient(to right, #D574D9, #AB3FAC);
 }
 
 html {
@@ -135,14 +159,13 @@ pre {
     border-radius: 6px;
     margin-top: 0;
     margin-bottom: 16px;
-    font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas,
-        Liberation Mono, monospace;
+    font-family: var(--monospace);
     word-wrap: normal;
 }
 
 code {
     color: var(--code-color);
-    padding: 2px 2px 2px 2px;
+    font-family: var(--monospace);
 }
 
 
@@ -188,32 +211,21 @@ h3 code,
 h4 code,
 h5 code,
 h6 code {
+    color: inherit;
     font-size: inherit;
 }
 
-h1 {
-    padding-bottom: 0.3em;
-    font-size: 2.2em;
-    line-height: 1.3;
-    color: var(--light-trait-100);
-}
-
-h2 {
-    padding-bottom: 0.3em;
-    font-size: 1.75em;
-    line-height: 1.225;
-    color: var(--light-trait-200);
-}
-
-h3 {
-    font-size: 1.4em;
-    line-height: 1.43;
-    color: var(--light-trait-300);
-}
-
-h4 {
+h1, h2, h3, h4 {
     font-size: 1.2em;
-    color: var(--light-trait-400);
+    color: var(--code-color);
+}
+
+h1::before,
+h2::before,
+h3::before,
+h4::before {
+    content: "#";
+    padding-right: 8px;
 }
 
 h5 {
@@ -267,7 +279,8 @@ li p.first {
 
 ul,
 ol {
-    padding-left: 10px;
+    padding-left: 16px;
+    margin-top: 30px;
     color: var(--code-color);
 }
 
@@ -296,12 +309,20 @@ mark {
 
 blockquote {
     color: var(--blockquote-text-color);
-    margin-left: 1.75px;
-    margin-right: 0px;
-    border-left: 4px solid var(--blockquote-accent-color);
-    padding: 10px 14px 7px 22px;
-    /* change the quote highlight */
-    background-color: var(--blockquote-bg-color);
+    margin: 30px 0 0 0;
+    border-left: 12px solid var(--code-color);
+    padding-left: 10px;
+    line-height: 1.2;
+}
+
+blockquote p {
+    margin: 5px 0;
+}
+
+blockquote::before {
+    display: block;
+    content: "硬观点";
+    color: var(--code-color);
 }
 
 blockquote blockquote {

@@ -284,11 +284,6 @@ ol {
     color: var(--code-color);
 }
 
-ul:first-child,
-ol:first-child {
-    margin-top: 0.35%;
-}
-
 ul:last-child,
 ol:last-child {
     margin-bottom: 0;

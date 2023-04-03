@@ -317,7 +317,7 @@ blockquote p {
 
 blockquote::before {
   display: block;
-  content: "硬观点";
+  content: "🤔";
   color: var(--code-color);
 }
 

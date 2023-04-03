@@ -1,5 +1,4 @@
 {
-    "css_href": "xhs/dark.css",
     "body_min_width": 0,
     "body_max_width": 1500,
     "slice_header": "<img class=\"slice-header-logo\" src=\"/static/xhs/logo.png\" width=\"40\" height=\"40\" /><div class=\"slice-header-title\"><span class=\"dynamic-title\">今天超级个体如何搞钱</span><div class=\"slice-header-decorate\"></div></div>",

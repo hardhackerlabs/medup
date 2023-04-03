@@ -6,7 +6,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.3.2/html2canvas.min.js"></script>
 
     <!-- TODO: EDIT HERE, load the css -->
-    <link rel="stylesheet" type="text/css" href="/static/{css_href}">
+    <link id="theme" rel="stylesheet" type="text/css" href="/static/xhs/dark.css">
 
     <style>
         body \{
@@ -37,6 +37,7 @@
     <!-- DON'T MODIFY THE ABOVE CONTENT -->
 
     <button onclick="convertDivToImage()">Convert to image</button>
+    <button onclick="toggleTheme()">Toggle theme</button>
 
     <script>
         function convertDivToImage() \{
@@ -51,6 +52,21 @@
                     link.click();
                 });
             });
+        }
+
+        function toggleTheme() \{
+            const currentTheme = document.getElementById("theme").getAttribute("href");
+            const darkTheme = "/static/xhs/dark.css";
+            const lightTheme = "/static/xhs/light.css";
+            let newTheme = "";
+
+            if (currentTheme == darkTheme) \{
+                newTheme = lightTheme;
+            } else \{
+                newTheme = darkTheme;
+            }
+
+            document.getElementById("theme").setAttribute("href", newTheme);
         }
 
         function setTodayDate() \{

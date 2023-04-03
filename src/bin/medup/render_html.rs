@@ -10,6 +10,7 @@ const TPL_HTML_NAME: &str = "template";
 #[derive(Serialize)]
 struct HtmlContext<'html_context> {
     title: &'html_context str,
+    css_href: &'html_context str,
     body_min_width: i32,
     body_max_width: i32,
     use_slice_mode: bool,
@@ -39,6 +40,7 @@ impl<'render_html> RenderHtml<'render_html> {
 
         let ctx = HtmlContext {
             title: "medup",
+            css_href: cfg.css_href(),
             body_min_width: cfg.body_min_width(),
             body_max_width: cfg.body_max_width(),
             use_slice_mode: cfg.use_slice_mode(),

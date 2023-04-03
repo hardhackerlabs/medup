@@ -6,6 +6,8 @@ const TEMPLATE_FILE_NAME: &str = "template.txt";
 
 #[derive(Default, Debug, Serialize, Deserialize, Clone)]
 pub(crate) struct ConfigJson {
+    #[serde(default)]
+    pub css_href: String,
     pub body_min_width: i32,
     pub body_max_width: i32,
     pub use_slice_mode: bool,
@@ -19,6 +21,10 @@ pub(crate) struct Config {
 }
 
 impl Config {
+    pub(crate) fn css_href(&self) -> &str {
+        &self.config_json.css_href
+    }
+
     pub(crate) fn body_min_width(&self) -> i32 {
         self.config_json.body_min_width
     }

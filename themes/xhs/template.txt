@@ -6,7 +6,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.3.2/html2canvas.min.js"></script>
 
     <!-- TODO: EDIT HERE, load the css -->
-    <link rel="stylesheet" type="text/css" href="/static/xhs/dark.css">
+    <link id="theme" rel="stylesheet" type="text/css" href="/static/xhs/dark.css">
 
     <style>
         body \{
@@ -37,6 +37,7 @@
     <!-- DON'T MODIFY THE ABOVE CONTENT -->
 
     <button onclick="convertDivToImage()">Convert to image</button>
+    <button onclick="toggleTheme()">Toggle theme</button>
 
     <script>
         function convertDivToImage() \{
@@ -52,5 +53,40 @@
                 });
             });
         }
+
+        function toggleTheme() \{
+            const currentTheme = document.getElementById("theme").getAttribute("href");
+            const darkTheme = "/static/xhs/dark.css";
+            const lightTheme = "/static/xhs/light.css";
+            let newTheme = "";
+
+            if (currentTheme == darkTheme) \{
+                newTheme = lightTheme;
+            } else \{
+                newTheme = darkTheme;
+            }
+
+            document.getElementById("theme").setAttribute("href", newTheme);
+        }
+
+        function setTodayDate() \{
+            // 获取明天日期
+            const today = new Date();
+            const tomorrow = new Date(today.getTime() + 24 * 60 * 60 * 1000);
+
+            // 格式化日期
+            const year = tomorrow.getFullYear();
+            const month = tomorrow.getMonth() + 1;
+            const day = tomorrow.getDate();
+            const formattedDate = year + '/' + month + '/' + day;
+
+            // 设置第一个span标签的内容
+            const titleSpans = document.querySelectorAll('.dynamic-title');
+            titleSpans.forEach(span => \{
+                span.textContent = span.textContent + ' (' + formattedDate +  ')';
+            });
+        }
+
+        setTodayDate();
     </script>
 </body>

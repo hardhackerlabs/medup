@@ -305,7 +305,7 @@ mark {
 blockquote {
     color: var(--blockquote-text-color);
     margin: 30px 0 0 0;
-    border-left: 12px solid var(--code-color);
+    border-left: 12px solid var(--blockquote-accent-color);
     padding-left: 10px;
     line-height: 1.2;
 }
@@ -316,7 +316,7 @@ blockquote p {
 
 blockquote::before {
     display: block;
-    content: "硬观点";
+    content: "🤔";
     color: var(--code-color);
 }
 

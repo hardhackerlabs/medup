@@ -83,7 +83,6 @@ pre code {
 }
 
 pre {
-    padding: 16px;
     overflow: auto;
     line-height: 1.45;
     background-color: var(--secondary-background-color);
@@ -91,6 +90,12 @@ pre {
     margin-top: 0;
     margin-bottom: 16px;
     word-wrap: normal;
+}
+
+/* overwrite highlight css */
+.hljs {
+    padding: 1em;
+    background-color: var(--secondary-background-color);
 }
 
 /* title */

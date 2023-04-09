@@ -4,8 +4,11 @@
 
     <!-- TODO: EDIT HERE, load the scripts -->
     <script src=""></script>
+    <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/11.2.0/highlight.min.js"></script>
+
 
     <!-- TODO: EDIT HERE, load the css -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/atom-one-dark.min.css">
     <link rel="stylesheet" type="text/css" href="/static/hard/dark.css">
 
     <style>
@@ -36,4 +39,5 @@
     </div>
     <!-- DON'T MODIFY THE ABOVE CONTENT -->
 
+    <script src="/static/hard/highlight_code.js"></script>
 </body>

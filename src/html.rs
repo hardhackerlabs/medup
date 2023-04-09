@@ -366,8 +366,7 @@ struct ImageContext<'image_context> {
 
 // code block
 const TP_CODE_NAME: &str = "code_block";
-const TP_CODE: &str = "<pre><code>
-{text}\
+const TP_CODE: &str = "<pre><code>{text}\
 </code></pre>";
 
 #[derive(Serialize)]

@@ -1,0 +1,405 @@
+:root {
+    /* color define */
+    --main-color: #c408f8;
+    --stress-color: #01c8ee;
+    --main-background-color: #0e162c;
+    --secondary-background-color: #1a243f;
+    --help2-color: #d6116d;
+
+    --text-color: #b7b1bf;
+    --text-color2: #68646c;
+    --secondary-text-color: #3f4447;
+
+    /* Text */
+    --light-trait-100: var(--main-color);
+    --light-trait-200: var(--main-color);
+    --light-trait-300: var(--main-text-color);
+    --light-trait-400: var(--main-text-color);
+
+    --url-text-color: var(--stress-color);
+    --url-underline-color: var(--stress-color);
+
+    /* General */
+    --font-size: 16px;
+    --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, "Apple Color Emoji", Arial, sans-serif, "Segoe UI Emoji", "Segoe UI Symbol";
+    --monospace: Zed Mono, 'SF Mono Medium', 'Fira Code', 'Cousine', 'Consolas', monospace;
+    --border-radius: 4px;
+
+
+    /* Code variables */
+    --cm-line: #b8babb;
+    --cm-variable: var(--text-color);
+    --cm-keyword: #d1949e;
+    --cm-tag: #d1949e;
+    --cm-bracket: #d1949e;
+    --cm-error: #ff5a5a;
+    --cm-attribute: #d1949e;
+    --cm-def: #eceded;
+    --cm-comment: #998066;
+    --cm-string: #bde052;
+    --cm-operator: #f5b83d;
+    --cm-number: #d1949e;
+    --cm-meta: var(--text-color);
+    --cm-atom: #845dc4;
+    --cm-builtin: #bde052;
+    --cm-property: var(--text-color);
+    --cm-variable-2: var(--text-color);
+    --cm-variable-3: #bde052;
+    --cm-gutter: #f1f3f450;
+}
+
+html {
+    font-size: var(--font-size);
+}
+
+body {
+    font-family: var(--font-family);
+    -webkit-font-smoothing: antialiased;
+    color: var(--text-color);
+    background-color: var(--main-background-color);
+    line-height: 1.6;
+}
+
+strong,
+em {
+    color: var(--main-text-color);
+}
+
+/* code */
+code {
+    color: var(--stress-color);
+    background-color: transparent;
+    padding: 0px 2px 0px 2px;
+}
+
+pre code {
+    color: var(--text-color);
+    background-color: transparent;
+    padding: 0px 0px 0px 0px;
+}
+
+pre {
+    padding: 16px;
+    overflow: auto;
+    font-size: 85%;
+    line-height: 1.45;
+    background-color: var(--secondary-background-color);
+    border-radius: var(--border-radius);
+    margin-top: 0;
+    margin-bottom: 16px;
+    font-family: var(--monospace);
+    word-wrap: normal;
+}
+
+/* title */
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+    position: relative;
+    margin-top: 2rem;
+    margin-bottom: 1rem;
+    font-weight: 700;
+    line-height: 1.4;
+    cursor: text;
+}
+
+h1:before,
+h2:before,
+h3:before,
+h4:before,
+h5:before,
+h6:before {
+    color: var(--secondary-text-color);
+    font-size: 8px;
+}
+
+h1:hover a.anchor,
+h2:hover a.anchor,
+h3:hover a.anchor,
+h4:hover a.anchor,
+h5:hover a.anchor,
+h6:hover a.anchor {
+    text-decoration: none;
+}
+
+h1 code,
+h2 code,
+h3 code,
+h4 code,
+h5 code,
+h6 code {
+    font-size: inherit;
+}
+
+h1 {
+    padding-bottom: 0.1em;
+    font-size: 2.2em;
+    line-height: 1.3;
+    color: var(--light-trait-100);
+    background: linear-gradient(to right, rgb(72, 0, 255), #fa0397);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    /*
+    border-bottom: 1px solid var(--main-color);
+    border-image: linear-gradient(to right, rgb(72, 0, 255), #d503fa) 1;
+    */
+    margin-bottom: 1em;
+}
+
+h1:before {
+    content: "h1 ";
+}
+
+h2 {
+    padding-bottom: 0.3em;
+    font-size: 1.75em;
+    line-height: 1.225;
+    color: var(--light-trait-200);
+    background: linear-gradient(to right, rgb(132, 10, 239), #c209d7);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+h2:before {
+    content: "h2 ";
+}
+
+h3 {
+    font-size: 1.4em;
+    line-height: 1.43;
+    color: var(--light-trait-300);
+}
+
+h3:before {
+    content: "h3 ";
+}
+
+h4 {
+    font-size: 1.2em;
+    color: var(--light-trait-400);
+}
+
+h4:before {
+    content: "h4 ";
+}
+
+h5 {
+    font-size: 1em;
+    color: var(--light-trait-400);
+}
+
+h5:before {
+    content: "h5 ";
+}
+
+h6 {
+    font-size: 1em;
+    color: var(--light-trait-400);
+}
+
+h6:before {
+    content: "h6 ";
+}
+
+/* */
+p,
+blockquote,
+ul,
+ol,
+dl,
+table {
+    margin: 0.8em 0;
+}
+
+/* list */
+li>ol,
+li>ul {
+    margin: 0 0;
+}
+
+li p.first {
+    display: inline-block;
+}
+
+ul li::marker,
+ol li::marker {
+    color: var(--main-color);
+}
+
+ul,
+ol {
+    padding-left: 15px;
+}
+
+ul:first-child,
+ol:first-child {
+    margin-top: 0.35%;
+}
+
+ul:last-child,
+ol:last-child {
+    margin-bottom: 0;
+}
+
+/* dividling */
+hr {
+    height: 1.5px;
+    border: none;
+    background: linear-gradient(to right, rgb(72, 0, 255), #fa0397);
+}
+
+/* link */
+a {
+    color: var(--url-text-color);
+    text-decoration: none;
+    border-bottom: 0.05em solid;
+    border-color: var(--url-underline-color);
+    opacity: 0.8;
+    transition: all .1s ease-in;
+}
+
+a:hover {
+    text-decoration: none;
+    opacity: 1;
+}
+
+/* delete line */
+del {
+    padding: 0;
+    color: var(--help2-color);
+}
+
+
+mark {
+    border-radius: var(--border-radius);
+    color: var(--text-highlight-color);
+    font-weight: inherit;
+    background-color: var(--text-highlight-bg);
+    padding-left: 4px;
+    padding-right: 4px;
+    padding-top: 2px;
+    padding-bottom: 2px;
+    margin-left: 2px;
+    margin-right: 2px;
+}
+
+blockquote {
+    color: var(--text-color2);
+    font-size: 85%;
+    border-left: 4px solid var(--main-color);
+    border-radius: var(--border-radius);
+    border-image: linear-gradient(to bottom, rgb(95, 9, 243), #b901b9) 1;
+    padding: 5px 15px 5px 20px;
+    /* change the quote highlight */
+    background-color: var(--secondary-background-color);
+    margin: 0.8em 0;
+}
+
+/* checkbox, todo list */
+input[type=checkbox] {
+    cursor: pointer;
+    position: relative;
+}
+
+input[type=checkbox]::after {
+    position: absolute;
+    top: 0;
+    background-color: var(--text-color);
+    color: var(--text-color);
+    width: 14px;
+    height: 14px;
+    display: inline-block;
+    visibility: visible;
+    padding-left: 0px;
+    text-align: center;
+    content: ' ';
+    border-radius: 2px;
+    box-sizing: border-box;
+    border: 1px solid var(--main-color);
+}
+
+input[type=checkbox]:checked::after {
+    content: "";
+    background-color: var(--main-color);
+    border-color: var(--main-color);
+    background-color: var(--main-color);
+}
+
+input[type=checkbox]:checked::before {
+    content: '';
+    position: absolute;
+    top: 1px;
+    left: 5px;
+    width: 3px;
+    height: 8px;
+    border: solid var(--text-color);
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+    z-index: 1;
+}
+
+ul :has(input[type="checkbox"]) {
+    list-style: none;
+}
+
+mark {
+    border-radius: var(--border-radius);
+    color: var(--text-highlight-color);
+    font-weight: inherit;
+    background-color: var(--text-highlight-bg);
+    padding-left: 4px;
+    padding-right: 4px;
+    padding-top: 2px;
+    padding-bottom: 2px;
+    margin-left: 2px;
+    margin-right: 2px;
+}
+
+/* Alternating color rows in table*/
+table tr:nth-child(2n) {
+    background-color: var(--table-primary-color);
+}
+
+table tr:nth-child(2n + 1) {
+    background-color: var(--table-secondary-color);
+}
+
+/* Alternating color rows in table*/
+
+table {
+    padding: 0;
+    word-break: initial;
+}
+
+table tr {
+    border-top: 1px solid var(--text-accent-color);
+    margin: 0;
+    padding: 0;
+}
+
+table tr th {
+    font-weight: bold;
+    border: 1px solid var(--text-accent-color);
+    border-bottom: 0;
+    margin: 0;
+    padding: 6px 13px;
+}
+
+table tr td {
+    border: 1px solid var(--text-accent-color);
+    margin: 0;
+    padding: 6px 13px;
+}
+
+table tr th:first-child,
+table tr td:first-child {
+    margin-top: 0;
+}
+
+table tr th:last-child,
+table tr td:last-child {
+    margin-bottom: 0;
+}

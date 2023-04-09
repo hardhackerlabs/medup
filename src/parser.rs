@@ -196,7 +196,7 @@ impl Ast {
 
     fn init_toc_block(&mut self) {
         const MIN_LEVEL: usize = 1;
-        const MAX_LEVEL: usize = 6;
+        const MAX_LEVEL: usize = 3;
 
         let mut lines: Vec<SharedLine> = vec![];
 
@@ -883,9 +883,6 @@ mod tests {
 <li>header2\
 <ul>\
 <li>header3\
-<ul>\
-<li>header4</li>\
-</ul>\
 </li>\
 </ul>\
 </li>\

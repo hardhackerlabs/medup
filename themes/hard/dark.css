@@ -1,3 +1,5 @@
+@import "reboto/fonts.css";
+
 :root {
     /* color define */
     --main-color: #c408f8;
@@ -21,8 +23,8 @@
 
     /* General */
     --font-size: 16px;
-    --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, "Apple Color Emoji", Arial, sans-serif, "Segoe UI Emoji", "Segoe UI Symbol";
-    --monospace: Zed Mono, 'SF Mono Medium', 'Fira Code', 'Cousine', 'Consolas', monospace;
+    --font-family: "Roboto", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, "Apple Color Emoji", Arial, sans-serif, "Segoe UI Emoji", "Segoe UI Symbol";
+    --monospace: "Zed Mono", "Source Code Pro", "SF Mono Medium", "Fira Code", "Cousine", "Consolas", monospace;
     --border-radius: 4px;
 
 
@@ -70,24 +72,24 @@ code {
     color: var(--stress-color);
     background-color: transparent;
     padding: 0px 2px 0px 2px;
+    font-family: var(--monospace);
+    font-size: 85%;
 }
 
 pre code {
     color: var(--text-color);
     background-color: transparent;
-    padding: 0px 0px 0px 0px;
+    padding: 0px;
 }
 
 pre {
     padding: 16px;
     overflow: auto;
-    font-size: 85%;
     line-height: 1.45;
     background-color: var(--secondary-background-color);
     border-radius: var(--border-radius);
     margin-top: 0;
     margin-bottom: 16px;
-    font-family: var(--monospace);
     word-wrap: normal;
 }
 
@@ -232,6 +234,10 @@ ol li::marker {
 ul,
 ol {
     padding-left: 15px;
+}
+
+ul ul {
+    list-style-type: disc;
 }
 
 ul:first-child,

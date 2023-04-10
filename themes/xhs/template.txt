@@ -72,7 +72,8 @@
         function setTodayDate() \{
             // 获取明天日期
             const today = new Date();
-            const tomorrow = new Date(today.getTime() + 24 * 60 * 60 * 1000);
+            // 只加16个小时，这样如果是凌晨处理图片就不会算到明天
+            const tomorrow = new Date(today.getTime() + 16 * 60 * 60 * 1000);
 
             // 格式化日期
             const year = tomorrow.getFullYear();

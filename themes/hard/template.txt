@@ -8,8 +8,8 @@
 
 
     <!-- TODO: EDIT HERE, load the css -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/atom-one-dark.min.css">
-    <link rel="stylesheet" type="text/css" href="/static/hard/dark.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/atom-one-light.min.css">
+    <link rel="stylesheet" type="text/css" href="/static/hard/light.css">
 
     <style>
         body \{

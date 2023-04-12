@@ -43,7 +43,7 @@
         function convertDivToImage() \{
             const divs = document.querySelectorAll('.slice-div');
             divs.forEach((div, index) => \{
-                html2canvas(div).then(canvas => \{
+                html2canvas(div, \{scale: 2}).then(canvas => \{
                     // 将 Canvas 元素转换为图像并保存
                     const imgData = canvas.toDataURL('image/png');
                     const link = document.createElement('a');
@@ -88,6 +88,17 @@
             });
         }
 
+        function setBackgroundImage() \{
+            const divs = document.querySelectorAll('.slice-div');
+            divs.forEach(div => \{
+                const imgNode = document.createElement("img");
+                imgNode.src = "/static/xhs/slice_bg.png";
+                imgNode.classList.add("slice-background");
+                div.appendChild(imgNode);
+            });
+        }
+
+        setBackgroundImage();
         setTodayDate();
     </script>
 </body>

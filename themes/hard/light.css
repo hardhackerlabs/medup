@@ -85,7 +85,7 @@ pre code {
 pre {
     overflow: auto;
     line-height: 1.45;
-    background-color: var(--secondary-background-color);
+    background-image: linear-gradient(to left, #f5dcf5, #e3d9f4);
     border-radius: var(--border-radius);
     margin-top: 0;
     margin-bottom: 16px;
@@ -95,7 +95,7 @@ pre {
 /* overwrite highlight css */
 .hljs {
     padding: 1em;
-    background-color: var(--secondary-background-color);
+    background-color: transparent;
 }
 
 /* title */
@@ -308,6 +308,7 @@ blockquote {
     padding: 5px 15px 5px 20px;
     /* change the quote highlight */
     background-color: var(--secondary-background-color);
+    background-image: linear-gradient(to left, #f5dcf5, #e3d9f4);
     margin: 0.8em 0;
 }
 

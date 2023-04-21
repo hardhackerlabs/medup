@@ -297,10 +297,18 @@ li p.first {
     display: inline-block;
 }
 
-ul,
-ol {
+ul {
     padding-left: 16px;
     margin-top: 30px;
+    font-weight: bold;
+}
+
+ol {
+    padding-left: 30px;
+    margin-top: 14px;
+}
+
+ul::marker, ol::marker {
     color: var(--code-color);
 }
 

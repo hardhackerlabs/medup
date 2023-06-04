@@ -10,6 +10,13 @@
     --text-accent-color: #393c3f;
     --bg-color-dark: #3f4447;
 
+    --some-add-thing: #123123;
+    --some-add-thing: #123123;
+    --some-add-thing: #123123;
+    --some-add-thing: #123123;
+    --some-add-thing: #123123;
+    --some-add-thing: #123123;
+
     --text-highlight-color: #fff;
     --text-highlight-bg: #4f4029;
 
@@ -19,11 +26,6 @@
     --blockquote-bg-color: #3c4144;
     --blockquote-accent-color: #DC75FF;
     --blockquote-text-color: #CBCBCB;
-
-    --light-trait-100: #ebebeb;
-    --light-trait-200: #ebebeb;
-    --light-trait-300: #ebebeb;
-    --light-trait-400: #ebebeb;
 
     --todo-bg-color: #2eaadc;
     --todo-tick-color: #fff;
@@ -108,13 +110,44 @@
 .slice-div {
     width: 416px;
     height: 568px;
-    /* background-color: var(--slice-bg-color); */
+    background-color: rgba(0, 0, 0, 40);
     /* background-image: url("/static/xhs/slice_bg.png"); */
     background-size: 100% 100%;
     margin: 0 7px 26px 7px;
     padding: 20px 20px;
     position: relative;
     text-shadow: 0 0 2px black;
+}
+
+.slice-div:before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 0;
+    width: 100%;
+    height: 100%;
+    background-image: linear-gradient(to right bottom, rgb(88, 28, 135) 0%, rgba(88, 28, 135, 0) 50%), linear-gradient(to left bottom, rgb(30, 58, 138) 0%, rgba(30, 58, 138, 0) 50%);
+    opacity: 0.6;
+}
+
+.slice-div:first-child .slice-content {
+    font-size: 22px;
+}
+
+.slice-div:first-child::after {
+    content: "右滑查看详情 >>>";
+    position: absolute;
+    z-index: 2;
+    color: var(--text-color);
+    font-size: 20px;
+    right: 30px;
+    bottom: 20px;
+}
+
+.slice-div:first-child ul {
+    margin-top: 30px;
+    font-weight: bold;
 }
 
 .slice-background {
@@ -135,7 +168,6 @@
     z-index: 2;
 }
 .slice-content {
-    padding: 0 10px;
     position: relative;
     z-index: 2;
 }
@@ -299,8 +331,7 @@ li p.first {
 
 ul {
     padding-left: 16px;
-    margin-top: 30px;
-    font-weight: bold;
+    margin-top: 14px;
 }
 
 ol {
@@ -336,9 +367,9 @@ blockquote {
     /* border-left: 12px solid var(--blockquote-accent-color); */
     padding: 10px;
     line-height: 1.2;
-    background-color: #FFFFFF30;
+    background-color: rgba(255, 255, 255, 0.2);
     border-radius: 5px;
-    border: 1px solid #FFFFFF30;
+    border: 1px solid rgba(255, 255, 255, 0.1);
     box-shadow: 0 0 4px black;
 }
 

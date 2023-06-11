@@ -1,7 +1,7 @@
 :root {
     /* Text editor */
     --bg-color: #2D2D2C;
-    --slice-bg-color: #1d1d1c;
+    --slice-bg-color: rgb(32, 29, 41);
     --text-color: #ffffff;
     --body-text-color: #ffffff;
     --text-cursor-color: var(--text-color);
@@ -110,7 +110,7 @@
 .slice-div {
     width: 416px;
     height: 568px;
-    background-color: rgba(0, 0, 0, 40);
+    background-color: var(--slice-bg-color);
     /* background-image: url("/static/xhs/slice_bg.png"); */
     background-size: 100% 100%;
     margin: 0 7px 26px 7px;
@@ -127,8 +127,8 @@
     z-index: 0;
     width: 100%;
     height: 100%;
-    background-image: linear-gradient(to right bottom, rgb(88, 28, 135) 0%, rgba(88, 28, 135, 0) 50%), linear-gradient(to left bottom, rgb(30, 58, 138) 0%, rgba(30, 58, 138, 0) 50%);
-    opacity: 0.6;
+    background-image: linear-gradient(to right bottom, rgb(88, 28, 135) 0%, rgba(88, 28, 135, 0) 40%), linear-gradient(to left bottom, rgb(30, 58, 138) 0%, rgba(30, 58, 138, 0) 40%);
+    opacity: 0.3;
 }
 
 .slice-div:first-child .slice-content {

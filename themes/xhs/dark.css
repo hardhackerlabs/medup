@@ -69,8 +69,10 @@
 
     /* General */
     --font-size: 18px;
-    --font-family: "LXGW WenKai Mono", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, "Apple Color Emoji", Arial, sans-serif, "Segoe UI Emoji", "Segoe UI Symbol";
-    --monospace: 'LXGW WenKai Mono', 'SF Mono Medium', 'Fira Code', 'Cousine', 'Consolas', monospace;
+    /* --font-family: "LXGW WenKai Mono", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, "Apple Color Emoji", Arial, sans-serif, "Segoe UI Emoji", "Segoe UI Symbol";
+    --monospace: 'LXGW WenKai Mono', 'SF Mono Medium', 'Fira Code', 'Cousine', 'Consolas', monospace; */
+    --font-family: BlinkMacSystemFont, "Segoe UI", Helvetica, "Apple Color Emoji", Arial, sans-serif, "Segoe UI Emoji", "Segoe UI Symbol";
+    --monospace: BlinkMacSystemFont, 'SF Mono Medium', 'Fira Code', 'Cousine', 'Consolas', monospace;
     --heading-char-color: var(--light-trait-400);
     --color-popover-bg-color: var(--text-color);
     --rawblock-edit-panel-bd: var(--bg-color-dark);

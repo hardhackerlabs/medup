@@ -1,14 +1,21 @@
 :root {
   /* Text editor */
-  --bg-color: #FAFAFA;
-  --slice-bg-color: #FFFFFF;
-  --text-color: #333333;
-  --body-text-color: var(--text-color);
+  --bg-color: #f9fafb;
+  --slice-bg-color: #f9fafb;
+  --text-color: #111827;
+  --body-text-color: #111827;
   --text-cursor-color: var(--text-color);
 
   --secondary-text-color: #73726e;
   --text-accent-color: #393c3f;
   --bg-color-dark: #3f4447;
+
+  --some-add-thing: #123123;
+  --some-add-thing: #123123;
+  --some-add-thing: #123123;
+  --some-add-thing: #123123;
+  --some-add-thing: #123123;
+  --some-add-thing: #123123;
 
   --text-highlight-color: #fff;
   --text-highlight-bg: #4f4029;
@@ -17,13 +24,8 @@
   --code-fence-bg-color: #3f4447;
 
   --blockquote-bg-color: #3c4144;
-  --blockquote-accent-color: #EC817E;
-  --blockquote-text-color: #666666;
-
-  --light-trait-100: #ebebeb;
-  --light-trait-200: #ebebeb;
-  --light-trait-300: #ebebeb;
-  --light-trait-400: #ebebeb;
+  --blockquote-accent-color: #b45309;
+  --blockquote-text-color: #CBCBCB;
 
   --todo-bg-color: #2eaadc;
   --todo-tick-color: #fff;
@@ -45,7 +47,7 @@
 
   --select-text-bg-color: #2e5767;
 
-  --code-color: #EC817E;
+  --code-color: #b45309;
   --code-cursor-color: var(--text-color);
 
   --kbd-text-color: #acaeaf;
@@ -67,8 +69,10 @@
 
   /* General */
   --font-size: 18px;
-  --font-family: "LXGW WenKai Mono", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, "Apple Color Emoji", Arial, sans-serif, "Segoe UI Emoji", "Segoe UI Symbol";
-  --monospace: 'LXGW WenKai Mono', 'SF Mono Medium', 'Fira Code', 'Cousine', 'Consolas', monospace;
+  /* --font-family: "LXGW WenKai Mono", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, "Apple Color Emoji", Arial, sans-serif, "Segoe UI Emoji", "Segoe UI Symbol";
+  --monospace: 'LXGW WenKai Mono', 'SF Mono Medium', 'Fira Code', 'Cousine', 'Consolas', monospace; */
+  --font-family: BlinkMacSystemFont, "Segoe UI", Helvetica, "Apple Color Emoji", Arial, sans-serif, "Segoe UI Emoji", "Segoe UI Symbol";
+  --monospace: BlinkMacSystemFont, 'SF Mono Medium', 'Fira Code', 'Cousine', 'Consolas', monospace;
   --heading-char-color: var(--light-trait-400);
   --color-popover-bg-color: var(--text-color);
   --rawblock-edit-panel-bd: var(--bg-color-dark);
@@ -103,15 +107,60 @@
   display: flex;
   flex-direction: row;
   flex-wrap: wrap;
-  font-weight: 600;
 }
 
 .slice-div {
-  width: 410px;
-  height: 560px;
+  width: 396px;
+  height: 548px;
   background-color: var(--slice-bg-color);
-  margin: 0 10px 30px 10px;
-  padding: 20px 20px;
+  background-image: linear-gradient(to right bottom, #fde68a 0%, #fecaca 100%);
+  background-size: 100% 100%;
+  margin: 0 7px 26px 7px;
+  padding: 30px;
+  position: relative;
+}
+
+.slice-div:before {
+  content: "";
+  position: absolute;
+  top: 10px;
+  bottom: 10px;
+  left: 10px;
+  right: 10px;
+  z-index: 0;
+  border-radius: 4px;
+  background-color: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 0 5px rgba(0, 0, 0, 0.3);
+  
+  /* background-image: linear-gradient(to right bottom, #fffbeb 0%, #fef2f2 100%); */
+}
+
+.slice-div:first-child .slice-content {
+  font-size: 22px;
+}
+
+.slice-div:first-child::after {
+  content: "右滑查看详情 >>>";
+  position: absolute;
+  z-index: 2;
+  color: var(--text-color);
+  font-size: 20px;
+  right: 30px;
+  bottom: 20px;
+}
+
+.slice-div:first-child ul {
+  margin-top: 30px;
+  font-weight: bold;
+}
+
+.slice-background {
+  width: 100%;
+  height: 100%;
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 1;
 }
 
 .slice-header {
@@ -119,11 +168,18 @@
   flex-direction: row;
   justify-content: space-between;
   align-items: flex-end;
+  position: relative;
+  z-index: 2;
+}
+.slice-content {
+  position: relative;
+  z-index: 2;
 }
 
 .slice-header-title {
+  margin-left: 10px;
   display: flex;
-  width: 360px;
+  flex-grow: 1;
   height: 40px;
   flex-flow: column;
   justify-content: space-between;
@@ -136,7 +192,7 @@
 
 .slice-header-decorate {
   height: 6px;
-  background: linear-gradient(to right, #FEB88F, #EC817E);
+  background: linear-gradient(to right, #f59e0b, #d97706);
 }
 
 html {
@@ -167,6 +223,7 @@ pre {
 code {
   color: var(--code-color);
   font-family: var(--monospace);
+  font-weight: 600;
 }
 
 
@@ -186,7 +243,7 @@ h4,
 h5,
 h6 {
   position: relative;
-  margin-top: 2rem;
+  margin-top: 1.5rem;
   margin-bottom: 1rem;
   font-weight: 700;
   line-height: 1.4;
@@ -278,10 +335,17 @@ li p.first {
   display: inline-block;
 }
 
-ul,
-ol {
+ul {
   padding-left: 16px;
-  margin-top: 30px;
+  margin-top: 14px;
+}
+
+ol {
+  padding-left: 30px;
+  margin-top: 14px;
+}
+
+ul::marker, ol::marker {
   color: var(--code-color);
 }
 
@@ -306,9 +370,13 @@ mark {
 blockquote {
   color: var(--blockquote-text-color);
   margin: 30px 0 0 0;
-  border-left: 12px solid var(--blockquote-accent-color);
-  padding-left: 10px;
+  /* border-left: 12px solid var(--blockquote-accent-color); */
+  padding: 10px;
   line-height: 1.2;
+  background-color: rgba(255, 255, 255, 0.2);
+  border-radius: 5px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 0 4px black;
 }
 
 blockquote p {
